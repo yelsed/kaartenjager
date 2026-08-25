@@ -95,6 +95,12 @@ Voor kaarten die vaak langskomen, met wat ze op dit model zouden doen:
 doel, want 16 min 3 GB overhead laat ruimte voor ongeveer 22 miljard parameters en het model
 heeft er 27.
 
+**Let op de marktwaarde, niet alleen de snelheid.** Een 3090 Ti doet tweedehands €950–1.050;
+een 4090 doet €1.800–2.500 (tien advertenties op Marktplaats, 25 augustus 2026). Twee kaarten
+die op dit model even snel zijn kunnen dus een factor twee in waarde schelen. Neem dat mee: de
+vraag is niet alleen wat een kaart doet, maar ook wat je ervoor terugkrijgt als je hem
+doorverkoopt.
+
 **Let op de 4090 tegenover de 3090 Ti.** Zelfde geheugen, zelfde bandbreedte, dus **dezelfde
 snelheid bij het genereren**. Het verschil zit in de tensorrekenkracht — twee keer zoveel, dus
 ongeveer twee keer zo snel bij het verwerken van de prompt — en in twee dingen die niets met
@@ -105,6 +111,17 @@ taalmodellen te maken hebben:
   tweede kaart via Lossless Scaling werkt daar niet, want de Vulkan-laag krijgt de swapchain
   niet verplaatst.
 - **60 tot 70 procent meer prestaties in spellen**, en meer bij raytracing.
+
+En drie praktische verschillen die niet in de tabel passen:
+
+- **Formaat.** 4090's zijn vaak groter dan 3090 Ti's. Een ASUS Strix 4090 is 357 mm en
+  3,5 sleuven; de kast neemt 360 mm ná het verplaatsen van de radiator. Bij 3,5 sleuven past
+  de 3070 Ti er zeker niet meer naast en wordt route B verplicht.
+- **De 12VHPWR-stekker.** De 4090-generatie had het smeltprobleem met die connector. Bij een
+  tweedehands exemplaar horen foto's van de stekker bij de vragen aan de verkoper;
+  verkleuring of vervormde pinnen is een afwijzing.
+- **Slijtage.** 4090's zijn veel vaker voor AI-werk gebruikt dan 3090 Ti's, en dat is zwaarder
+  dan gamen.
 
 ## Wat er verder aan de opstelling hangt
 

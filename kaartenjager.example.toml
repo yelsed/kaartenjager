@@ -108,10 +108,14 @@ patterns = ["4090"]
 vram_gb = 24
 bandwidth_gbs = 1008
 tdp_watt = 450
-used_price_low = 1600
-used_price_high = 2000
-alert_below = 1500
-suspicious_below = 1000
+# Gecontroleerd op 25 augustus 2026: tien advertenties op Marktplaats stonden
+# tussen 1.800 en 2.800, met het zwaartepunt rond 2.000-2.500. Een eerdere
+# schatting van 1.600-2.000 was te laag en maakte een advertentie van 1.260
+# een matig koopje in plaats van een uitschieter van 30% onder de markt.
+used_price_low = 1800
+used_price_high = 2500
+alert_below = 1650
+suspicious_below = 1250
 
 [[card]]
 name = "RTX 3090 Ti"
