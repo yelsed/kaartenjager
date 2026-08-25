@@ -77,6 +77,13 @@ met `KAARTENJAGER_DB` zodat de Svelte-app hem kan vinden zonder te gokken.
 één schrijver tegelijk. De rondes duren seconden en de app schrijft alleen als je klikt, dus
 er is geen wedloop van betekenis.
 
+Wel moet elke verbinding `PRAGMA busy_timeout = 5000` zetten. Zonder dat geeft een klik die
+precies samenvalt met het wegschrijven van een ronde meteen "database is locked" in plaats van
+even te wachten. Vijf seconden is ruim: een ronde schrijft in een fractie daarvan.
+
+Het programma schrijft bovendien per ronde **één transactie**, niet per advertentie. Anders
+staat de database duizend keer kort op slot in plaats van één keer.
+
 **De app roept Hermes nooit rechtstreeks aan.** De knop zet een regel in `review_request`.
 Een cronjob haalt openstaande verzoeken op, beoordeelt ze en schrijft het antwoord terug.
 
@@ -110,7 +117,7 @@ CREATE TABLE listing (
   photo_count    INTEGER NOT NULL DEFAULT 0,
   first_seen     INTEGER NOT NULL,
   last_seen      INTEGER NOT NULL,
-  found_by_term  TEXT NOT NULL DEFAULT '',   -- welke zoekterm hem opleverde
+  found_by_terms TEXT NOT NULL DEFAULT '[]', -- JSON-lijst van termen die hem vonden
   missed_rounds  INTEGER NOT NULL DEFAULT 0,
   gone_since     INTEGER                     -- pas na twee gemiste rondes
 );
@@ -136,7 +143,8 @@ CREATE TABLE finding (
   reasons              TEXT NOT NULL,        -- JSON-lijst
   warnings             TEXT NOT NULL,        -- JSON-lijst
   queue_note           TEXT,
-  judged_at            INTEGER NOT NULL,
+  became_a_find_at     INTEGER NOT NULL,   -- wanneer dit vóór het eerst een vondst werd
+  judged_at            INTEGER NOT NULL,   -- wanneer het laatst herbeoordeeld is
   still_a_find         INTEGER NOT NULL DEFAULT 1,  -- 0 zodra de prijs boven de drempel gaat
   pushed_at            INTEGER,                     -- wanneer het naar Discord ging
   pushed_at_price      INTEGER                      -- de prijs van dat moment
@@ -179,16 +187,20 @@ CREATE TABLE app_state (
 );
 
 CREATE INDEX listing_last_seen ON listing(last_seen);
-CREATE INDEX finding_judged_at ON finding(judged_at);
+CREATE INDEX finding_became    ON finding(became_a_find_at);
 CREATE INDEX decision_state    ON decision(state);
 CREATE INDEX review_pending    ON review_request(answered_at) WHERE answered_at IS NULL;
+
+-- Eén openstaand verzoek per advertentie. Tweemaal op de knop drukken hoort niet
+-- tweemaal te kosten.
+CREATE UNIQUE INDEX review_one_open ON review_request(key) WHERE answered_at IS NULL;
 ```
 
 ### Wat er uit volgt
 
 | Vraag | Hoe |
 |---|---|
-| Nieuw sinds mijn laatste bezoek | `finding.judged_at > app_state['last_visit']` |
+| Nieuw sinds mijn laatste bezoek | `finding.became_a_find_at > app_state['last_visit']` |
 | Prijs gezakt | Laatste twee `price_point`-regels van dezelfde advertentie |
 | Terug uit het archief | `state = 'archived'` en laatste prijs onder 90% van `price_when_archived` |
 | Verdwenen | `gone_since IS NOT NULL` |
@@ -199,15 +211,29 @@ CREATE INDEX review_pending    ON review_request(answered_at) WHERE answered_at 
 Prijsgeschiedenis wordt **alleen bij verandering** weggeschreven. Vijftien rondes per dag maal
 duizend advertenties zou anders vijftienduizend regels per dag opleveren voor niets.
 
+### Waarom er twee tijdstempels op een vondst staan
+
+Het programma beoordeelt elke advertentie opnieuw zodra hij in de resultaten voorkomt, dus
+vijftien keer per dag. Met één tijdstempel zou dat betekenen dat **elke vondst elke ronde weer
+"nieuw" is** en de inbox nooit leegloopt.
+
+Daarom: `became_a_find_at` wordt één keer gezet, bij de eerste keer dat iets onder de drempel
+uitkomt. `judged_at` schuift wel mee, zodat je kunt zien of een oordeel vers is. Alleen de
+eerste bepaalt wat er in het nieuw-blok staat.
+
+Zakt een advertentie later opnieuw onder de drempel nadat hij eruit was gelopen, dan telt dat
+als nieuw en wordt `became_a_find_at` vernieuwd. Dat is namelijk echt nieuws.
+
 ### Wanneer iets "weg" is, en wanneer niet
 
 Een advertentie die niet meer in de resultaten voorkomt is meestal verkocht. Maar hij kan ook
 ontbreken omdat **jij de zoekterm hebt uitgezet die hem vond** — en dan zou de hele lijst in
 één keer als verkocht gemarkeerd worden.
 
-Daarom onthoudt `listing` welke zoekterm hem opleverde, en telt een afwezigheid alleen als die
-term nog actief is. Zet je een term uit, dan bevriezen de advertenties die eraan hangen in
-plaats van te verdwijnen.
+Daarom onthoudt `listing` **alle** termen die hem ooit opleverden, en telt een afwezigheid
+alleen als er nog minstens één van die termen aanstaat. Eén term onthouden zou niet werken:
+"rtx 4090" en "geforce rtx" vinden dezelfde kaart, en dan zou het uitzetten van de ene de
+advertentie bevriezen terwijl de andere hem gewoon nog vindt.
 
 Om dezelfde reden zijn er **twee** rondes nodig voordat `gone_since` gevuld wordt: Vinted
 levert niet elke ronde exact dezelfde selectie, dus één keer ontbreken zegt niets.
@@ -250,6 +276,10 @@ Discord, waar alles altijd openstond.
 | **Archief** | Weggelegd. Komt iets terug door een prijsdaling, dan staat dat er ook |
 | **Zoektermen** | Toevoegen, uitzetten, verwijderen |
 
+Elke weergave toont hooguit vijftig regels met een knop om meer te laden. Na een half jaar
+staan er duizenden advertenties in de database, en een pagina die ze allemaal ophaalt wordt
+traag zonder dat iemand er iets aan heeft.
+
 **Wanneer "nieuw" ophoudt nieuw te zijn.** Het bij het verlaten van de pagina bijzetten klinkt
 logisch maar werkt niet: `beforeunload` gaat niet af bij een tabblad dat gesloten wordt op een
 telefoon, bij een herstart, of als je gewoon wegklikt.
@@ -282,6 +312,11 @@ push_below_market_percent = 35   # meer dan dit onder de laagste marktprijs
 Berekend als `(used_price_low - prijs) / used_price_low`. Alleen voor `[[card]]`-regels, want
 onderdelen hebben geen marktbereik.
 
+**Er is geen aparte verbinding met Discord.** De cronjob draait met `no_agent` en Hermes levert
+de standaarduitvoer van het programma af in het ingestelde kanaal. Print het programma niets,
+dan is er geen bericht. Alles wat naar Discord moet is dus simpelweg wat er op stdout komt, en
+alles wat niet naar Discord moet gaat alleen de database in.
+
 Het bericht is kort. Geen redenen, geen dossier, geen waarschuwingen:
 
 ```
@@ -313,6 +348,16 @@ kaartenjager reviews fail <id> --reason <tekst>
 De database blijft zo achter het Rust-programma; Hermes praat nooit rechtstreeks met SQLite,
 zodat het schema op één plek gedefinieerd is.
 
+**Wat er met twijfelgevallen gebeurt.** In de vorige opzet gingen advertenties met
+`confidence = 'review'` automatisch naar Hermes. Nu Hermes een knop is, worden ze een
+zichtbaar merkteken in de app: een oranje label *uitzoeken* met de reden erbij, en de
+Hermes-knop eronder uitgelicht. Het programma beslist nog steeds wat twijfelachtig is; alleen
+gaat er niets meer vanzelf naar de agent.
+
+De skill moet daarop mee: `references/oordelen.md` beschrijft nu `queue take` en `queue done`,
+en dat wordt `reviews take` en `reviews answer`. De tweedaagse cronjob vervalt en er komt een
+van elke tien minuten voor in de plaats.
+
 **Wat Hermes beoordeelt** staat al in `references/oordelen.md`: zijn de foto's van de kaart
 zelf of van de fabrikant, klinkt de beschrijving als iemand die weet wat hij verkoopt, staat
 er iets over mining of reparatie, en bij een onbekend model wat het is en wat het waard is.
@@ -322,6 +367,22 @@ Het antwoord komt in de app onder de advertentie te staan, met de aanbeveling al
 **Wat er misgaat als niemand oplet:** een verzoek dat opgepakt is maar nooit beantwoord blijft
 hangen. Daarom zet `reviews take` een tijdstempel, en geldt een verzoek dat een uur oud is als
 mislukt en komt het weer in de wachtrij.
+
+### De cronjobs na deze wijziging
+
+| Naam | Wanneer | Agent | Wat |
+|---|---|---|---|
+| `kaartenjager-scan` | `0 8-22 * * *` | nee | Zoeken, beoordelen, wegschrijven. Print alleen uitschieters |
+| `kaartenjager-reviews` | `*/10 * * * *` | **ja** | Wachtrij afwerken. Doet niets als hij leeg is |
+| `kaartenjager-prijzen` | `0 9 * * 0` | ja | Wekelijkse prijsherziening, ongewijzigd |
+
+`kaartenjager-oordeel` van 11:00 en 19:00 **vervalt**. Die werkte de stapel automatisch af, en
+dat is nu de knop.
+
+Die wachtrij-cronjob draait 144 keer per dag en doet vrijwel altijd niets. Dat mag geen
+agent-aanroep kosten: hij begint met `kaartenjager reviews take`, en als daar een lege lijst
+uit komt stopt hij zonder verder te denken. De skill moet dat expliciet als eerste stap
+voorschrijven.
 
 ## 8. Zoektermen in de app
 
@@ -397,6 +458,10 @@ gebeurt één keer en is te herhalen met `kaartenjager migrate --from-files`.
 | Uitgezette zoekterm | Advertenties eraan verdwijnen niet, ze bevriezen |
 | Zoektermen leeghalen | Alles verwijderen laadt de lijst niet opnieuw uit TOML |
 | Nieuw verloopt vanzelf | Een vondst van drie dagen oud telt niet meer als nieuw zonder klik |
+| Nieuw blijft niet eeuwig nieuw | Vijf rondes over dezelfde advertentie laat hem één keer als nieuw tellen |
+| Tweemaal klikken op Hermes | Levert één verzoek in de wachtrij op, geen twee |
+| Twee zoektermen, één advertentie | De ene uitzetten bevriest hem niet zolang de andere aanstaat |
+| Gelijktijdig schrijven | Een klik tijdens het wegschrijven van een ronde wacht en faalt niet |
 
 Alle controles blijven zonder netwerk draaien, met een database in een tijdelijke map.
 
