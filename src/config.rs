@@ -277,6 +277,10 @@ pub struct Settings {
     pub cards: Vec<CardRule>,
     #[serde(default, rename = "part")]
     pub parts: Vec<PartRule>,
+    /// Names that came from the hand-written file. The weekly review may not change these,
+    /// and has to say so rather than reporting a change that never happened.
+    #[serde(skip)]
+    pub hand_written_cards: Vec<String>,
 }
 
 fn default_sources() -> Vec<String> {
@@ -439,6 +443,7 @@ pub fn load(explicit: Option<&Path>) -> Result<(Settings, PathBuf), ConfigError>
     })?;
 
     let mut settings = parse_settings(&text, &path)?;
+    settings.hand_written_cards = settings.cards.iter().map(|card| card.name.clone()).collect();
 
     let auto_path = path.with_file_name("cards.auto.toml");
     if auto_path.is_file() {
@@ -457,6 +462,14 @@ pub fn load(explicit: Option<&Path>) -> Result<(Settings, PathBuf), ConfigError>
 
     settings.validate()?;
     Ok((settings, path))
+}
+
+impl Settings {
+    pub fn is_hand_written(&self, name: &str) -> bool {
+        self.hand_written_cards
+            .iter()
+            .any(|owned| owned.eq_ignore_ascii_case(name))
+    }
 }
 
 pub fn merge_auto_cards(settings: &mut Settings, auto_cards: Vec<CardRule>) {

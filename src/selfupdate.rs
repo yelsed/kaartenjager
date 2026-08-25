@@ -40,13 +40,20 @@ pub struct Review {
     pub added: Vec<String>,
     pub refused: Vec<String>,
     pub unchanged: Vec<String>,
+    /// Proposals for cards the user wrote by hand. Reporting these as applied would be a lie:
+    /// the hand-written file always wins.
+    pub user_owned: Vec<String>,
 }
 
 impl Review {
     pub fn render(&self) -> String {
         let mut out = String::from("Prijstabel bijgewerkt\n");
 
-        if self.applied.is_empty() && self.added.is_empty() && self.refused.is_empty() {
+        if self.applied.is_empty()
+            && self.added.is_empty()
+            && self.refused.is_empty()
+            && self.user_owned.is_empty()
+        {
             return format!(
                 "Prijstabel — geen wijzigingen. {} modellen bekeken, alles binnen de marge.\n",
                 self.unchanged.len()
@@ -54,14 +61,21 @@ impl Review {
         }
 
         if !self.applied.is_empty() || !self.added.is_empty() {
-            out.push_str(&format!(
-                "\nTOEGEPAST ({})\n",
-                self.applied.len() + self.added.len()
-            ));
             let mut by_card: BTreeMap<&str, Vec<&Change>> = BTreeMap::new();
             for change in &self.applied {
                 by_card.entry(change.card.as_str()).or_default().push(change);
             }
+            // Counted per card, not per field: four adjustments to one card is one change
+            // as far as the reader is concerned.
+            out.push_str(&format!(
+                "\nTOEGEPAST ({} {})\n",
+                by_card.len() + self.added.len(),
+                if by_card.len() + self.added.len() == 1 {
+                    "model"
+                } else {
+                    "modellen"
+                }
+            ));
             for (card, changes) in by_card {
                 out.push_str(&format!("\n  {card}\n"));
                 for change in changes {
@@ -77,6 +91,14 @@ impl Review {
             for added in &self.added {
                 out.push_str(&format!("\n  {added}   NIEUW\n"));
             }
+        }
+
+        if !self.user_owned.is_empty() {
+            out.push_str(&format!(
+                "\nNIET AANGERAAKT ({})\n  {}\n  staan met de hand in kaartenjager.toml; dat bestand wint\n",
+                self.user_owned.len(),
+                self.user_owned.join(" · ")
+            ));
         }
 
         if !self.refused.is_empty() {
@@ -106,6 +128,19 @@ pub fn review(current: &Settings, proposed: &[CardRule]) -> Review {
     let mut touched: Vec<String> = Vec::new();
 
     for candidate in proposed {
+        if current.is_hand_written(&candidate.name) {
+            let differs = existing
+                .get(&candidate.name)
+                .map(|present| compare(present, candidate).map(|changes| !changes.is_empty()))
+                .unwrap_or(Ok(false))
+                .unwrap_or(true);
+            if differs {
+                review.user_owned.push(candidate.name.clone());
+            }
+            touched.push(candidate.name.clone());
+            continue;
+        }
+
         match existing.get(&candidate.name) {
             Some(present) => {
                 match compare(present, candidate) {
@@ -128,8 +163,14 @@ pub fn review(current: &Settings, proposed: &[CardRule]) -> Review {
     }
 
     // A card the proposal simply left out keeps its current values rather than vanishing.
+    // A card whose change was refused is also unchanged, but naming it twice is noise; the
+    // refusal already says what happened.
     for name in existing.keys() {
-        if !touched.contains(name) {
+        let was_refused = review
+            .refused
+            .iter()
+            .any(|reason| reason.starts_with(&format!("{name}:")));
+        if !touched.contains(name) && !was_refused {
             review.unchanged.push(name.clone());
         }
     }
@@ -254,13 +295,32 @@ pub fn apply(
         .cloned()
         .collect();
 
-    // Rules the user wrote by hand stay out of the automatic file entirely, so they can never
-    // be shadowed by it.
-    let hand_written = current.cards_by_name();
-    let to_write: Vec<CardRule> = accepted
-        .into_iter()
-        .filter(|card| !hand_written.contains_key(&card.name))
+    // The automatic file accumulates. A week that proposes nothing about a model must leave
+    // it standing; writing only this week's accepted rules would silently drop everything
+    // earlier weeks had learned.
+    let mut to_write: Vec<CardRule> = current
+        .cards
+        .iter()
+        .filter(|card| !current.is_hand_written(&card.name))
+        .cloned()
         .collect();
+
+    for card in accepted {
+        // Rules the user wrote by hand stay out of the automatic file entirely, so they can
+        // never be shadowed by it.
+        if current.is_hand_written(&card.name) {
+            continue;
+        }
+        match to_write
+            .iter_mut()
+            .find(|existing| existing.name.eq_ignore_ascii_case(&card.name))
+        {
+            Some(existing) => *existing = card,
+            None => to_write.push(card),
+        }
+    }
+
+    to_write.sort_by(|left, right| left.name.cmp(&right.name));
 
     let document = AutoCards { cards: to_write };
     let text = toml::to_string_pretty(&document).map_err(|error| ConfigError::Rejected(
@@ -310,6 +370,12 @@ fn prune_history(history: &Path) {
 
 pub fn rollback(config_dir: &Path, to_date: Option<&str>) -> Result<PathBuf, String> {
     let history = config_dir.join("config-history");
+    if !history.is_dir() {
+        return Err(
+            "Er is nog geen bewaarde versie. De eerste herziening die iets wijzigt maakt er een."
+                .to_string(),
+        );
+    }
     let entries = std::fs::read_dir(&history)
         .map_err(|error| format!("{} niet leesbaar: {error}", history.display()))?;
 

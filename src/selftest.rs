@@ -87,6 +87,10 @@ pub fn run() -> bool {
             return false;
         }
     };
+    let mut settings = settings;
+    settings.hand_written_cards = settings.cards.iter().map(|card| card.name.clone()).collect();
+    let settings = settings;
+
     if let Err(error) = settings.validate() {
         eprintln!("FOUT  de ingebouwde testconfiguratie is ongeldig: {error}");
         return false;
@@ -117,6 +121,8 @@ pub fn run() -> bool {
         ("prijsherziening weigert een grote stap", check_review_refuses_jump),
         ("prijsherziening weigert een model zonder bron", check_review_refuses_sourceless),
         ("prijsherziening weigert onlogische drempels", check_review_refuses_illogical),
+        ("prijsherziening raakt jouw eigen regels niet aan", check_review_respects_user_file),
+        ("automatische tabel groeit aan, vervangt niet", check_auto_table_accumulates),
     ];
 
     let mut failures = 0;
@@ -606,12 +612,17 @@ fn sample_card() -> CardRule {
 }
 
 fn check_review_accepts(settings: &Settings) -> Result<(), String> {
+    // Run against a table the user did not hand-write, so the merge rules do not mask the
+    // thing being tested.
+    let mut open_settings = settings.clone();
+    open_settings.hand_written_cards.clear();
+
     let mut proposal = sample_card();
     proposal.used_price_low = 890.0; // -6%
     proposal.used_price_high = 990.0;
     proposal.alert_below = 800.0;
 
-    let review = selfupdate::review(settings, &[proposal]);
+    let review = selfupdate::review(&open_settings, &[proposal]);
     if !review.refused.is_empty() {
         return Err(format!("geweigerd: {:?}", review.refused));
     }
@@ -622,6 +633,10 @@ fn check_review_accepts(settings: &Settings) -> Result<(), String> {
 }
 
 fn check_review_refuses_jump(settings: &Settings) -> Result<(), String> {
+    let mut open_settings = settings.clone();
+    open_settings.hand_written_cards.clear();
+    let settings = &open_settings;
+
     let mut proposal = sample_card();
     proposal.used_price_low = 600.0; // -37%
     proposal.used_price_high = 700.0;
@@ -665,7 +680,87 @@ fn check_review_refuses_sourceless(settings: &Settings) -> Result<(), String> {
     Ok(())
 }
 
+fn check_review_respects_user_file(settings: &Settings) -> Result<(), String> {
+    // A hand-written card must be reported as untouched, never as applied: saying "applied"
+    // for a change that the merge then discards is worse than saying nothing.
+    let mut proposal = sample_card();
+    proposal.used_price_low = 890.0;
+    proposal.alert_below = 800.0;
+
+    let review = selfupdate::review(settings, &[proposal]);
+    if !review.applied.is_empty() {
+        return Err("een handgeschreven regel werd als gewijzigd gemeld".into());
+    }
+    if review.user_owned.is_empty() {
+        return Err("er werd niet gemeld dat de regel van de gebruiker is".into());
+    }
+    Ok(())
+}
+
+fn check_auto_table_accumulates(settings: &Settings) -> Result<(), String> {
+    // A week that proposes nothing about a model must leave it standing. Writing only the
+    // accepted rules of the current week silently dropped everything earlier weeks learned.
+    let directory = std::env::temp_dir().join(format!(
+        "kaartenjager-selftest-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+
+    let first = CardRule {
+        name: "RX 6800 XT".to_string(),
+        patterns: vec!["6800 xt".to_string()],
+        vram_gb: 16.0,
+        used_price_low: 300.0,
+        used_price_high: 380.0,
+        alert_below: 260.0,
+        suspicious_below: 150.0,
+        source: Some("14 advertenties, mediaan 340".to_string()),
+        ..sample_card()
+    };
+    let second = CardRule {
+        name: "RTX 2070 Super".to_string(),
+        patterns: vec!["2070 super".to_string()],
+        vram_gb: 8.0,
+        used_price_low: 150.0,
+        used_price_high: 200.0,
+        alert_below: 130.0,
+        suspicious_below: 70.0,
+        source: Some("18 advertenties, mediaan 175".to_string()),
+        ..sample_card()
+    };
+
+    let mut table = settings.clone();
+    table.hand_written_cards = table.cards.iter().map(|card| card.name.clone()).collect();
+
+    let review = selfupdate::review(&table, &[first.clone()]);
+    selfupdate::apply(&directory, &table, &[first.clone()], &review, "2026-08-25")
+        .map_err(|error| error.to_string())?;
+
+    // Week two loads what week one wrote, exactly as the real merge does.
+    table.cards.push(first.clone());
+    let review = selfupdate::review(&table, &[second.clone()]);
+    selfupdate::apply(&directory, &table, &[second.clone()], &review, "2026-09-01")
+        .map_err(|error| error.to_string())?;
+
+    let written = std::fs::read_to_string(directory.join("cards.auto.toml"))
+        .map_err(|error| error.to_string())?;
+    let _ = std::fs::remove_dir_all(&directory);
+
+    if !written.contains("RX 6800 XT") {
+        return Err("het model van week 1 is verdwenen na week 2".into());
+    }
+    if !written.contains("RTX 2070 Super") {
+        return Err("het model van week 2 is niet weggeschreven".into());
+    }
+    Ok(())
+}
+
 fn check_review_refuses_illogical(settings: &Settings) -> Result<(), String> {
+    let mut open_settings = settings.clone();
+    open_settings.hand_written_cards.clear();
+    let settings = &open_settings;
+
     let mut proposal = sample_card();
     // A threshold above the market price would report ordinary prices as bargains.
     proposal.alert_below = 1000.0;
