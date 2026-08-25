@@ -1,9 +1,10 @@
 //! One round: search every term on every source, sieve, judge, remember, report.
 
 use crate::config::Settings;
+use crate::detail;
 use crate::filter::Sieve;
 use crate::http::HttpClient;
-use crate::listing::{Finding, Listing};
+use crate::listing::{Confidence, Delivery, Finding, Listing};
 use crate::pricing::PriceTable;
 use crate::queue::Queue;
 use crate::sources::{marktplaats::Marktplaats, vinted::Vinted, Source};
@@ -120,6 +121,50 @@ pub fn run_round(
 
         if source_failed {
             sources_failed += 1;
+        }
+    }
+
+    // Only findings get a detail lookup, never every listing. A normal round costs a handful
+    // of extra requests; a cold start a few dozen. In exchange, Vinted findings gain their
+    // description, which is the only place a seller says "collection only".
+    let lookups = settings.detail_lookups_per_round.min(findings.len());
+    let mut looked_up = 0usize;
+    for finding in findings.iter_mut() {
+        if looked_up >= lookups {
+            break;
+        }
+        if finding.listing.source != "vinted" || !finding.listing.description.is_empty() {
+            continue;
+        }
+        looked_up += 1;
+        if let Err(error) = detail::enrich(&mut finding.listing, &mut client) {
+            problems.push(format!("beschrijving niet opgehaald: {error}"));
+        }
+    }
+    if findings.len() > lookups {
+        problems.push(format!(
+            "{} vondsten kregen geen beschrijving (grens {} per ronde)",
+            findings.len() - lookups,
+            settings.detail_lookups_per_round
+        ));
+    }
+
+    // Now that the descriptions are in, the seller's own words decide delivery.
+    for finding in findings.iter_mut() {
+        if let Some(word) = detail::apply_pickup(&mut finding.listing, &settings.filters.pickup_words) {
+            finding.warnings.insert(
+                0,
+                format!("ALLEEN OPHALEN — de verkoper schrijft \"{word}\""),
+            );
+            finding.confidence = Confidence::NeedsReview;
+            finding.queue_note.get_or_insert_with(|| {
+                "De verkoper zegt alleen ophalen. Vraag of verzenden alsnog kan, en waar hij zit."
+                    .to_string()
+            });
+        } else if matches!(finding.listing.delivery, Delivery::Unknown)
+            && finding.listing.source == "vinted"
+        {
+            finding.listing.delivery = Delivery::ShippingAvailable;
         }
     }
 

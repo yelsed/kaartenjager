@@ -83,6 +83,20 @@ pub fn render(listing: &Listing, settings: &Settings) -> String {
         if card.tdp_watt > 0 {
             row(&mut out, "Verbruik", &format!("{} W", card.tdp_watt));
         }
+        if card.length_mm_max > 0 {
+            let lengths = if card.length_mm_min == card.length_mm_max {
+                format!("{} mm", card.length_mm_max)
+            } else {
+                format!(
+                    "{}–{} mm, hangt van de uitvoering af",
+                    card.length_mm_min, card.length_mm_max
+                )
+            };
+            row(&mut out, "Lengte", &lengths);
+        }
+        if card.slots_max > 0 {
+            row(&mut out, "Dikte", &format!("tot {} sleuven", card.slots_max));
+        }
 
         out.push_str("\nMARKT\n");
         row(
@@ -126,8 +140,29 @@ pub fn render(listing: &Listing, settings: &Settings) -> String {
             );
         }
 
-        if let Some(system) = &settings.system {
+        if settings.system.is_some() || settings.computer_case.is_some() {
             out.push_str("\nOP JOUW MACHINE\n");
+        }
+        if let Some(computer_case) = &settings.computer_case {
+            let now = computer_case.max_gpu_length_mm;
+            let later = computer_case.max_gpu_length_mm_after_work.max(now);
+            let verdict = if card.length_mm_max == 0 {
+                "onbekend, maten niet in de tabel".to_string()
+            } else if card.length_mm_max <= now {
+                format!("past nu al ({now} mm beschikbaar)")
+            } else if card.length_mm_min > later {
+                format!("past niet, kortste is {} mm", card.length_mm_min)
+            } else if card.length_mm_min > now {
+                format!("past pas bij {later} mm, nu is het {now} mm")
+            } else {
+                format!("hangt van de uitvoering af — nu {now} mm, straks {later} mm")
+            };
+            row(&mut out, "In de kast", &verdict);
+            if later > now && !computer_case.work_needed.is_empty() {
+                row(&mut out, "Daarvoor nodig", &computer_case.work_needed);
+            }
+        }
+        if let Some(system) = &settings.system {
             let billions = system.model_billions_that_fit(card.vram_gb);
             row(
                 &mut out,

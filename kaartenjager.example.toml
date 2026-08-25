@@ -53,6 +53,18 @@ other_draw_watts = 155        # 5800X, schijven, ventilatoren, waterkoeler
 model_bits_per_weight = 4.8   # Q4_K_M
 kv_overhead_gb = 3.0          # KV-cache plus rekenbuffers
 
+# ---------------------------------------------------------------------------
+# De kast. Hiermee kan het programma zeggen of een kaart er fysiek in past.
+# Laat je dit weg, dan blijven de maatregels achterwege.
+# ---------------------------------------------------------------------------
+
+[case]
+name = "4000D Airflow"
+max_gpu_length_mm = 310                  # zoals hij nu staat, radiator vooraan
+max_gpu_length_mm_after_work = 360       # na het verplaatsen van de radiator naar boven
+work_needed = "eerst de radiator naar boven verplaatsen"
+free_slots = 7
+
 
 # ---------------------------------------------------------------------------
 # Filters
@@ -101,6 +113,9 @@ used_price_low = 2400
 used_price_high = 2900
 alert_below = 2200
 suspicious_below = 1500
+length_mm_min = 304
+length_mm_max = 360
+slots_max = 4
 
 [[card]]
 name = "RTX 4090"
@@ -116,6 +131,9 @@ used_price_low = 1800
 used_price_high = 2500
 alert_below = 1650
 suspicious_below = 1250
+length_mm_min = 304
+length_mm_max = 359
+slots_max = 4
 
 [[card]]
 name = "RTX 3090 Ti"
@@ -123,10 +141,16 @@ patterns = ["3090 ti", "3090ti"]
 vram_gb = 24
 bandwidth_gbs = 1008
 tdp_watt = 450
-used_price_low = 950
-used_price_high = 1050
-alert_below = 850
-suspicious_below = 550
+# Gecontroleerd op 25 augustus 2026: vraagprijzen op Marktplaats stonden op
+# 1.150-1.250, het Duitse tweedehandsgemiddelde op ongeveer 1.029. Een eerdere
+# schatting van 950-1.050 was te laag.
+used_price_low = 1050
+used_price_high = 1250
+alert_below = 950
+suspicious_below = 600
+length_mm_min = 285
+length_mm_max = 340
+slots_max = 3
 
 [[card]]
 name = "RTX 3090"
@@ -139,6 +163,9 @@ used_price_low = 750
 used_price_high = 925
 alert_below = 700
 suspicious_below = 450
+length_mm_min = 285
+length_mm_max = 336
+slots_max = 3
 
 [[card]]
 name = "RTX 4080"
@@ -150,6 +177,9 @@ used_price_low = 800
 used_price_high = 950
 alert_below = 700
 suspicious_below = 450
+length_mm_min = 304
+length_mm_max = 348
+slots_max = 4
 
 [[card]]
 name = "RTX 3080 12GB"
@@ -161,6 +191,9 @@ used_price_low = 380
 used_price_high = 450
 alert_below = 330
 suspicious_below = 190
+length_mm_min = 267
+length_mm_max = 320
+slots_max = 3
 
 [[card]]
 name = "RTX 3080"
@@ -173,6 +206,9 @@ used_price_low = 300
 used_price_high = 400
 alert_below = 270
 suspicious_below = 150
+length_mm_min = 242
+length_mm_max = 320
+slots_max = 3
 
 [[card]]
 name = "RTX 4060 Ti 16GB"
@@ -185,6 +221,9 @@ used_price_high = 420
 alert_below = 300
 suspicious_below = 170
 require_memory_in_title = true
+length_mm_min = 200
+length_mm_max = 280
+slots_max = 2
 
 [[card]]
 name = "RTX 3060 12GB"
@@ -201,6 +240,9 @@ suspicious_below = 90
 # Staat de maat er en klopt hij niet, dan overslaan. Staat hij er niet, dan
 # melden met de vlag dat er gekeken moet worden.
 require_memory_in_title = true
+length_mm_min = 170
+length_mm_max = 250
+slots_max = 2
 
 [[card]]
 name = "RX 7900 XTX"
@@ -212,6 +254,9 @@ used_price_low = 750
 used_price_high = 900
 alert_below = 650
 suspicious_below = 400
+length_mm_min = 287
+length_mm_max = 340
+slots_max = 3
 
 [[card]]
 name = "Tesla P40"
@@ -223,6 +268,9 @@ used_price_low = 250
 used_price_high = 350
 alert_below = 200
 suspicious_below = 120
+length_mm_min = 267
+length_mm_max = 267
+slots_max = 2
 
 
 # ---------------------------------------------------------------------------

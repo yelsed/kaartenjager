@@ -129,8 +129,10 @@ fn parse_item(item: &Value, domain: &str) -> Option<Listing> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        // Everything on Vinted ships; that is the point of the platform.
-        delivery: Delivery::ShippingAvailable,
+        // Vinted's search results say nothing about delivery, and sellers do offer
+        // collection-only. Claiming "ships" here hid a French pickup-only card behind a
+        // perfectly shippable-looking entry. The detail page settles it later.
+        delivery: Delivery::Unknown,
         distance_km: None,
         photo_count,
         posted: String::new(),

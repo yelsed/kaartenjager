@@ -30,14 +30,20 @@ impl<'filters> Sieve<'filters> {
         }
 
         if matches!(listing.delivery, Delivery::PickupOnly) {
-            if self.filters.skip_pickup_only {
-                return Err(Rejection::PickupTooFar(
-                    listing.distance_km.unwrap_or(0.0),
-                ));
-            }
-            if let Some(distance) = listing.distance_km {
-                if distance > self.filters.max_pickup_km {
-                    return Err(Rejection::PickupTooFar(distance));
+            // A real bargain is worth knowing about even when collecting it is awkward, so
+            // only cheap things get dropped for being far away. Above the threshold the find
+            // is reported with a warning instead.
+            let cheap_enough_to_ignore =
+                listing.price_euros < self.filters.always_report_above_euros;
+
+            if cheap_enough_to_ignore {
+                if self.filters.skip_pickup_only {
+                    return Err(Rejection::PickupTooFar(listing.distance_km.unwrap_or(0.0)));
+                }
+                if let Some(distance) = listing.distance_km {
+                    if distance > self.filters.max_pickup_km {
+                        return Err(Rejection::PickupTooFar(distance));
+                    }
                 }
             }
         }

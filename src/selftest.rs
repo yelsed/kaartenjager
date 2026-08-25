@@ -24,12 +24,22 @@ psu_watts = 850
 other_draw_watts = 155
 psu_name = "RM850"
 
+[case]
+name = "4000D Airflow"
+max_gpu_length_mm = 310
+max_gpu_length_mm_after_work = 360
+work_needed = "eerst de radiator naar boven verplaatsen"
+free_slots = 7
+
 [[card]]
 name = "RTX 3090 Ti"
 patterns = ["3090 ti", "3090ti"]
 vram_gb = 24
 bandwidth_gbs = 1008
 tdp_watt = 450
+length_mm_min = 285
+length_mm_max = 340
+slots_max = 3
 used_price_low = 950
 used_price_high = 1050
 alert_below = 850
@@ -113,6 +123,10 @@ pub fn run() -> bool {
         ("verkeerde categorie wordt geweerd", check_category_filter),
         ("toebehoren wordt geweerd", check_accessory_filter),
         ("beschrijving bepaalt het model niet", check_title_only_matching),
+        ("ophalen wordt uit de beschrijving gelezen", check_pickup_from_description),
+        ("dure ophaal-advertentie wordt gemeld, niet weggegooid", check_expensive_pickup_reported),
+        ("kastmaten komen in de redenen", check_case_fit),
+        ("kastoordeel klopt in beide richtingen", check_case_fit_reports_only_what_is_true),
         ("ophalen te ver weg wordt geweerd", check_pickup_filter),
         ("Vinted-antwoord ontleden", check_vinted_parsing),
         ("Marktplaats-antwoord ontleden", check_marktplaats_parsing),
@@ -412,6 +426,8 @@ fn check_accessory_filter(settings: &Settings) -> Result<(), String> {
         "Nvidia GeForce RTX 5090 Founders Edition - Replica 1:1 (Statue)",
         "Rtx 4090 GeForce kfa2 senza chip in buono stato",
         "Original cooling system from an Asus Rog Strix GeForce RTX 4090",
+        "Asus rog xg Mobile RTX 4090 16 Go GDDR6 (GC33Y)",
+        "RTX 4090 Laptop GPU 16GB",
     ];
     for title in rejects {
         if table.judge(&listing_with(title, 100.0)).is_some() {
@@ -484,6 +500,118 @@ fn check_unknown_card_needs_memory(settings: &Settings) -> Result<(), String> {
     Ok(())
 }
 
+fn check_pickup_from_description(_settings: &Settings) -> Result<(), String> {
+    let words = Filters::default().pickup_words;
+
+    // Straight out of the live listing that started this: a card that looked shippable on
+    // Vinted and said "remise en main propre" in its own description.
+    let cases = [
+        ("Remise en main propre refuse toute autre offre", true),
+        ("Alleen ophalen in Amsterdam", true),
+        ("Nur Abholung, kein Versand", true),
+        ("Solo ritiro a mano", true),
+        ("Pickup only please", true),
+        ("Carte vendue soigneusement emballée, envoi rapide", false),
+        ("Wordt netjes verpakt verstuurd", false),
+    ];
+    for (description, expected) in cases {
+        let mut listing = listing_with("RTX 4090", 1200.0);
+        listing.description = description.to_string();
+        let found = crate::detail::apply_pickup(&mut listing, &words).is_some();
+        if found != expected {
+            return Err(format!("\"{description}\" gaf {found}, verwacht {expected}"));
+        }
+        if expected && !matches!(listing.delivery, Delivery::PickupOnly) {
+            return Err(format!("\"{description}\" zette de bezorgwijze niet om"));
+        }
+    }
+    Ok(())
+}
+
+fn check_expensive_pickup_reported(_settings: &Settings) -> Result<(), String> {
+    let filters = Filters::default();
+    let sieve = Sieve::new(&filters);
+
+    // A cheap part far away is genuinely useless.
+    let cheap = Listing {
+        delivery: Delivery::PickupOnly,
+        distance_km: Some(700.0),
+        ..listing_with("Computer voeding", 20.0)
+    };
+    if !matches!(sieve.check(&cheap), Err(Rejection::PickupTooFar(_))) {
+        return Err("een voeding van 20 euro op 700 km hoort te vervallen".into());
+    }
+
+    // A card worth over a thousand is worth knowing about even if collecting it is awkward.
+    let valuable = Listing {
+        delivery: Delivery::PickupOnly,
+        distance_km: Some(700.0),
+        ..listing_with("RTX 4090", 1200.0)
+    };
+    if sieve.check(&valuable).is_err() {
+        return Err("een kaart van 1200 euro hoort gemeld te worden, ook bij alleen ophalen".into());
+    }
+    Ok(())
+}
+
+fn check_case_fit(settings: &Settings) -> Result<(), String> {
+    let table = PriceTable::new(settings);
+
+    // The test case takes 310 mm today and 360 mm once the radiator moves. A 3090 Ti runs
+    // 285–340 mm, so the short variants fit now and the long ones do not: the report has to
+    // say that rather than claim it fits on the strength of work nobody has done.
+    let finding = table
+        .judge(&listing_with("MSI RTX 3090 Ti Gaming X Trio 24GB", 800.0))
+        .ok_or("verwachtte een vondst")?;
+    let joined = finding.reasons.join(" | ");
+
+    if !joined.contains("mm") {
+        return Err(format!("geen maatregel in de redenen: {joined}"));
+    }
+    if !joined.contains("VRAAG WELK MODEL") {
+        return Err(format!(
+            "285-340 mm tegen 310 mm nu hoort om het model te vragen: {joined}"
+        ));
+    }
+    if !joined.contains("310") || !joined.contains("360") {
+        return Err(format!("beide maten horen genoemd te worden: {joined}"));
+    }
+    if !joined.contains("radiator") {
+        return Err(format!("het benodigde werk hoort erbij te staan: {joined}"));
+    }
+    Ok(())
+}
+
+fn check_case_fit_reports_only_what_is_true(settings: &Settings) -> Result<(), String> {
+    let mut narrow = settings.clone();
+    // A case that already takes everything must simply say so.
+    if let Some(profile) = narrow.computer_case.as_mut() {
+        profile.max_gpu_length_mm = 400;
+        profile.max_gpu_length_mm_after_work = 400;
+    }
+    let finding = PriceTable::new(&narrow)
+        .judge(&listing_with("MSI RTX 3090 Ti Gaming X Trio 24GB", 800.0))
+        .ok_or("verwachtte een vondst")?;
+    let joined = finding.reasons.join(" | ");
+    if joined.contains("VRAAG WELK MODEL") || joined.contains("PAST NIET") {
+        return Err(format!("400 mm neemt elke uitvoering; geen twijfel nodig: {joined}"));
+    }
+
+    // And a case too small for even the shortest variant must say that plainly.
+    let mut tiny = settings.clone();
+    if let Some(profile) = tiny.computer_case.as_mut() {
+        profile.max_gpu_length_mm = 200;
+        profile.max_gpu_length_mm_after_work = 220;
+    }
+    let finding = PriceTable::new(&tiny)
+        .judge(&listing_with("MSI RTX 3090 Ti Gaming X Trio 24GB", 800.0))
+        .ok_or("verwachtte een vondst")?;
+    if !finding.reasons.join(" | ").contains("PAST NIET") {
+        return Err("220 mm neemt geen 285 mm; dat hoort er hard te staan".into());
+    }
+    Ok(())
+}
+
 fn check_pickup_filter(_settings: &Settings) -> Result<(), String> {
     let filters = Filters::default();
     let sieve = Sieve::new(&filters);
@@ -491,7 +619,7 @@ fn check_pickup_filter(_settings: &Settings) -> Result<(), String> {
     let far = Listing {
         delivery: Delivery::PickupOnly,
         distance_km: Some(180.0),
-        ..listing_with("RTX 3090", 500.0)
+        ..listing_with("PCIe riser kabel", 20.0)
     };
     if !matches!(sieve.check(&far), Err(Rejection::PickupTooFar(_))) {
         return Err("180 km ophalen hoort geweerd te worden".into());
@@ -500,7 +628,7 @@ fn check_pickup_filter(_settings: &Settings) -> Result<(), String> {
     let near = Listing {
         delivery: Delivery::PickupOnly,
         distance_km: Some(12.0),
-        ..listing_with("RTX 3090", 500.0)
+        ..listing_with("PCIe riser kabel", 20.0)
     };
     if sieve.check(&near).is_err() {
         return Err("12 km ophalen hoort door te mogen".into());
@@ -607,6 +735,9 @@ fn sample_card() -> CardRule {
         alert_below: 850.0,
         suspicious_below: 550.0,
         require_memory_in_title: false,
+        length_mm_min: 0,
+        length_mm_max: 0,
+        slots_max: 0,
         source: None,
     }
 }

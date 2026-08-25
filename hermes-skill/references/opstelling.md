@@ -63,7 +63,7 @@ Daarom telt bij het beoordelen van een kaart deze volgorde:
 
 ## Het plan waar dit tegen afgezet wordt
 
-Een tweedehands **RTX 3090 Ti voor €945,70**, gevonden op Vinted. 24 GB, 1008 GB/s, 450 W.
+Een tweedehands **RTX 3090 Ti voor €945,70**, gevonden op Vinted. 24 GB, 1008 GB/s, 450 W. Ter ijking: op Marktplaats stonden op 25 augustus 2026 vraagprijzen van €1.150 tot €1.250.
 Verwacht ongeveer 30 tot 32 tokens per seconde op qwen3.8 27B — ruim twintig keer wat er nu
 uit komt.
 
@@ -95,7 +95,7 @@ Voor kaarten die vaak langskomen, met wat ze op dit model zouden doen:
 doel, want 16 min 3 GB overhead laat ruimte voor ongeveer 22 miljard parameters en het model
 heeft er 27.
 
-**Let op de marktwaarde, niet alleen de snelheid.** Een 3090 Ti doet tweedehands €950–1.050;
+**Let op de marktwaarde, niet alleen de snelheid.** Een 3090 Ti doet tweedehands €1.050–1.250;
 een 4090 doet €1.800–2.500 (tien advertenties op Marktplaats, 25 augustus 2026). Twee kaarten
 die op dit model even snel zijn kunnen dus een factor twee in waarde schelen. Neem dat mee: de
 vraag is niet alleen wat een kaart doet, maar ook wat je ervoor terugkrijgt als je hem
@@ -111,6 +111,16 @@ taalmodellen te maken hebben:
   tweede kaart via Lossless Scaling werkt daar niet, want de Vulkan-laag krijgt de swapchain
   niet verplaatst.
 - **60 tot 70 procent meer prestaties in spellen**, en meer bij raytracing.
+
+## Waarom koeling hier prestaties is
+
+Bij taalmodellen is de kaart geheugen-gebonden, en de geheugencontroller schroeft de
+bandbreedte terug zodra de junctietemperatuur boven de **92 à 95 °C** komt. Een 3090 Ti onder
+aanhoudende belasting zit doorgaans op 100 tot 112 °C.
+
+Dat betekent dat een warme kaart letterlijk minder tokens per seconde levert. Bij het
+beoordelen van twee uitvoeringen van hetzelfde model is de koeler dus geen luxe maar het
+verschil in doorvoer — anders dan bij gamen, waar het vooral geluid scheelt.
 
 En drie praktische verschillen die niet in de tabel passen:
 

@@ -1,4 +1,5 @@
 mod config;
+mod detail;
 mod dossier;
 mod filter;
 mod http;

@@ -90,6 +90,14 @@ pub struct CardRule {
     pub suspicious_below: f64,
     #[serde(default)]
     pub require_memory_in_title: bool,
+    /// Shortest and longest variant sold of this model. Listings rarely name the variant, so
+    /// the report has to work with the range rather than one number.
+    #[serde(default)]
+    pub length_mm_min: u32,
+    #[serde(default)]
+    pub length_mm_max: u32,
+    #[serde(default)]
+    pub slots_max: u32,
     /// Where a price came from. Required on rules the weekly review adds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -113,6 +121,23 @@ pub struct PartRule {
     pub note: String,
 }
 
+/// The case the card has to physically go into. Without it the fit lines are left out.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CaseProfile {
+    #[serde(default)]
+    pub name: String,
+    /// What fits today, with the machine as it stands.
+    pub max_gpu_length_mm: u32,
+    /// What would fit after work you have not done yet. Kept separate so a card is never
+    /// reported as fitting on the strength of a change that has not happened.
+    #[serde(default)]
+    pub max_gpu_length_mm_after_work: u32,
+    #[serde(default)]
+    pub work_needed: String,
+    #[serde(default)]
+    pub free_slots: u32,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Filters {
     #[serde(default)]
@@ -134,6 +159,15 @@ pub struct Filters {
     /// card is useless for language models however cheap it is.
     #[serde(default = "default_min_unknown_vram")]
     pub min_unknown_vram_gb: u32,
+    /// Phrases meaning "collection only". Vinted reports nothing about delivery, so the only
+    /// place this shows up is the seller's own description, in whatever language they wrote.
+    #[serde(default = "default_pickup_words")]
+    pub pickup_words: Vec<String>,
+    /// Below this a pickup-only listing far away is genuinely useless and gets dropped. Above
+    /// it the find is reported anyway, with a warning: a real bargain is worth knowing about
+    /// even when collecting it is awkward.
+    #[serde(default = "default_always_report_above")]
+    pub always_report_above_euros: f64,
 }
 
 fn default_max_pickup_km() -> f64 {
@@ -161,6 +195,47 @@ fn default_card_categories() -> Vec<String> {
 
 fn default_min_unknown_vram() -> u32 {
     12
+}
+
+fn default_always_report_above() -> f64 {
+    150.0
+}
+
+/// Collection-only, in the five languages Vinted actually serves. The French phrasing is the
+/// one that caught a card out: "remise en main propre" on an otherwise shippable-looking ad.
+fn default_pickup_words() -> Vec<String> {
+    [
+        "alleen ophalen",
+        "enkel ophalen",
+        "ophalen only",
+        "af te halen",
+        "niet verzenden",
+        "geen verzending",
+        "wordt niet verzonden",
+        "remise en main propre",
+        "en main propre",
+        "retrait uniquement",
+        "pas d\u{2019}envoi",
+        "pas d'envoi",
+        "aucun envoi",
+        "nur abholung",
+        "kein versand",
+        "abholung only",
+        "solo ritiro",
+        "ritiro a mano",
+        "no spedizione",
+        "solo recogida",
+        "entrega en mano",
+        "no envio",
+        "no env\u{ed}o",
+        "pickup only",
+        "collection only",
+        "no shipping",
+        "local pickup",
+    ]
+    .iter()
+    .map(|word| word.to_string())
+    .collect()
 }
 
 /// Every entry here came out of a live round as a false positive. Vinted is a European
@@ -229,6 +304,14 @@ fn default_accessory_words() -> Vec<String> {
         "maquette",
         "sticker",
         "poster",
+        // Laptop parts share their model number with desktop cards but not their specs:
+        // an "RTX 4090 Mobile" is a 16 GB chip, not the 24 GB card the rule is written for.
+        "mobile",
+        "laptop",
+        "notebook",
+        "max-q",
+        "xg mobile",
+        "egpu",
         // Brackets, stands and cables that name the card they fit
         "beugel",
         "houder voor",
@@ -250,6 +333,8 @@ impl Default for Filters {
             card_categories: default_card_categories(),
             accessory_words: default_accessory_words(),
             min_unknown_vram_gb: default_min_unknown_vram(),
+            pickup_words: default_pickup_words(),
+            always_report_above_euros: default_always_report_above(),
         }
     }
 }
@@ -271,6 +356,12 @@ pub struct Settings {
     pub delay_between_requests_ms: u64,
     #[serde(default)]
     pub system: Option<SystemProfile>,
+    #[serde(default, rename = "case")]
+    pub computer_case: Option<CaseProfile>,
+    /// Cap on detail-page lookups per round. Only findings are looked up, never every listing,
+    /// so a normal round costs a handful of extra requests and a cold start a few dozen.
+    #[serde(default = "default_detail_lookups")]
+    pub detail_lookups_per_round: usize,
     #[serde(default)]
     pub filters: Filters,
     #[serde(default, rename = "card")]
@@ -301,6 +392,10 @@ fn default_forget_days() -> i64 {
 
 fn default_delay() -> u64 {
     1500
+}
+
+fn default_detail_lookups() -> usize {
+    12
 }
 
 /// Above this the configuration has grown greedy enough to risk a rate-limit block, and a

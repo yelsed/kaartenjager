@@ -1,7 +1,7 @@
 //! Recognises what a listing is, decides whether it is cheap enough to mention, and builds
 //! the plain-language reasons that go with it.
 
-use crate::config::{CardRule, PartRule, Settings, SystemProfile};
+use crate::config::{CardRule, CaseProfile, PartRule, Settings, SystemProfile};
 use crate::listing::{Confidence, Finding, Listing};
 use crate::money;
 
@@ -9,8 +9,7 @@ use crate::money;
 /// number, a price, or a bus width, not a capacity.
 const PLAUSIBLE_MEMORY_SIZES: [u32; 12] = [4, 6, 8, 10, 11, 12, 16, 20, 24, 32, 48, 96];
 
-/// Below this a graphics card is cheap enough to be worth a look whatever the model, which is
-/// how cards with no rule of their own still reach the queue.
+/// Below this a graphics card is cheap enough to be worth a look whatever the model.
 const UNKNOWN_CARD_INTERESTING_BELOW: f64 = 250.0;
 
 /// Words that make a listing a graphics card even when no rule matches its model.
@@ -61,9 +60,9 @@ impl<'settings> PriceTable<'settings> {
         self.judge_unknown_card(listing, &title)
     }
 
-    /// Marktplaats says per listing where it belongs. A power supply sits in another
-    /// category by definition, so this check belongs to card matching rather than to the
-    /// sieve, where it would have thrown away every part on Marktplaats.
+    /// Marktplaats says per listing where it belongs. A power supply sits in another category
+    /// by definition, so this check belongs to card matching rather than to the sieve, where
+    /// it would have thrown away every part on Marktplaats.
     fn category_allows_a_card(&self, listing: &Listing) -> bool {
         let wanted = &self.settings.filters.card_categories;
         if listing.categories.is_empty() || wanted.is_empty() {
@@ -76,20 +75,20 @@ impl<'settings> PriceTable<'settings> {
             .any(|category| wanted.contains(category))
     }
 
-    fn match_card(&self, text: &str) -> Option<&CardRule> {
+    fn match_card(&self, title: &str) -> Option<&CardRule> {
         self.settings
             .cards
             .iter()
-            .find(|card| matches_patterns(text, &card.patterns, &card.exclude_patterns))
+            .find(|card| matches_patterns(title, &card.patterns, &card.exclude_patterns))
     }
 
-    fn match_part(&self, text: &str) -> Option<&PartRule> {
+    fn match_part(&self, title: &str) -> Option<&PartRule> {
         self.settings.parts.iter().find(|part| {
-            matches_patterns(text, &part.patterns, &part.exclude_patterns)
+            matches_patterns(title, &part.patterns, &part.exclude_patterns)
                 && part
                     .require_all
                     .iter()
-                    .all(|needed| text.contains(&needed.to_lowercase()))
+                    .all(|needed| title.contains(&needed.to_lowercase()))
         })
     }
 
@@ -104,16 +103,15 @@ impl<'settings> PriceTable<'settings> {
         if card.require_memory_in_title {
             match stated_memory_gb(&listing.title) {
                 Some(stated) if (stated as f64 - card.vram_gb).abs() > 0.5 => {
-                    // A 3060 8GB is a different, cheaper card that shares its digits with
-                    // the 12GB one. Reporting it as a bargain would be wrong, not uncertain.
+                    // A 3060 8GB is a different, cheaper card that shares its digits with the
+                    // 12GB one. Reporting it as a bargain would be wrong, not uncertain.
                     return None;
                 }
                 Some(_) => {}
                 None => {
                     confidence = Confidence::NeedsReview;
                     queue_note = Some(format!(
-                        "Geheugengrootte staat niet in de titel. Deze regel geldt voor de \
-                         {:.0} GB-uitvoering; controleer of dit niet de kleine is.",
+                        "Geheugengrootte staat niet in de titel. Deze regel geldt voor de {:.0} GB-uitvoering; controleer of dit niet de kleine is.",
                         card.vram_gb
                     ));
                 }
@@ -152,6 +150,9 @@ impl<'settings> PriceTable<'settings> {
 
         if let Some(system) = &self.settings.system {
             reasons.extend(system_reasons(system, card));
+        }
+        if let Some(computer_case) = &self.settings.computer_case {
+            reasons.extend(fit_reasons(computer_case, card));
         }
 
         let mut warnings = Vec::new();
@@ -237,9 +238,9 @@ impl<'settings> PriceTable<'settings> {
 
     /// Catches cheap cards with no rule of their own. The program will not guess what a
     /// 6700 XT is worth; it only notes that this is a card and that it is cheap.
-    fn judge_unknown_card(&self, listing: &Listing, text: &str) -> Option<Finding> {
+    fn judge_unknown_card(&self, listing: &Listing, title: &str) -> Option<Finding> {
         let looks_like_a_card = self.category_allows_a_card(listing)
-            && (CARD_WORDS.iter().any(|word| text.contains(word))
+            && (CARD_WORDS.iter().any(|word| title.contains(word))
                 || listing
                     .categories
                     .iter()
@@ -249,30 +250,27 @@ impl<'settings> PriceTable<'settings> {
             return None;
         }
 
-        // Without this every GTX 1050 at its ordinary price becomes a notification. A card
-        // below the floor is useless for language models however cheap it is, and cheap old
-        // cards are the single largest source of noise in a live round.
+        // Without a memory floor every old card at its ordinary price becomes a notification;
+        // a live round produced 112 of them. A card below the floor is useless for language
+        // models however cheap it is.
         let floor = self.settings.filters.min_unknown_vram_gb;
         let memory = stated_memory_gb(&listing.title);
-        match memory {
-            Some(size) if size >= floor => {}
+        let stated = match memory {
+            Some(size) if size >= floor => size,
             _ => return None,
-        }
-        let stated = memory.unwrap_or(0);
+        };
 
         Some(Finding {
             listing: listing.clone(),
             matched_as: "Onbekend model".to_string(),
             confidence: Confidence::NeedsReview,
             reasons: vec![format!(
-                "{stated} GB videogeheugen voor onder {}, maar er staat geen regel voor dit \
-                 model in de tabel",
+                "{stated} GB videogeheugen voor onder {}, maar er staat geen regel voor dit model in de tabel",
                 money::euros(UNKNOWN_CARD_INTERESTING_BELOW)
             )],
             warnings: listing_warnings(listing),
             queue_note: Some(
-                "Onbekend model. Zoek uit wat dit is, hoeveel videogeheugen het heeft en \
-                 wat het tweedehands waard is."
+                "Onbekend model. Zoek uit wat dit is, hoeveel videogeheugen het heeft en wat het tweedehands waard is."
                     .to_string(),
             ),
         })
@@ -317,6 +315,65 @@ fn system_reasons(system: &SystemProfile, card: &CardRule) -> Vec<String> {
                 headroom.abs()
             ));
         }
+    }
+
+    reasons
+}
+
+/// Listings almost never name the variant, and a 4090 runs from 304 mm to 359 mm depending on
+/// which one it is. So the report works with the range, and separates what fits today from
+/// what would fit after work that has not been done yet.
+fn fit_reasons(computer_case: &CaseProfile, card: &CardRule) -> Vec<String> {
+    if card.length_mm_max == 0 {
+        return Vec::new();
+    }
+
+    let now = computer_case.max_gpu_length_mm;
+    let later = computer_case.max_gpu_length_mm_after_work.max(now);
+    let case_name = if computer_case.name.is_empty() {
+        "de kast".to_string()
+    } else {
+        format!("je {}", computer_case.name)
+    };
+    let lengths = if card.length_mm_min == card.length_mm_max {
+        format!("{} mm", card.length_mm_max)
+    } else {
+        format!("{}–{} mm", card.length_mm_min, card.length_mm_max)
+    };
+    let after = if computer_case.work_needed.is_empty() {
+        String::new()
+    } else {
+        format!(" — {}", computer_case.work_needed)
+    };
+
+    let mut reasons = Vec::new();
+
+    if card.length_mm_max <= now {
+        reasons.push(format!("{lengths} lang: past nu al in {case_name} ({now} mm)"));
+    } else if card.length_mm_min > later {
+        reasons.push(format!(
+            "PAST NIET: de kortste uitvoering is {} mm en {case_name} neemt hooguit {later} mm",
+            card.length_mm_min
+        ));
+    } else if card.length_mm_min > now {
+        reasons.push(format!(
+            "{lengths} lang: past NIET in {case_name} zoals hij nu staat ({now} mm), wel bij {later} mm{after}"
+        ));
+    } else if card.length_mm_max <= later {
+        reasons.push(format!(
+            "{lengths} lang: de korte uitvoeringen passen nu ({now} mm), de lange pas bij {later} mm{after} — VRAAG WELK MODEL het is"
+        ));
+    } else {
+        reasons.push(format!(
+            "{lengths} lang tegen hooguit {later} mm{after}: VRAAG WELK MODEL, de langste uitvoeringen passen niet"
+        ));
+    }
+
+    if card.slots_max >= 3 && computer_case.free_slots > 0 {
+        reasons.push(format!(
+            "tot {} sleuven dik: bij de dikste uitvoeringen past er geen tweede kaart naast",
+            card.slots_max
+        ));
     }
 
     reasons
@@ -370,7 +427,9 @@ pub fn stated_memory_gb(title: &str) -> Option<u32> {
         while index < bytes.len() && bytes[index].is_ascii_digit() {
             index += 1;
         }
-        let number: u32 = lowered[start..index].parse().ok()?;
+        let Ok(number) = lowered[start..index].parse::<u32>() else {
+            continue;
+        };
 
         let mut after = index;
         while after < bytes.len() && bytes[after] == b' ' {
