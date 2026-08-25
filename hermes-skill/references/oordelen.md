@@ -3,6 +3,10 @@
 Draait om 11:00 en 19:00. Duurt een paar minuten en kost weinig, want de stapel is meestal
 kort of leeg.
 
+Lees eerst `references/opstelling.md`. Daarin staat welke machine dit is en waartegen een
+kaart afgezet hoort te worden. Zonder dat kun je wel zeggen dat iets goedkoop is, maar niet
+of het iets toevoegt.
+
 ## Werkwijze
 
 **1. Pak de stapel op.**
@@ -42,6 +46,9 @@ Waar je bij alle drie naar kijkt:
   prima toen ik hem eruit haalde"?
 - **Verkoper.** Hoeveel beoordelingen, hoe lang actief, verkoopt hij vaker hardware of vooral
   kleding?
+- **Wat het zou toevoegen.** Past het model van 27B erin — dus 20 GB of meer? Zo niet, zeg
+  dat meteen: een kaart van 16 GB is voor dit doel onbruikbaar hoe goed hij verder ook is.
+  En hoe verhoudt hij zich tot de 3090 Ti van €945,70 die het ijkpunt is?
 - **De prijs zelf.** Een kaart op een derde van de marktprijs is bijna nooit echt. Een kaart
   op tachtig procent kan heel goed een verhuizing zijn.
 

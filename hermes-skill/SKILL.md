@@ -27,9 +27,15 @@ twijfelgevallen, en de prijstabel bijhouden.
 |---|---|---|
 | `kaartenjager-oordeel`, 11:00 en 19:00 | De stapel twijfelgevallen afwerken | `references/oordelen.md` |
 | `kaartenjager-prijzen`, zondag 09:00 | Marktprijzen herzien | `references/prijsherziening.md` |
+| Als er gevraagd wordt wat een kaart zou toevoegen | De machine en het plan erbij halen | `references/opstelling.md` |
 
 Lees het bijbehorende bestand voordat je begint. Ze staan los zodat je alleen laadt wat je
 nodig hebt.
+
+**`references/opstelling.md` is de belangrijkste.** Daarin staat welke machine dit is, welk
+model erop moet draaien en waarom, en waartegen een gevonden kaart afgezet hoort te worden.
+Zonder dat bestand kun je alleen algemeenheden zeggen over hardware. Lees het ook bij het
+beoordelen van de stapel, niet alleen bij een directe vraag.
 
 ## Het programma
 

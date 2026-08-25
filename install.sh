@@ -89,7 +89,7 @@ fi
 
 say "==> Hermes-skill in $SKILL_DIR"
 mkdir -p "$SKILL_DIR/references"
-for FILE in SKILL.md references/oordelen.md references/prijsherziening.md; do
+for FILE in SKILL.md references/opstelling.md references/oordelen.md references/prijsherziening.md; do
   curl -fsSL -o "$SKILL_DIR/$FILE" \
     "https://raw.githubusercontent.com/$REPO/$TAG/hermes-skill/$FILE" \
     || say "    let op: $FILE kon niet opgehaald worden"
