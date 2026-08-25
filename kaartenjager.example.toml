@@ -1,0 +1,244 @@
+# Kaartenjager — configuratie
+#
+# Kopieer naar ~/.config/kaartenjager/kaartenjager.toml en pas aan.
+# Controleren:  kaartenjager check
+#
+# Dit bestand is van jou. De wekelijkse prijsherziening schrijft naar
+# cards.auto.toml ernaast en komt hier nooit aan. Zet je een regel hier neer,
+# dan wint die altijd.
+
+sources = ["vinted", "marktplaats"]
+vinted_domain = "www.vinted.nl"
+
+results_per_search = 60
+forget_seen_after_days = 30
+delay_between_requests_ms = 1500
+
+
+# ---------------------------------------------------------------------------
+# Zoektermen. Ook de verkeerd gespelde, want daar zit het koopje.
+# Let op de grens: (kaarten + onderdelen) x bronnen mag niet boven de 60.
+# ---------------------------------------------------------------------------
+
+card_search_terms = [
+  "rtx 3090",
+  "3090 ti",
+  "rtx 4090",
+  "rtx 5090",
+  "geforce rtx",
+  "videokaart 24gb",
+  "tesla p40",
+  "radeon rx",
+  "grafische kaart",
+]
+
+part_search_terms = [
+  "voeding 850w",
+  "voeding 1000w",
+  "pcie riser",
+  "riser kabel",
+]
+
+
+# ---------------------------------------------------------------------------
+# Jouw machine. Hiermee kan het programma zeggen of een kaart past en of je
+# voeding hem trekt. Laat je dit blok weg, dan blijven die regels achterwege
+# in plaats van dat er gegokt wordt.
+# ---------------------------------------------------------------------------
+
+[system]
+psu_watts = 850
+psu_name = "RM850"
+other_draw_watts = 155        # 5800X, schijven, ventilatoren, waterkoeler
+model_bits_per_weight = 4.8   # Q4_K_M
+kv_overhead_gb = 3.0          # KV-cache plus rekenbuffers
+
+
+# ---------------------------------------------------------------------------
+# Filters
+# ---------------------------------------------------------------------------
+
+[filters]
+postcode = ""                 # INVULLEN. Zonder postcode geeft Marktplaats geen
+                              # afstand terug en werkt het ophaal-filter niet.
+max_pickup_km = 30            # verder weg en alleen ophalen: overslaan
+skip_pickup_only = false      # true = ophalen altijd overslaan
+
+# Zonder dit filter is een deel van de resultaten iemand die er zelf één zoekt.
+wanted_words = [
+  "gezocht", "ruilen", "wtb", "ter overname gevraagd",
+  "zoek ik", "wie heeft", "gevraagd",
+]
+
+# Marktplaats meldt per advertentie waar hij thuishoort. Vinted doet dat niet,
+# dus daar wordt dit filter overgeslagen.
+card_categories = ["graphic_cards"]
+
+
+# ---------------------------------------------------------------------------
+# Prijstabel.
+#
+#   alert_below       hieronder wil je het horen
+#   suspicious_below  hieronder is het vaker oplichterij dan een buitenkans
+#   used_price_*      wat het model tweedehands doet, voor de "hoeveel onder
+#                     de markt"-regel
+#
+# Een regel past als één patroon voorkomt en géén enkel exclude_pattern. De
+# volgorde in dit bestand is daarmee niet bepalend.
+#
+# De marktprijzen hieronder zijn een startpunt van augustus 2026. De 3090,
+# 3090 Ti, 4090 en 5090 zijn gecontroleerd; de rest is een schatting die de
+# wekelijkse herziening bijstelt zodra er echte advertenties langskomen.
+# ---------------------------------------------------------------------------
+
+[[card]]
+name = "RTX 5090"
+patterns = ["5090"]
+vram_gb = 32
+bandwidth_gbs = 1792
+tdp_watt = 575
+used_price_low = 2400
+used_price_high = 2900
+alert_below = 2200
+suspicious_below = 1500
+
+[[card]]
+name = "RTX 4090"
+patterns = ["4090"]
+vram_gb = 24
+bandwidth_gbs = 1008
+tdp_watt = 450
+used_price_low = 1600
+used_price_high = 2000
+alert_below = 1500
+suspicious_below = 1000
+
+[[card]]
+name = "RTX 3090 Ti"
+patterns = ["3090 ti", "3090ti"]
+vram_gb = 24
+bandwidth_gbs = 1008
+tdp_watt = 450
+used_price_low = 950
+used_price_high = 1050
+alert_below = 850
+suspicious_below = 550
+
+[[card]]
+name = "RTX 3090"
+patterns = ["3090"]
+exclude_patterns = ["3090 ti", "3090ti"]
+vram_gb = 24
+bandwidth_gbs = 936
+tdp_watt = 350
+used_price_low = 750
+used_price_high = 925
+alert_below = 700
+suspicious_below = 450
+
+[[card]]
+name = "RTX 4080"
+patterns = ["4080"]
+vram_gb = 16
+bandwidth_gbs = 717
+tdp_watt = 320
+used_price_low = 800
+used_price_high = 950
+alert_below = 700
+suspicious_below = 450
+
+[[card]]
+name = "RTX 3080 12GB"
+patterns = ["3080 12gb", "3080 12 gb"]
+vram_gb = 12
+bandwidth_gbs = 912
+tdp_watt = 350
+used_price_low = 380
+used_price_high = 450
+alert_below = 330
+suspicious_below = 190
+
+[[card]]
+name = "RTX 3080"
+patterns = ["3080"]
+exclude_patterns = ["3080 12gb", "3080 12 gb", "3080 ti"]
+vram_gb = 10
+bandwidth_gbs = 760
+tdp_watt = 320
+used_price_low = 300
+used_price_high = 400
+alert_below = 270
+suspicious_below = 150
+
+[[card]]
+name = "RTX 4060 Ti 16GB"
+patterns = ["4060 ti"]
+vram_gb = 16
+bandwidth_gbs = 288
+tdp_watt = 165
+used_price_low = 350
+used_price_high = 420
+alert_below = 300
+suspicious_below = 170
+require_memory_in_title = true
+
+[[card]]
+name = "RTX 3060 12GB"
+patterns = ["3060"]
+exclude_patterns = ["3060 ti"]
+vram_gb = 12
+bandwidth_gbs = 360
+tdp_watt = 170
+used_price_low = 180
+used_price_high = 230
+alert_below = 150
+suspicious_below = 90
+# De 3060 bestaat met 8 en met 12 GB en heet in titels allebei "RTX 3060".
+# Staat de maat er en klopt hij niet, dan overslaan. Staat hij er niet, dan
+# melden met de vlag dat er gekeken moet worden.
+require_memory_in_title = true
+
+[[card]]
+name = "RX 7900 XTX"
+patterns = ["7900 xtx"]
+vram_gb = 24
+bandwidth_gbs = 960
+tdp_watt = 355
+used_price_low = 750
+used_price_high = 900
+alert_below = 650
+suspicious_below = 400
+
+[[card]]
+name = "Tesla P40"
+patterns = ["tesla p40", "p40 24gb"]
+vram_gb = 24
+bandwidth_gbs = 347
+tdp_watt = 250
+used_price_low = 250
+used_price_high = 350
+alert_below = 200
+suspicious_below = 120
+
+
+# ---------------------------------------------------------------------------
+# Onderdelen. Geen rekenwerk per GB mogelijk, dus een vaste notitie in plaats
+# van een berekend oordeel.
+# ---------------------------------------------------------------------------
+
+[[part]]
+name = "Voeding 700 W of meer"
+patterns = ["voeding", "psu", "power supply", "netzteil"]
+exclude_patterns = ["laptop", "adapter", "oplader", "kabel", "cable", "snoer"]
+min_watts = 700
+alert_below = 90
+suspicious_below = 30
+note = "Let op 80 PLUS Gold of beter, volledig modulair, en maximaal 180 mm lang voor de 4000D."
+
+[[part]]
+name = "PCIe riser"
+patterns = ["pcie riser", "riser kabel", "riser cable", "pci-e verleng"]
+exclude_patterns = ["usb", "riser board", "riser card", "proliant", "poweredge"]
+alert_below = 25
+suspicious_below = 6
+note = "Alleen PCIe 4.0 x16 is bruikbaar; 3.0 halveert de bandbreedte. Recht (180 graden), niet haaks."
