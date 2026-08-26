@@ -81,6 +81,52 @@ Er is bewust **geen** cronjob voor het beoordelen. Die zou 144 keer per dag een 
 kosten voor een wachtrij die vrijwel altijd leeg is. In plaats daarvan stuurt de app een kort
 bericht in het kanaal zodra je op de knop drukt, en dat is het sein voor Hermes.
 
+### En de app erbij
+
+De app leest de database die het programma aanmaakt, dus **draai eerst één keer
+`kaartenjager run`.** Hij maakt het bestand met opzet niet zelf aan: het schema hoort bij het
+programma, en een app die zelf tabellen verzint is precies hoe twee versies stilletjes uit
+elkaar gaan lopen.
+
+```sh
+git clone https://github.com/yelsed/kaartenjager.git ~/kaartenjager
+cd ~/kaartenjager/app
+npm ci
+npm run build
+```
+
+Node 22 of nieuwer is genoeg: de database wordt gelezen met het ingebouwde `node:sqlite`, dus
+er hoeft geen compiler op de server te staan.
+
+Dan als gebruikersservice, zodat hij een herstart overleeft:
+
+```sh
+cp app/kaartenjager-app.service ~/.config/systemd/user/
+nano ~/.config/systemd/user/kaartenjager-app.service   # pad en webhook invullen
+systemctl --user daemon-reload
+systemctl --user enable --now kaartenjager-app
+loginctl enable-linger $USER
+```
+
+De webhook is die van je Discord-kanaal. Zonder die waarde werkt alles, alleen wordt Hermes
+niet gewekt als je op de knop drukt — het verzoek staat dan wel in de wachtrij, en de scan
+meldt het na een uur alsnog.
+
+**Niet aan het open internet hangen.** De app kent geen inlog: wie op het tailnet binnen is
+mag alles, en dat is precies waarom hij daar hoort te blijven.
+
+### Bijwerken
+
+```sh
+kaartenjager update                          # het programma
+cd ~/kaartenjager && git pull && cd app && npm ci && npm run build
+systemctl --user restart kaartenjager-app    # de app
+```
+
+Verandert het schema, dan migreert het programma zichzelf bij de eerstvolgende start en
+weigert de app tot hij bijgewerkt is. Dat is met opzet: half werken op een schema dat je
+verkeerd begrijpt is erger dan niet werken.
+
 ## Opdrachten
 
 | Opdracht | Wat het doet |
