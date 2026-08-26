@@ -339,6 +339,28 @@ impl Default for Filters {
     }
 }
 
+/// Wanneer een vondst het waard is om je voor te storen. Alles daaronder staat in de app en
+/// blijft stil.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Notify {
+    /// Verder dan dit onder de onderkant van het marktbereik. Alleen kaarten hebben zo'n
+    /// bereik, dus onderdelen halen deze drempel per definitie nooit.
+    #[serde(default = "default_push_percent")]
+    pub push_below_market_percent: f64,
+}
+
+fn default_push_percent() -> f64 {
+    35.0
+}
+
+impl Default for Notify {
+    fn default() -> Self {
+        Notify {
+            push_below_market_percent: default_push_percent(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Settings {
     #[serde(default = "default_sources")]
@@ -350,8 +372,6 @@ pub struct Settings {
     pub part_search_terms: Vec<String>,
     #[serde(default = "default_results_per_search")]
     pub results_per_search: u32,
-    #[serde(default = "default_forget_days")]
-    pub forget_seen_after_days: i64,
     #[serde(default = "default_delay")]
     pub delay_between_requests_ms: u64,
     #[serde(default)]
@@ -362,6 +382,8 @@ pub struct Settings {
     /// so a normal round costs a handful of extra requests and a cold start a few dozen.
     #[serde(default = "default_detail_lookups")]
     pub detail_lookups_per_round: usize,
+    #[serde(default)]
+    pub notify: Notify,
     #[serde(default)]
     pub filters: Filters,
     #[serde(default, rename = "card")]
@@ -384,10 +406,6 @@ fn default_vinted_domain() -> String {
 
 fn default_results_per_search() -> u32 {
     60
-}
-
-fn default_forget_days() -> i64 {
-    30
 }
 
 fn default_delay() -> u64 {

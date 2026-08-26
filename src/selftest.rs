@@ -5,15 +5,19 @@
 //! binary can verify itself anywhere.
 
 use crate::config::{parse_settings, CardRule, Filters, Settings};
+use crate::db::Database;
 use crate::filter::Sieve;
-use crate::listing::{Confidence, Delivery, Listing, Rejection};
-use crate::pricing::{stated_memory_gb, stated_watts, PriceTable};
+use crate::listing::{Confidence, Delivery, Finding, FindingKind, Listing, Rejection};
+use crate::migrate;
+use crate::pricing::{pattern_occurs, stated_memory_gb, stated_watts, PriceTable};
 use crate::selfupdate;
 use crate::sources::{marktplaats, vinted};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const VINTED_FIXTURE: &str = include_str!("../tests/fixtures/vinted_search.json");
 const MARKTPLAATS_FIXTURE: &str = include_str!("../tests/fixtures/marktplaats_search.json");
+const VINTED_ITEM_PAGE: &str = include_str!("../tests/fixtures/vinted_item.html");
+const MARKTPLAATS_ITEM_PAGE: &str = include_str!("../tests/fixtures/marktplaats_item.html");
 
 const TEST_CONFIG: &str = r#"
 card_search_terms = ["rtx 3090"]
@@ -137,6 +141,25 @@ pub fn run() -> bool {
         ("prijsherziening weigert onlogische drempels", check_review_refuses_illogical),
         ("prijsherziening raakt jouw eigen regels niet aan", check_review_respects_user_file),
         ("automatische tabel groeit aan, vervangt niet", check_auto_table_accumulates),
+        ("woordgrenzen bij letters, deelstring bij cijfers", check_word_boundaries),
+        ("schema tweemaal openen breekt niets", check_schema_survives_reopening),
+        ("prijsgeschiedenis alleen bij verandering", check_price_history_only_on_change),
+        ("eenmalige velden overleven een ronde", check_one_time_fields_survive),
+        ("niet langer interessant, en niet opnieuw nieuw", check_leaving_and_returning),
+        ("verdwenen pas na twee hercontroles", check_gone_needs_two_checks),
+        ("gereserveerd haalt de vondst uit de inbox", check_reserved_clears_finding),
+        ("uitschieterdrempel laat 30% stil en 40% door", check_push_threshold),
+        ("het Discord-bericht is vier regels", check_push_message),
+        ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
+        ("één melding per advertentie, tien procent lager een tweede", check_push_once),
+        ("tweemaal klikken geeft één verzoek", check_one_open_request),
+        ("oppakken levert niet tweemaal hetzelfde verzoek", check_take_skips_in_flight),
+        ("vastgelopen verzoek komt terug en faalt na drie pogingen", check_review_attempts),
+        ("overgang uit de oude bestanden maakt geen herrie", check_migration_is_quiet),
+        ("overgang herhalen streept niets weg", check_migration_repeats_safely),
+        ("hercontrole leest prijs en verkocht uit de pagina", check_recheck_parsing),
+        ("hercontrole leest een echte Vinted-pagina", check_recheck_vinted_page),
+        ("hercontrole leest een echte Marktplaats-pagina", check_recheck_marktplaats_page),
     ];
 
     let mut failures = 0;
@@ -249,7 +272,7 @@ fn check_missing_memory(settings: &Settings) -> Result<(), String> {
         return Err("hoort met een vlag naar de stapel".into());
     }
     if finding.queue_note.is_none() {
-        return Err("geen notitie voor laag twee".into());
+        return Err("geen notitie voor de beoordelaar".into());
     }
     Ok(())
 }
@@ -900,5 +923,623 @@ fn check_review_refuses_illogical(settings: &Settings) -> Result<(), String> {
     if review.refused.is_empty() {
         return Err("alert_below boven used_price_low hoort geweigerd te worden".into());
     }
+    Ok(())
+}
+
+
+// ---------------------------------------------------------------------------------------
+// De database. Alles hieronder draait op een tijdelijk bestand, zonder netwerk.
+// ---------------------------------------------------------------------------------------
+
+fn scratch_directory(name: &str) -> Result<PathBuf, String> {
+    let directory = std::env::temp_dir().join(format!(
+        "kaartenjager-selftest-{}-{name}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    Ok(directory)
+}
+
+fn scratch_database(name: &str) -> Result<(Database, PathBuf), String> {
+    let directory = scratch_directory(name)?;
+    let database = Database::open(&directory.join("kaartenjager.db"))?;
+    Ok((database, directory))
+}
+
+fn sample_listing(id: &str, price: f64) -> Listing {
+    Listing {
+        source: "vinted".to_string(),
+        listing_id: id.to_string(),
+        title: "RTX 4090 Gigabyte Windforce".to_string(),
+        url: format!("https://www.vinted.nl/items/{id}"),
+        price_euros: price,
+        asking_price_euros: price,
+        ..Listing::default()
+    }
+}
+
+fn sample_finding(id: &str, price: f64, percent_under_market: f64) -> Finding {
+    Finding {
+        listing: sample_listing(id, price),
+        matched_as: "RTX 4090".to_string(),
+        kind: FindingKind::Card,
+        confidence: Confidence::Clear,
+        percent_under_market: Some(percent_under_market),
+        euros_under_market: Some(1800.0 - price),
+        reasons: vec!["onder de markt".to_string()],
+        warnings: Vec::new(),
+        queue_note: None,
+    }
+}
+
+fn store(database: &Database, finding: &Finding, now: i64) -> Result<(), String> {
+    database.record_listing(&finding.listing, &["rtx 4090".to_string()], now)?;
+    database.record_finding(finding, now)
+}
+
+/// "borstvoeding" bevat "voeding", en daardoor kwam er een boek over borstvoeding in de
+/// resultaten. Modelnummers hebben juist de omgekeerde regel nodig.
+fn check_word_boundaries(_settings: &Settings) -> Result<(), String> {
+    let letters_need_boundaries = [
+        ("borstvoeding 850w", "voeding", false),
+        ("kattenvoeding 3kg", "voeding", false),
+        ("voedingssupplement", "voeding", false),
+        ("corsair voeding 850w", "voeding", true),
+        ("nieuwe psu 750w", "psu", true),
+        ("psufan vervanger", "psu", false),
+        ("pcie riser cable 300mm", "riser", true),
+        // Meervouden zijn hetzelfde woord. Sneuvelen die, dan mist hij echte voedingen en —
+        // erger — vuren de uitsluitingen niet meer op "kabels" en "adapters".
+        ("twee voedingen te koop", "voeding", true),
+        ("psu kabels set", "kabel", true),
+        ("originele adapters", "adapter", true),
+        ("losse snoeren", "snoer", true),
+        ("voedingskabel 8-pins", "voeding", false),
+    ];
+    for (title, pattern, expected) in letters_need_boundaries {
+        if pattern_occurs(title, pattern) != expected {
+            return Err(format!(
+                "\"{pattern}\" in \"{title}\" hoorde {expected} te geven"
+            ));
+        }
+    }
+
+    let digits_stay_substrings = [
+        ("rtx3090ti 24gb", "3090 ti", false),
+        ("rtx3090ti 24gb", "3090ti", true),
+        ("rtx4090 gaming", "4090", true),
+        ("msi 3090 ti suprim", "3090 ti", true),
+    ];
+    for (title, pattern, expected) in digits_stay_substrings {
+        if pattern_occurs(title, pattern) != expected {
+            return Err(format!(
+                "\"{pattern}\" in \"{title}\" hoorde {expected} te geven"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_schema_survives_reopening(_settings: &Settings) -> Result<(), String> {
+    let directory = scratch_directory("schema")?;
+    let path = directory.join("kaartenjager.db");
+
+    let first = Database::open(&path)?;
+    if !first.freshly_created {
+        return Err("een lege map hoort een nieuw schema op te leveren".into());
+    }
+    store(&first, &sample_finding("1", 1200.0, 33.0), 1_000)?;
+    drop(first);
+
+    let again = Database::open(&path)?;
+    if again.freshly_created {
+        return Err("een bestaande database hoort niet opnieuw aangemaakt te worden".into());
+    }
+    if again.count("finding") != 1 {
+        return Err("de vondst uit de eerste sessie is verdwenen".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+fn check_price_history_only_on_change(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("prijzen")?;
+
+    store(&database, &sample_finding("2", 1200.0, 33.0), 1_000)?;
+    store(&database, &sample_finding("2", 1200.0, 33.0), 2_000)?;
+    if database.count("price_point") != 1 {
+        return Err("dezelfde prijs tweemaal hoort één regel te geven".into());
+    }
+
+    store(&database, &sample_finding("2", 1100.0, 39.0), 3_000)?;
+    if database.count("price_point") != 2 {
+        return Err("een andere prijs hoort een tweede regel te geven".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+/// Een INSERT OR REPLACE per ronde zou `pushed_at` wissen, en dan meldt Discord dezelfde
+/// vondst vijftien keer per dag.
+fn check_one_time_fields_survive(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("eenmalig")?;
+    let finding = sample_finding("3", 1200.0, 33.0);
+
+    store(&database, &finding, 1_000)?;
+    database.mark_pushed("vinted:3", 1200.0, 1_000)?;
+
+    // Vier rondes later, zelfde advertentie, zelfde prijs.
+    for round in 1..=4 {
+        store(&database, &finding, 1_000 + round * 3_600)?;
+    }
+
+    let again = database.findings_to_push(30.0)?;
+    if !again.is_empty() {
+        return Err("een al gemelde vondst hoort stil te blijven".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+/// De prijs gaat omhoog: geen vondst meer. Komt hij later terug zonder dat de prijs zakte,
+/// dan is dat de drempel die bewoog en geen nieuws.
+fn check_leaving_and_returning(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("verlaten")?;
+
+    store(&database, &sample_finding("4", 1200.0, 33.0), 1_000)?;
+    if !database.clear_finding("vinted:4", 1900.0, 2_000)? {
+        return Err("een te dure advertentie hoort still_a_find op 0 te zetten".into());
+    }
+    if database.clear_finding("vinted:4", 1900.0, 3_000)? {
+        return Err("tweemaal wegstrepen hoort maar één keer te tellen".into());
+    }
+
+    // Terug tegen dezelfde prijs als waarop hij eruit liep: de tabel bewoog, niet de markt.
+    store(&database, &sample_finding("4", 1900.0, 5.0), 4_000)?;
+    let became = database.became_a_find_at("vinted:4")?;
+    if became != 1_000 {
+        return Err(format!(
+            "zonder prijsdaling hoort became_a_find_at op 1000 te blijven, stond op {became}"
+        ));
+    }
+
+    // Nu wél goedkoper dan toen hij eruit liep: echt nieuws.
+    database.clear_finding("vinted:4", 1900.0, 5_000)?;
+    store(&database, &sample_finding("4", 1400.0, 22.0), 6_000)?;
+    let became = database.became_a_find_at("vinted:4")?;
+    if became != 6_000 {
+        return Err(format!(
+            "een echte prijsdaling hoort became_a_find_at te vernieuwen, stond op {became}"
+        ));
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+fn check_gone_needs_two_checks(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("verdwenen")?;
+    store(&database, &sample_finding("5", 1200.0, 33.0), 1_000)?;
+
+    if database.note_gone("vinted:5", 2_000)? {
+        return Err("één keer niet gevonden hoort nog niet verdwenen te zijn".into());
+    }
+    if !database.note_gone("vinted:5", 3_000)? {
+        return Err("twee keer op rij hoort wel verdwenen te zijn".into());
+    }
+
+    // Toch weer teruggezien: dan bestaat hij nog.
+    store(&database, &sample_finding("5", 1200.0, 33.0), 4_000)?;
+    if database.due_for_recheck(10)?.is_empty() {
+        return Err("een teruggeziene advertentie hoort weer meegecontroleerd te worden".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+fn check_push_threshold(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("drempel")?;
+
+    store(&database, &sample_finding("6", 1260.0, 30.0), 1_000)?;
+    if !database.findings_to_push(35.0)?.is_empty() {
+        return Err("30% onder de markt hoort bij een grens van 35% stil te blijven".into());
+    }
+
+    store(&database, &sample_finding("7", 1080.0, 40.0), 1_000)?;
+    let pushes = database.findings_to_push(35.0)?;
+    if pushes.len() != 1 || pushes[0].key != "vinted:7" {
+        return Err("40% onder de markt hoorde wel gemeld te worden".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+fn check_push_once(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("melden")?;
+
+    store(&database, &sample_finding("8", 1080.0, 40.0), 1_000)?;
+    if database.findings_to_push(35.0)?.len() != 1 {
+        return Err("de eerste melding hoort te gaan".into());
+    }
+    database.mark_pushed("vinted:8", 1080.0, 1_000)?;
+
+    if !database.findings_to_push(35.0)?.is_empty() {
+        return Err("dezelfde advertentie hoort geen tweede bericht te geven".into());
+    }
+
+    // Vijf procent lager is nog geen nieuws.
+    store(&database, &sample_finding("8", 1026.0, 43.0), 2_000)?;
+    if !database.findings_to_push(35.0)?.is_empty() {
+        return Err("vijf procent lager hoort nog stil te blijven".into());
+    }
+
+    // Tien procent lager wel.
+    store(&database, &sample_finding("8", 972.0, 46.0), 3_000)?;
+    if database.findings_to_push(35.0)?.len() != 1 {
+        return Err("tien procent lager hoort een tweede bericht te geven".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+fn check_one_open_request(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("wachtrij")?;
+    store(&database, &sample_finding("9", 1200.0, 33.0), 1_000)?;
+
+    let first = database.request_review("vinted:9", 1_000)?;
+    let second = database.request_review("vinted:9", 1_010)?;
+    if first != second {
+        return Err("tweemaal drukken hoort hetzelfde verzoek op te leveren".into());
+    }
+    if database.open_reviews()?.len() != 1 {
+        return Err("er hoort één verzoek open te staan, geen twee".into());
+    }
+
+    let taken = database.take_reviews(1_020)?;
+    if taken.len() != 1 || taken[0].attempts != 0 {
+        return Err("oppakken hoort het openstaande verzoek terug te geven".into());
+    }
+    database.answer_review(first, "ziet er echt uit", "kijken", 1_030)?;
+    if !database.open_reviews()?.is_empty() {
+        return Err("een beantwoord verzoek hoort niet meer open te staan".into());
+    }
+
+    // Beantwoord: dan mag er een nieuw verzoek voor dezelfde advertentie komen.
+    let third = database.request_review("vinted:9", 1_040)?;
+    if third == first {
+        return Err("na een antwoord hoort er een nieuw verzoek te ontstaan".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+/// Een verzoek dat opgepakt wordt maar nooit beantwoord blijft anders eeuwig terugkomen, en
+/// elke terugkeer kost een agent-beurt.
+fn check_review_attempts(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("pogingen")?;
+    store(&database, &sample_finding("10", 1200.0, 33.0), 1_000)?;
+    database.request_review("vinted:10", 1_000)?;
+
+    let mut clock = 2_000;
+    for poging in 1..=3 {
+        let taken = database.take_reviews(clock)?;
+        if taken.len() != 1 {
+            return Err(format!("poging {poging} hoorde het verzoek terug te geven"));
+        }
+        // Een uur verder zonder antwoord: het verzoek komt vanzelf terug in de wachtrij.
+        clock += crate::db::STALE_AFTER_SECONDS + 1;
+    }
+
+    let taken = database.take_reviews(clock)?;
+    if !taken.is_empty() {
+        return Err("na drie pogingen hoort het verzoek als mislukt afgesloten te zijn".into());
+    }
+    if !database.open_reviews()?.is_empty() {
+        return Err("een mislukt verzoek hoort niet meer open te staan".into());
+    }
+
+    // Mislukt is een eindtoestand, dus de knop werkt weer.
+    database.request_review("vinted:10", clock + 10)?;
+    if database.open_reviews()?.len() != 1 {
+        return Err("na een mislukking hoort een nieuw verzoek te kunnen".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+/// Zonder de stempels zou alles wat overkomt als "nieuw" gelden en zou Discord tweehonderd
+/// oude bekenden opnieuw melden.
+fn check_migration_is_quiet(_settings: &Settings) -> Result<(), String> {
+    let directory = scratch_directory("overgang")?;
+    let finding = sample_finding("11", 1080.0, 40.0);
+    let line = serde_json::to_string(&finding).map_err(|error| error.to_string())?;
+    std::fs::write(directory.join("recent.jsonl"), format!("{line}\n"))
+        .map_err(|error| error.to_string())?;
+    // Een halve regel mag de rest niet kosten.
+    std::fs::write(directory.join("queue.jsonl"), "{ kapot\n")
+        .map_err(|error| error.to_string())?;
+
+    let database = Database::open(&directory.join("kaartenjager.db"))?;
+    let outcome = migrate::from_files(&database, &directory, 9_000)?;
+    if outcome.findings != 1 {
+        return Err(format!("er hoorde één vondst over te komen, het waren er {}", outcome.findings));
+    }
+    if !database.findings_to_push(35.0)?.is_empty() {
+        return Err("een overgezette vondst hoort niet opnieuw naar Discord te gaan".into());
+    }
+    if database.state("last_visit").as_deref() != Some("9000") {
+        return Err("de overgang hoort het laatste bezoek te stempelen, anders is alles nieuw".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+/// De hercontrole leunt op het schema.org-blok dat beide bronnen in hun advertentiepagina
+/// zetten. Een verkochte advertentie telt als verdwenen: kopen kun je hem toch niet meer.
+fn check_recheck_parsing(_settings: &Settings) -> Result<(), String> {
+    let page = |body: &str| {
+        format!(r#"<html><head><script type="application/ld+json">{body}</script></head></html>"#)
+    };
+
+    let for_sale = page(
+        r#"{"@type":"Product","name":"RTX 4090","description":"Nette kaart",
+            "offers":{"@type":"Offer","price":1260.70,"priceCurrency":"EUR",
+                      "availability":"https://schema.org/InStock"}}"#,
+    );
+    match crate::detail::read_page(&for_sale) {
+        crate::detail::PageState::Present {
+            price_euros: Some(price),
+            description,
+        } => {
+            if (price - 1260.70).abs() > 0.01 {
+                return Err(format!("prijs werd {price} in plaats van 1260,70"));
+            }
+            if description.as_deref() != Some("Nette kaart") {
+                return Err("de beschrijving werd niet meegelezen".into());
+            }
+        }
+        _ => return Err("een advertentie die te koop staat hoort een prijs op te leveren".into()),
+    }
+
+    // Een prijs als tekst, met een komma, komt ook voor.
+    let as_text = page(
+        r#"{"@type":"Product","offers":[{"@type":"Offer","price":"945,70"}]}"#,
+    );
+    match crate::detail::read_page(&as_text) {
+        crate::detail::PageState::Present {
+            price_euros: Some(price),
+            ..
+        } if (price - 945.70).abs() < 0.01 => {}
+        _ => return Err("een prijs als tekst met komma hoorde gelezen te worden".into()),
+    }
+
+    let sold = page(
+        r#"{"@type":"Product","offers":{"@type":"Offer","price":1260.70,
+            "availability":"https://schema.org/SoldOut"}}"#,
+    );
+    if !matches!(crate::detail::read_page(&sold), crate::detail::PageState::Gone) {
+        return Err("een verkochte advertentie hoort als verdwenen te tellen".into());
+    }
+
+    // Geen schema.org-blok is geen bewijs van verdwijning: de pagina kwam gewoon terug.
+    match crate::detail::read_page("<html><body>iets anders</body></html>") {
+        crate::detail::PageState::Present {
+            price_euros: None, ..
+        } => {}
+        _ => return Err("een pagina zonder blok hoort niet als verdwenen te tellen".into()),
+    }
+
+    Ok(())
+}
+
+
+/// Het schema.org-blok uit een echte advertentiepagina, opgehaald op 25 augustus 2026.
+/// Beide bronnen schrijven de prijs anders op: Vinted als getal, Marktplaats als tekst.
+fn check_recheck_vinted_page(_settings: &Settings) -> Result<(), String> {
+    match crate::detail::read_page(VINTED_ITEM_PAGE) {
+        crate::detail::PageState::Present {
+            price_euros: Some(price),
+            description,
+        } => {
+            if (price - 15.0).abs() > 0.01 {
+                return Err(format!("prijs werd {price} in plaats van 15"));
+            }
+            if description.is_none() {
+                return Err("de beschrijving hoorde meegelezen te worden".into());
+            }
+            Ok(())
+        }
+        _ => Err("de Vinted-pagina hoorde een prijs op te leveren".into()),
+    }
+}
+
+/// Op Marktplaats is het Product-blok niet het eerste: er staat een BreadcrumbList voor.
+/// Dat is precies waar de lus overheen moet lopen.
+fn check_recheck_marktplaats_page(_settings: &Settings) -> Result<(), String> {
+    match crate::detail::read_page(MARKTPLAATS_ITEM_PAGE) {
+        crate::detail::PageState::Present {
+            price_euros: Some(price),
+            ..
+        } => {
+            if (price - 1199.0).abs() > 0.01 {
+                return Err(format!("prijs werd {price} in plaats van 1199"));
+            }
+            Ok(())
+        }
+        _ => Err("de Marktplaats-pagina hoorde een prijs op te leveren".into()),
+    }
+}
+
+
+/// Vier regels: wat, hoeveel onder, welke uitvoering, waar. De rest staat in de app, en dat
+/// was het hele punt van de verhuizing weg van Discord.
+fn check_push_message(settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("bericht")?;
+
+    let mut finding = sample_finding("12", 620.0, 38.0);
+    finding.matched_as = "RTX 3090".to_string();
+    finding.listing.title = "RTX 3090 Founders Edition".to_string();
+    finding.listing.delivery = Delivery::PickupOnly;
+    store(&database, &finding, 1_000)?;
+
+    let pushes = database.findings_to_push(35.0)?;
+    if pushes.len() != 1 {
+        return Err("38% onder de markt hoorde gemeld te worden".into());
+    }
+
+    let message = crate::report::render_round(&pushes, 0, settings);
+    let lines: Vec<&str> = message.trim_end().lines().collect();
+    if lines.len() != 4 {
+        return Err(format!("het bericht heeft {} regels in plaats van 4:\n{message}", lines.len()));
+    }
+    if !lines[0].contains("RTX 3090") || !lines[0].contains("620") {
+        return Err(format!("regel 1 hoort het model en de prijs te noemen: {}", lines[0]));
+    }
+    // Het marktbereik komt uit de tabel, niet uit de database.
+    if !lines[1].contains("38% onder de markt") || !lines[1].contains("750") {
+        return Err(format!("regel 2 hoort het percentage en het marktbereik te noemen: {}", lines[1]));
+    }
+    if !lines[2].contains("alleen ophalen") || !lines[2].contains("Vinted") {
+        return Err(format!("regel 3 hoort de uitvoering en de bron te noemen: {}", lines[2]));
+    }
+    if !lines[3].starts_with("https://") {
+        return Err(format!("regel 4 hoort de link te zijn: {}", lines[3]));
+    }
+
+    // En het vangnet onder het wekbericht, als de wachtrij blijft staan.
+    let with_queue = crate::report::render_round(&pushes, 2, settings);
+    if !with_queue.contains("2 beoordelingen wachten") {
+        return Err("een wachtrij die blijft staan hoort zichtbaar te worden".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+/// Een advertentie die gereserveerd raakt is niet meer te koop. De zeef weert hem, en zonder
+/// een schrijfactie zou hij daardoor juist eeuwig als levende vondst blijven staan: de
+/// beoordeling ziet hem niet meer, en de hercontrole slaat hem over omdat hij deze ronde
+/// wél in de resultaten stond.
+fn check_reserved_clears_finding(settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("gereserveerd")?;
+    store(&database, &sample_finding("13", 1080.0, 40.0), 1_000)?;
+
+    let mut reserved = sample_listing("13", 1080.0);
+    reserved.reserved = true;
+    let sieve = Sieve::new(&settings.filters);
+    if sieve.check(&reserved).is_ok() {
+        return Err("een gereserveerde advertentie hoort geweerd te worden".into());
+    }
+
+    // Wat de ronde met een geweerde advertentie doet.
+    database.clear_finding("vinted:13", reserved.price_euros, 2_000)?;
+    if !database.findings_to_push(35.0)?.is_empty() {
+        return Err("een gereserveerde advertentie hoort niet meer gemeld te worden".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+/// Twee wekberichten kort na elkaar, of een handmatige `reviews take` ernaast: zonder deze
+/// regel krijgt de tweede aanroep hetzelfde verzoek opnieuw, en is de pogingengrens binnen
+/// een seconde op.
+fn check_take_skips_in_flight(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("dubbel-oppakken")?;
+    store(&database, &sample_finding("14", 1200.0, 33.0), 1_000)?;
+    database.request_review("vinted:14", 1_000)?;
+
+    if database.take_reviews(1_010)?.len() != 1 {
+        return Err("het eerste oppakken hoort het verzoek te geven".into());
+    }
+    if !database.take_reviews(1_020)?.is_empty() {
+        return Err("een tweede aanroep hoort niets te geven zolang het eerste nog loopt".into());
+    }
+    // Maar `pending` toont hem wel: hij staat immers nog open.
+    if database.open_reviews()?.len() != 1 {
+        return Err("een opgepakt verzoek hoort nog wel open te staan".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+/// De overgang is te herhalen. Dan mag hij niet alsnog wegstrepen wat je nog niet gezien hebt.
+fn check_migration_repeats_safely(_settings: &Settings) -> Result<(), String> {
+    let directory = scratch_directory("overgang-herhaald")?;
+    let finding = sample_finding("15", 1080.0, 40.0);
+    let line = serde_json::to_string(&finding).map_err(|error| error.to_string())?;
+    std::fs::write(directory.join("recent.jsonl"), format!("{line}\nkapotte regel\n"))
+        .map_err(|error| error.to_string())?;
+
+    let database = Database::open(&directory.join("kaartenjager.db"))?;
+    let first = migrate::from_files(&database, &directory, 9_000)?;
+    if first.skipped != 1 {
+        return Err(format!(
+            "een onleesbare regel hoort geteld te worden, skipped stond op {}",
+            first.skipped
+        ));
+    }
+
+    // Doe alsof de app sindsdien een bezoek heeft vastgelegd.
+    database.set_state("last_visit", "12345")?;
+    migrate::from_files(&database, &directory, 20_000)?;
+    if database.state("last_visit").as_deref() != Some("12345") {
+        return Err("een herhaalde overgang hoort het laatste bezoek met rust te laten".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+/// De hoogste kortingspercentages zijn vrijwel altijd oplichting: een kaart op een kwart van
+/// de marktprijs is per definitie de luidste melding van de dag. Zonder deze zeef bestaat het
+/// Discord-kanaal vooral uit nepadvertenties.
+fn check_below_floor_stays_quiet(settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("bodem")?;
+
+    // De testtabel zet de bodem van de 3090 Ti op €550 en de markt op €950.
+    let mut oplichterij = sample_finding("16", 300.0, 68.0);
+    oplichterij.matched_as = "RTX 3090 Ti".to_string();
+    store(&database, &oplichterij, 1_000)?;
+
+    let pushes = crate::hunt::decide_pushes(&database, settings, 1_000)?;
+    if !pushes.is_empty() {
+        return Err(format!(
+            "een vondst onder de bodem hoorde niet gemeld te worden, er gingen er {} uit",
+            pushes.len()
+        ));
+    }
+
+    // Wel gestempeld, anders komt hij elke ronde opnieuw langs en duwt één prijsstijging hem
+    // alsnog het kanaal in.
+    if !database.findings_to_push(35.0)?.is_empty() {
+        return Err("een gefilterde vondst hoort toch zijn stempel te krijgen".into());
+    }
+
+    // En een geloofwaardige vondst gaat wél door: boven de bodem, ruim onder de markt.
+    let mut echt = sample_finding("17", 600.0, 36.8);
+    echt.matched_as = "RTX 3090 Ti".to_string();
+    store(&database, &echt, 2_000)?;
+    let pushes = crate::hunt::decide_pushes(&database, settings, 2_000)?;
+    if pushes.len() != 1 || pushes[0].key != "vinted:17" {
+        return Err("een geloofwaardige vondst boven de bodem hoorde wel gemeld te worden".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
     Ok(())
 }

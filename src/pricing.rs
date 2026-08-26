@@ -2,7 +2,7 @@
 //! the plain-language reasons that go with it.
 
 use crate::config::{CardRule, CaseProfile, PartRule, Settings, SystemProfile};
-use crate::listing::{Confidence, Finding, Listing};
+use crate::listing::{Confidence, Finding, FindingKind, Listing};
 use crate::money;
 
 /// Memory sizes that actually ship on consumer cards. Anything else in a title is a model
@@ -175,10 +175,22 @@ impl<'settings> PriceTable<'settings> {
         }
         warnings.extend(listing_warnings(listing));
 
+        // De maat waarop §6 de uitschieterdrempel legt: hoe ver onder de onderkant van het
+        // marktbereik deze prijs zit.
+        let euros_under_market = card.used_price_low - listing.price_euros;
+        let percent_under_market = if card.used_price_low > 0.0 {
+            Some(euros_under_market / card.used_price_low * 100.0)
+        } else {
+            None
+        };
+
         Some(Finding {
             listing: listing.clone(),
             matched_as: card.name.clone(),
+            kind: FindingKind::Card,
             confidence,
+            percent_under_market,
+            euros_under_market: Some(euros_under_market),
             reasons,
             warnings,
             queue_note,
@@ -229,7 +241,11 @@ impl<'settings> PriceTable<'settings> {
         Some(Finding {
             listing: listing.clone(),
             matched_as: part.name.clone(),
+            kind: FindingKind::Part,
             confidence,
+            // Onderdelen hebben geen marktbereik, dus er valt niets tegen af te zetten.
+            percent_under_market: None,
+            euros_under_market: None,
             reasons,
             warnings,
             queue_note,
@@ -263,7 +279,10 @@ impl<'settings> PriceTable<'settings> {
         Some(Finding {
             listing: listing.clone(),
             matched_as: "Onbekend model".to_string(),
+            kind: FindingKind::Unknown,
             confidence: Confidence::NeedsReview,
+            percent_under_market: None,
+            euros_under_market: None,
             reasons: vec![format!(
                 "{stated} GB videogeheugen voor onder {}, maar er staat geen regel voor dit model in de tabel",
                 money::euros(UNKNOWN_CARD_INTERESTING_BELOW)
@@ -401,15 +420,70 @@ fn listing_warnings(listing: &Listing) -> Vec<String> {
 /// A rule matches when at least one pattern occurs and no exclude pattern does. Order in the
 /// file therefore stops being load-bearing, which removes a whole class of mistakes.
 pub fn matches_patterns(text: &str, patterns: &[String], excludes: &[String]) -> bool {
-    let hit = patterns
-        .iter()
-        .any(|pattern| text.contains(&pattern.to_lowercase()));
+    let hit = patterns.iter().any(|pattern| pattern_occurs(text, pattern));
     if !hit {
         return false;
     }
-    !excludes
-        .iter()
-        .any(|pattern| text.contains(&pattern.to_lowercase()))
+    !excludes.iter().any(|pattern| pattern_occurs(text, pattern))
+}
+
+/// Dutch plural and inflection endings. A pattern may carry these and still count as a whole
+/// word: "voedingen" is the same thing as "voeding", and an exclude pattern that stops firing
+/// on "kabels" would let a bag of PSU cables through as a power supply.
+const WORD_ENDINGS: [&str; 3] = ["en", "s", "e"];
+
+/// Letters get word boundaries, digits do not.
+///
+/// A book about breastfeeding reached the queue because "borstvoeding" contains "voeding".
+/// Model numbers need the opposite: "rtx3090ti" is a common spelling, and a boundary around
+/// "3090 ti" would stop matching it. Splitting the rule on whether the pattern holds a digit
+/// settles both cases without anything to configure.
+///
+/// The boundary is strict in front and forgiving behind: what is glued to the front changes
+/// the word ("borstvoeding" is not a power supply), while what is glued to the back is
+/// usually just a plural.
+pub fn pattern_occurs(text: &str, pattern: &str) -> bool {
+    let pattern = pattern.to_lowercase();
+    if pattern.is_empty() {
+        return false;
+    }
+    if pattern.chars().any(|character| character.is_ascii_digit()) {
+        return text.contains(&pattern);
+    }
+
+    let mut from = 0;
+    while let Some(relative) = text[from..].find(&pattern) {
+        let start = from + relative;
+        let end = start + pattern.len();
+        let free_before = text[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|character| !character.is_alphanumeric());
+        if free_before && word_ends_at(&text[end..]) {
+            return true;
+        }
+        // Verder zoeken vanaf het volgende teken, niet de volgende byte: een titel kan
+        // meerdere keren hetzelfde woord bevatten, en niet elk teken is één byte.
+        from = start
+            + text[start..]
+                .chars()
+                .next()
+                .map_or(1, |character| character.len_utf8());
+    }
+    false
+}
+
+/// True when the word stops here, possibly after a plural ending.
+fn word_ends_at(rest: &str) -> bool {
+    let stops = |text: &str| {
+        text.chars()
+            .next()
+            .is_none_or(|character| !character.is_alphanumeric())
+    };
+    stops(rest)
+        || WORD_ENDINGS
+            .iter()
+            .any(|ending| rest.strip_prefix(ending).is_some_and(stops))
 }
 
 /// Reads "24GB" or "24 GB" out of a title, ignoring numbers that cannot be a capacity.

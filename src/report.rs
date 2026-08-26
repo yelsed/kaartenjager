@@ -1,115 +1,92 @@
-//! What layer one prints. The cron delivers stdout to Discord verbatim, so this is the
-//! message the user actually reads.
+//! What a round prints. The cron delivers stdout to Discord verbatim, so this is the message
+//! the user actually reads — and everything that is not an outlier stays out of it.
+//!
+//! Warnings deliberately do not belong here. A round that could not fetch five descriptions
+//! would otherwise send a Discord message every hour; those go to stderr and to the app.
 
-use crate::listing::{Confidence, Delivery, Finding};
+use crate::config::Settings;
+use crate::db::PushCandidate;
+use crate::listing::Delivery;
 use crate::money;
 
-pub fn render_findings(findings: &[Finding]) -> String {
-    let mut out = String::new();
-    for (index, finding) in findings.iter().enumerate() {
-        if index > 0 {
-            out.push_str("\n\n");
-        }
-        out.push_str(&render_one(finding));
+/// The four-line message from the design: what, how much under, which one, where. Everything
+/// else lives in the app.
+pub fn render_push(candidate: &PushCandidate, settings: &Settings) -> String {
+    let mut out = format!(
+        "{} — {}\n",
+        candidate.matched_as,
+        money::euros_precise(candidate.price_euros)
+    );
+
+    let market = settings
+        .cards
+        .iter()
+        .find(|card| card.name == candidate.matched_as)
+        .map(|card| {
+            format!(
+                " ({}–{})",
+                money::euros(card.used_price_low),
+                money::euros(card.used_price_high)
+            )
+        })
+        .unwrap_or_default();
+    out.push_str(&format!(
+        "{:.0}% onder de markt{market}\n",
+        candidate.percent_under_market
+    ));
+
+    let mut parts = vec![candidate.title.clone()];
+    if matches!(candidate.delivery, Delivery::PickupOnly) {
+        parts.push("alleen ophalen".to_string());
     }
+    parts.push(source_name(&candidate.source));
+    out.push_str(&parts.join(" · "));
+    out.push('\n');
+
+    out.push_str(&candidate.url);
+    out.push('\n');
     out
 }
 
-pub fn render_one(finding: &Finding) -> String {
-    let listing = &finding.listing;
+/// A round with no outliers prints nothing, so the cron delivers no message. Without that the
+/// user gets fifteen notifications a day and turns it off within a week.
+pub fn render_round(
+    pushes: &[PushCandidate],
+    reviews_waiting: usize,
+    settings: &Settings,
+) -> String {
     let mut out = String::new();
 
-    let flag = match finding.confidence {
-        Confidence::Clear => "",
-        Confidence::NeedsReview => "  ⟨uitzoeken⟩",
-    };
-    out.push_str(&format!(
-        "{} — {}{}\n",
-        finding.matched_as,
-        money::euros_precise(listing.price_euros),
-        flag
-    ));
+    for (index, candidate) in pushes.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        out.push_str(&render_push(candidate, settings));
+    }
 
-    if listing.has_fees() {
+    // Het vangnet onder het wekbericht naar Hermes. Blijft de wachtrij staan, dan is dat een
+    // stille storing, en die hoort zichtbaar te worden.
+    if reviews_waiting > 0 {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        let what = if reviews_waiting == 1 {
+            "Eén beoordeling wacht".to_string()
+        } else {
+            format!("{reviews_waiting} beoordelingen wachten")
+        };
         out.push_str(&format!(
-            "vraagprijs {} + kosten\n",
-            money::euros_precise(listing.asking_price_euros)
+            "{what} al meer dan een uur op Hermes. Vraag hem de wachtrij af te werken.\n"
         ));
     }
 
-    out.push_str(&summary_line(finding));
-    out.push('\n');
-
-    if !finding.reasons.is_empty() {
-        out.push_str("\nWAAROM INTERESSANT\n");
-        for reason in &finding.reasons {
-            out.push_str(&format!("· {reason}\n"));
-        }
-    }
-
-    if !finding.warnings.is_empty() {
-        out.push_str("\nLET OP\n");
-        for warning in &finding.warnings {
-            out.push_str(&format!("· {warning}\n"));
-        }
-    }
-
-    out.push_str(&format!("\n{}\n", listing.url));
     out
 }
 
-fn summary_line(finding: &Finding) -> String {
-    let listing = &finding.listing;
-    let mut parts = vec![listing.title.clone()];
-
-    if !listing.condition.is_empty() {
-        parts.push(listing.condition.clone());
-    }
-    if !listing.location.is_empty() {
-        parts.push(listing.location.clone());
-    }
-    match listing.delivery {
-        Delivery::ShippingAvailable => parts.push("verzenden".to_string()),
-        Delivery::PickupOnly => parts.push("ophalen".to_string()),
-        Delivery::Unknown => {}
-    }
-    parts.push(match listing.source.as_str() {
+fn source_name(source: &str) -> String {
+    match source {
         "vinted" => "Vinted".to_string(),
         "marktplaats" => "Marktplaats".to_string(),
         other => other.to_string(),
-    });
-
-    parts.join(" · ")
-}
-
-/// A round that found nothing prints nothing, so the cron delivers no message. Without this
-/// the user gets fifteen notifications a day and turns it off within a week.
-pub fn render_round(findings: &[Finding], problems: &[String]) -> String {
-    if findings.is_empty() && problems.is_empty() {
-        return String::new();
     }
-
-    let mut out = String::new();
-
-    if !findings.is_empty() {
-        let heading = if findings.len() == 1 {
-            "1 vondst".to_string()
-        } else {
-            format!("{} vondsten", findings.len())
-        };
-        out.push_str(&format!("{heading}\n\n"));
-        out.push_str(&render_findings(findings));
-    }
-
-    if !problems.is_empty() {
-        if !out.is_empty() {
-            out.push_str("\n\n");
-        }
-        out.push_str("PROBLEMEN\n");
-        for problem in problems {
-            out.push_str(&format!("· {problem}\n"));
-        }
-    }
-
-    out
 }

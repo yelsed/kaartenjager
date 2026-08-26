@@ -1,16 +1,32 @@
-//! Fetching one listing's detail page.
+//! Fetching one listing's own page.
 //!
-//! Vinted's search results carry no description and nothing about delivery, so a listing that
-//! says "remise en main propre" in its own text looks shippable until you open it. Only
-//! findings get looked up, never every listing, so the request cost stays small.
+//! Two jobs live here. The first is enrichment: Vinted's search results carry no description
+//! and nothing about delivery, so a listing that says "remise en main propre" in its own text
+//! looks shippable until you open it.
+//!
+//! The second is the recheck. Both sources return only the sixty newest results per term, so
+//! a listing drops out of the search window within days while still being for sale. Absence
+//! therefore says nothing, and prices and disappearance have to be read off the listing's own
+//! page instead.
 
-use crate::http::HttpClient;
+use crate::http::{Failure, HttpClient};
 use crate::listing::{Delivery, Listing};
+use serde_json::Value;
 
-/// Vinted renders a schema.org block into every item page. It is far more stable than the
-/// surrounding markup and carries the full seller text.
+/// Both sources render a schema.org block into their item pages. It is far more stable than
+/// the surrounding markup and carries the seller text and the current price.
 const SCHEMA_OPEN: &str = r#"<script type="application/ld+json">"#;
 const SCHEMA_CLOSE: &str = "</script>";
+
+/// What a recheck concluded about a listing.
+pub enum PageState {
+    /// The page is gone, or the listing on it is no longer for sale.
+    Gone,
+    Present {
+        price_euros: Option<f64>,
+        description: Option<String>,
+    },
+}
 
 pub fn enrich(listing: &mut Listing, client: &mut HttpClient) -> Result<(), String> {
     if listing.source != "vinted" || !listing.description.is_empty() {
@@ -26,7 +42,52 @@ pub fn enrich(listing: &mut Listing, client: &mut HttpClient) -> Result<(), Stri
     Ok(())
 }
 
+/// Reads the listing's own page and reports whether it still exists and what it costs now.
+///
+/// Only an unambiguous answer counts as gone: HTTP 404 or 410, or an availability marker that
+/// says the item is sold. A timeout, a rate limit or a broken connection returns an error, and
+/// the caller leaves the listing alone — a Vinted outage must never read as "everything sold".
+pub fn recheck(listing: &Listing, client: &mut HttpClient) -> Result<PageState, String> {
+    match client.get_page(&listing.url) {
+        Ok(html) => Ok(read_page(&html)),
+        Err(Failure::Gone) => Ok(PageState::Gone),
+        Err(other) => Err(format!("{}: {other}", listing.url)),
+    }
+}
+
+/// The parsing half of a recheck, kept apart from the fetching half so it can be checked
+/// without a network.
+pub fn read_page(html: &str) -> PageState {
+    let Some(product) = product_block(html) else {
+        // Geen schema.org-blok is geen bewijs van iets. De advertentie bestaat (er kwam een
+        // pagina terug), maar er valt geen prijs uit te lezen.
+        return PageState::Present {
+            price_euros: None,
+            description: None,
+        };
+    };
+
+    if sold_out(&product) {
+        return PageState::Gone;
+    }
+
+    PageState::Present {
+        price_euros: offer_price(&product),
+        description: product
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
+
 pub fn extract_description(html: &str) -> Option<String> {
+    product_block(html)?
+        .get("description")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn product_block(html: &str) -> Option<Value> {
     let mut cursor = 0;
     while let Some(relative) = html[cursor..].find(SCHEMA_OPEN) {
         let start = cursor + relative + SCHEMA_OPEN.len();
@@ -34,17 +95,48 @@ pub fn extract_description(html: &str) -> Option<String> {
         let block = &html[start..end];
         cursor = end;
 
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(block) else {
+        let Ok(value) = serde_json::from_str::<Value>(block) else {
             continue;
         };
-        if value.get("@type").and_then(|kind| kind.as_str()) != Some("Product") {
-            continue;
-        }
-        if let Some(text) = value.get("description").and_then(|text| text.as_str()) {
-            return Some(text.to_string());
+        if value.get("@type").and_then(Value::as_str) == Some("Product") {
+            return Some(value);
         }
     }
     None
+}
+
+/// schema.org writes a price as a number on one site and as a string on the next, so both are
+/// accepted.
+fn offer_price(product: &Value) -> Option<f64> {
+    let offers = product.get("offers")?;
+    let offer = match offers {
+        Value::Array(list) => list.first()?,
+        other => other,
+    };
+    match offer.get("price")? {
+        Value::Number(number) => number.as_f64(),
+        Value::String(text) => text.replace(',', ".").parse().ok(),
+        _ => None,
+    }
+}
+
+/// A sold listing is as gone as a deleted one: you cannot buy it either way.
+fn sold_out(product: &Value) -> bool {
+    let Some(offers) = product.get("offers") else {
+        return false;
+    };
+    let offer = match offers {
+        Value::Array(list) => match list.first() {
+            Some(first) => first,
+            None => return false,
+        },
+        other => other,
+    };
+    let Some(availability) = offer.get("availability").and_then(Value::as_str) else {
+        return false;
+    };
+    let lowered = availability.to_lowercase();
+    lowered.contains("soldout") || lowered.contains("outofstock") || lowered.contains("discontinued")
 }
 
 /// Reads collection-only out of the seller's own words. A listing that says so in its text is

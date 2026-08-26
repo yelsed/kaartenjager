@@ -75,10 +75,7 @@ impl Default for Listing {
 /// Why a listing was dropped before it reached the price table.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Rejection {
-    AlreadySeen,
-    WrongCategory,
     WantedAdvertisement(String),
-    NotTheCardItself(String),
     Reserved,
     UnusablePrice,
     PickupTooFar(f64),
@@ -87,13 +84,8 @@ pub enum Rejection {
 impl Rejection {
     pub fn describe(&self) -> String {
         match self {
-            Rejection::AlreadySeen => "al eerder gemeld".to_string(),
-            Rejection::WrongCategory => "verkeerde categorie".to_string(),
             Rejection::WantedAdvertisement(word) => {
                 format!("vraagadvertentie (bevat \"{word}\")")
-            }
-            Rejection::NotTheCardItself(word) => {
-                format!("toebehoren of kapot (titel bevat \"{word}\")")
             }
             Rejection::Reserved => "gereserveerd".to_string(),
             Rejection::UnusablePrice => "geen bruikbare prijs".to_string(),
@@ -111,12 +103,31 @@ pub enum Confidence {
     NeedsReview,
 }
 
+/// Which kind of rule matched. Only cards have a market range, so only cards can be measured
+/// against the push threshold.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub enum FindingKind {
+    Card,
+    Part,
+    #[default]
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
     pub listing: Listing,
     /// Name from the price table, or a generic label when nothing matched.
     pub matched_as: String,
+    /// Defaulted so the one-off migration can read findings written before this field existed.
+    #[serde(default)]
+    pub kind: FindingKind,
     pub confidence: Confidence,
+    /// How far below the bottom of the market range this sits, as a percentage. None for
+    /// parts, which have no market range to measure against.
+    #[serde(default)]
+    pub percent_under_market: Option<f64>,
+    #[serde(default)]
+    pub euros_under_market: Option<f64>,
     /// Plain-language reasons this is worth looking at, already formatted.
     pub reasons: Vec<String>,
     /// Things that should give pause, already formatted.

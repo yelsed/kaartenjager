@@ -1,7 +1,26 @@
 //! HTTP with a cookie jar, a politeness gap and bounded retries.
 
 use serde_json::Value;
+use std::fmt;
 use std::time::{Duration, Instant};
+
+/// Why a request did not produce a page.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Failure {
+    /// The server said the resource is not there (404 or 410). Unambiguous.
+    Gone,
+    /// Anything else: a timeout, a rate limit, a server fault, a broken connection.
+    Other(String),
+}
+
+impl fmt::Display for Failure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Failure::Gone => write!(formatter, "de pagina bestaat niet meer"),
+            Failure::Other(reason) => write!(formatter, "{reason}"),
+        }
+    }
+}
 
 /// A real Chrome string. Both endpoints answer a default agent string with a challenge page.
 const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
@@ -38,11 +57,20 @@ impl HttpClient {
     }
 
     pub fn get_text(&mut self, url: &str) -> Result<String, String> {
+        self.get_page(url).map_err(|failure| failure.to_string())
+    }
+
+    /// Like `get_text`, but keeps "this listing no longer exists" apart from "something went
+    /// wrong". A recheck may only conclude a listing is gone on the first; a network fault or
+    /// a rate limit must never read as "sold".
+    pub fn get_page(&mut self, url: &str) -> Result<String, Failure> {
         self.get_with_headers(url, None, "text/html,application/xhtml+xml,*/*")
     }
 
     pub fn get_json(&mut self, url: &str, referer: Option<&str>) -> Result<Value, String> {
-        let body = self.get_with_headers(url, referer, "application/json, text/plain, */*")?;
+        let body = self
+            .get_with_headers(url, referer, "application/json, text/plain, */*")
+            .map_err(|failure| failure.to_string())?;
         serde_json::from_str(&body)
             .map_err(|error| format!("{url} gaf geen bruikbare JSON terug: {error}"))
     }
@@ -52,7 +80,7 @@ impl HttpClient {
         url: &str,
         referer: Option<&str>,
         accept: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, Failure> {
         let mut last_failure = String::new();
 
         for attempt in 1..=self.max_attempts {
@@ -77,9 +105,16 @@ impl HttpClient {
                     return response
                         .body_mut()
                         .read_to_string()
-                        .map_err(|error| format!("{url}: antwoord onleesbaar: {error}"));
+                        .map_err(|error| {
+                            Failure::Other(format!("{url}: antwoord onleesbaar: {error}"))
+                        });
                 }
                 Err(ureq::Error::StatusCode(code)) => {
+                    // Gone means gone: no amount of retrying brings a removed listing back,
+                    // and the caller is allowed to act on it.
+                    if matches!(code, 404 | 410) {
+                        return Err(Failure::Gone);
+                    }
                     last_failure = format!("{url}: HTTP {code}");
                     // Rate limiting and server faults may pass; anything else will not.
                     if !matches!(code, 408 | 429 | 500 | 502 | 503 | 504) {
@@ -94,10 +129,10 @@ impl HttpClient {
             }
         }
 
-        Err(format!(
+        Err(Failure::Other(format!(
             "{last_failure} (na {} pogingen)",
             self.max_attempts
-        ))
+        )))
     }
 
     /// Keeps a gap between requests so a round never looks like a scraper burst.
