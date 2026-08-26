@@ -1,6 +1,6 @@
 # Kaartenjager, deel twee: van meldingen naar een werkbank
 
-**Datum:** 25 augustus 2026
+**Datum:** 25 augustus 2026, dezelfde dag herzien na de kritische controle
 **Status:** goedgekeurd, klaar voor implementatieplan
 **Bouwt voort op:** `2026-08-24-kaartenjager-design.md`
 
@@ -34,7 +34,7 @@ server-kant, dan verschuift alleen waar de databasecode staat, niet wat hij doet
 
 | | Nu | Straks |
 |---|---|---|
-| Zoeken en beoordelen | Rust, elk uur, cron | **onveranderd** |
+| Zoeken en beoordelen | Rust, elk uur, cron | **zelfde cron; de kernlus gaat om (§3)** |
 | Opslag | `seen.json`, `queue.jsonl` | **SQLite** |
 | Waar je kijkt | Discord | **Svelte-app** |
 | Discord | elke vondst | **alleen echte uitschieters** |
@@ -53,6 +53,7 @@ twintig die je overslaat.
    ┌──────────────────────────────────────────────────────────┐
    │  kaartenjager run    elk uur, 08:00-22:00, no_agent      │
    │    Vinted + Marktplaats → filteren → beoordelen          │
+   │    + gerichte hercontrole van actieve vondsten (§4)      │
    └───────────────┬─────────────────────────┬────────────────┘
                    │ schrijft                │ bij >35% onder de markt
                    ▼                         ▼
@@ -63,11 +64,14 @@ twintig die je overslaat.
             │ leest/schrijft│ leest/schrijft
             ▼               ▼
    ┌─────────────────┐   ┌────────────────────────────────┐
-   │  Svelte-app     │   │  kaartenjager reviews          │
-   │  server-routes  │   │    ← Hermes-cron elke 10 min   │
-   │  better-sqlite3 │   │    verzoeken ophalen,          │
-   └─────────────────┘   │    oordelen, terugschrijven    │
-                         └────────────────────────────────┘
+   │  Svelte-app     │   │  Hermes                        │
+   │  server-routes  │   │    gewekt door het wekbericht  │
+   │  better-sqlite3 │   │    van de app in Discord       │
+   └────────┬────────┘   │    reviews take → oordelen →   │
+            │ wekbericht  │    reviews answer              │
+            │ (webhook)   └────────────────────────────────┘
+            ▼                            ▲
+      Discord-kanaal ────────────────────┘
 ```
 
 De database staat op `~/.local/share/kaartenjager/kaartenjager.db`, en dat pad is instelbaar
@@ -84,25 +88,48 @@ even te wachten. Vijf seconden is ruim: een ronde schrijft in een fractie daarva
 Het programma schrijft bovendien per ronde **één transactie**, niet per advertentie. Anders
 staat de database duizend keer kort op slot in plaats van één keer.
 
-**De app roept Hermes nooit rechtstreeks aan.** De knop zet een regel in `review_request`.
-Een cronjob haalt openstaande verzoeken op, beoordeelt ze en schrijft het antwoord terug.
+**De app wacht nooit op Hermes.** De knop zet een regel in `review_request` en stuurt daarna
+via een webhook een kort wekbericht naar het Discord-kanaal — "review gevraagd:
+vinted:9758884187". Hermes reageert op dat bericht zoals op elk bericht in het kanaal, haalt
+de openstaande verzoeken op, beoordeelt ze en schrijft het antwoord terug. Er is géén
+poll-cron: een dag zonder klikken kost nul agent-aanroepen.
 
-Waarom een wachtrij en geen aanroep: een app die op een agent wacht loopt vast als de agent
-traag is, verliest het verzoek bij een herstart, en moet een time-out afhandelen die niemand
-wil bedenken. Een regel in een tabel overleeft dat allemaal. De prijs is wachttijd — met een
-cron van tien minuten zie je het antwoord binnen tien minuten, en dat kan naar twee als het
-te traag voelt.
+Waarom een wachtrij mét wekbericht en geen rechtstreekse aanroep: een app die op een agent
+wacht loopt vast als de agent traag is, verliest het verzoek bij een herstart, en moet een
+time-out afhandelen die niemand wil bedenken. De wachtrij in de database blijft daarom de
+waarheid; het Discord-bericht is alleen het belletje. Gaat het verloren (webhook faalt,
+Hermes ligt eruit), dan blijft het verzoek gewoon staan: de app toont hoe lang het al wacht,
+en de uurlijkse scan print een vangnetregel naar Discord zodra een verzoek langer dan een
+uur onbeantwoord openstaat — zichtbaar voor jou, zodat je Hermes alsnog kunt porren.
+
+**Bij inrichting te controleren:** dat Hermes op webhook-berichten in het kanaal reageert.
+Zo niet, dan moet het wekbericht als gewone gebruiker verstuurd worden (bot-token) — zelfde
+ontwerp, ander verzendmechanisme.
 
 **De database is de enige koppeling.** Er is geen API, geen poort, geen dienst die moet
 blijven leven. Valt de app om, dan blijft het zoeken doorgaan. Valt het zoeken om, dan blijft
 de app tonen wat er al was.
 
+**De kernlus van het programma gaat om.** De huidige code beoordeelt een advertentie precies
+één keer: wat in `seen.json` staat wordt overgeslagen (`if !history.is_new(&key) continue`
+in `hunt.rs`). Dit ontwerp eist het omgekeerde — elke ronde wordt élk zoekresultaat opnieuw
+gezeefd en beoordeeld, want daar komen `last_seen`, de prijsgeschiedenis en `still_a_find`
+vandaan. De al-gezien-poort en `seen.json` vervallen dus; herbeoordelen is
+tekenreeksvergelijking en kost niets. Afgewezen en vondstloze advertenties laten geen spoor
+na in de database — de zeef doet zijn werk gewoon elke ronde opnieuw. Dit is de grootste
+wijziging aan de Rust-kant en hoort niet tussen de regels door te gebeuren.
+
 ## 4. Het gegevensmodel
 
 ```sql
 PRAGMA journal_mode = WAL;
+PRAGMA user_version = 1;   -- opgehoogd door het Rust-programma bij elke schemawijziging;
+                           -- de app controleert dit bij het starten en weigert met een
+                           -- duidelijke melding bij een versie die hij niet kent
 
--- Elke advertentie die ooit langskwam, ook als hij later verdwijnt.
+-- Elke advertentie die ooit een vondst werd. Advertenties zonder vondst laten geen
+-- spoor na: die worden elke ronde opnieuw gezeefd en beoordeeld, en dat is goedkoop.
+-- Zo blijft de database klein zonder opruimbeleid.
 CREATE TABLE listing (
   key            TEXT PRIMARY KEY,           -- "vinted:9758884187"
   source         TEXT NOT NULL,
@@ -118,8 +145,9 @@ CREATE TABLE listing (
   first_seen     INTEGER NOT NULL,
   last_seen      INTEGER NOT NULL,
   found_by_terms TEXT NOT NULL DEFAULT '[]', -- JSON-lijst van termen die hem vonden
-  missed_rounds  INTEGER NOT NULL DEFAULT 0,
-  gone_since     INTEGER                     -- pas na twee gemiste rondes
+  last_checked   INTEGER,                    -- laatste gerichte hercontrole (§4)
+  gone_checks    INTEGER NOT NULL DEFAULT 0, -- opeenvolgende "bestaat niet meer" op rij
+  gone_since     INTEGER                     -- pas na twee zulke hercontroles
 );
 
 -- Eén regel per prijswijziging, niet per ronde. Hiermee werkt "gezakt" en
@@ -132,7 +160,9 @@ CREATE TABLE price_point (
   PRIMARY KEY (key, seen_at)
 );
 
--- Wat het programma concludeerde. Overschreven bij elke nieuwe ronde.
+-- Wat het programma concludeerde. Elke ronde bijgewerkt met een UPDATE die de eenmalige
+-- velden (became_a_find_at, pushed_at, pushed_at_price) ongemoeid laat — een INSERT OR
+-- REPLACE zou ze wissen, en dan meldt Discord dezelfde vondst elke ronde opnieuw.
 CREATE TABLE finding (
   key                  TEXT PRIMARY KEY REFERENCES listing(key) ON DELETE CASCADE,
   matched_as           TEXT NOT NULL,        -- "RTX 3090 Ti" of "Onbekend model"
@@ -146,6 +176,7 @@ CREATE TABLE finding (
   became_a_find_at     INTEGER NOT NULL,   -- wanneer dit vóór het eerst een vondst werd
   judged_at            INTEGER NOT NULL,   -- wanneer het laatst herbeoordeeld is
   still_a_find         INTEGER NOT NULL DEFAULT 1,  -- 0 zodra de prijs boven de drempel gaat
+  left_find_at_price   INTEGER,                     -- de prijs toen still_a_find op 0 ging
   pushed_at            INTEGER,                     -- wanneer het naar Discord ging
   pushed_at_price      INTEGER                      -- de prijs van dat moment
 );
@@ -166,9 +197,11 @@ CREATE TABLE review_request (
   requested_at   INTEGER NOT NULL,
   taken_at       INTEGER,
   answered_at    INTEGER,
+  attempts       INTEGER NOT NULL DEFAULT 0, -- hoe vaak dit verzoek is opgepakt
   verdict        TEXT,                       -- de tekst van Hermes
   recommendation TEXT,                       -- kijken | overslaan | oplichterij
-  failed_reason  TEXT
+  failed_reason  TEXT                        -- gevuld door `reviews fail`, dat óók
+                                             -- answered_at zet: mislukt is een eindtoestand
 );
 
 -- Zoektermen, beheerd vanuit de app.
@@ -180,13 +213,15 @@ CREATE TABLE search_term (
   added_by  TEXT NOT NULL DEFAULT 'app'      -- app | config | hermes
 );
 
--- Los-vaste waarden, waaronder wanneer je voor het laatst keek.
+-- Los-vaste waarden: last_visit, previous_visit, terms_seeded, en de hartslag —
+-- last_round_at plus last_round_problems (JSON), elke ronde geschreven door de scan.
 CREATE TABLE app_state (
   name   TEXT PRIMARY KEY,
   value  TEXT NOT NULL
 );
 
 CREATE INDEX listing_last_seen ON listing(last_seen);
+CREATE INDEX listing_checked   ON listing(last_checked);
 CREATE INDEX finding_became    ON finding(became_a_find_at);
 CREATE INDEX decision_state    ON decision(state);
 CREATE INDEX review_pending    ON review_request(answered_at) WHERE answered_at IS NULL;
@@ -207,6 +242,7 @@ CREATE UNIQUE INDEX review_one_open ON review_request(key) WHERE answered_at IS 
 | Niet langer interessant | `still_a_find = 0` — prijs ging omhoog of de tabel veranderde |
 | Volglijst | `state = 'watching'`, gesorteerd op prijsverandering |
 | Wacht op Hermes | `review_request` met `answered_at IS NULL` |
+| Draait de wachter nog | `app_state['last_round_at']`; binnen 08:00–22:00 ouder dan twee uur → rode balk in de app |
 
 Prijsgeschiedenis wordt **alleen bij verandering** weggeschreven. Vijftien rondes per dag maal
 duizend advertenties zou anders vijftienduizend regels per dag opleveren voor niets.
@@ -222,21 +258,67 @@ uitkomt. `judged_at` schuift wel mee, zodat je kunt zien of een oordeel vers is.
 eerste bepaalt wat er in het nieuw-blok staat.
 
 Zakt een advertentie later opnieuw onder de drempel nadat hij eruit was gelopen, dan telt dat
-als nieuw en wordt `became_a_find_at` vernieuwd. Dat is namelijk echt nieuws.
+als nieuw en wordt `became_a_find_at` vernieuwd — maar alleen als de prijs werkelijk lager is
+dan `left_find_at_price`, de prijs waarop hij eruit liep. Zonder die voorwaarde zou de
+wekelijkse prijsherziening, die drempels tot twintig procent mag verschuiven, vondsten heen
+en weer laten wippen en als "nieuw" aanmerken terwijl er aan de advertentie niets veranderde.
+Een echte prijsdaling is nieuws; een bewogen drempel niet.
 
-### Wanneer iets "weg" is, en wanneer niet
+Het spiegelbeeld is ook een schrijfactie: levert een geziene of hergecontroleerde
+advertentie géén vondst meer op, dan zet de ronde uitdrukkelijk `still_a_find = 0` en
+`left_find_at_price`. Wie dat overlaat aan "er komt geen nieuwe finding-rij", zet het nooit —
+de beoordelingsfunctie geeft bij een te hoge prijs immers gewoon niets terug.
 
-Een advertentie die niet meer in de resultaten voorkomt is meestal verkocht. Maar hij kan ook
-ontbreken omdat **jij de zoekterm hebt uitgezet die hem vond** — en dan zou de hele lijst in
-één keer als verkocht gemarkeerd worden.
+### Gerichte hercontrole: prijzen volgen en "weg" vaststellen
 
-Daarom onthoudt `listing` **alle** termen die hem ooit opleverden, en telt een afwezigheid
-alleen als er nog minstens één van die termen aanstaat. Eén term onthouden zou niet werken:
-"rtx 4090" en "geforce rtx" vinden dezelfde kaart, en dan zou het uitzetten van de ene de
-advertentie bevriezen terwijl de andere hem gewoon nog vindt.
+**Afwezigheid in de zoekresultaten zegt niets.** Beide bronnen leveren per term alleen de
+zestig níéuwste resultaten (`order=newest_first`); elke advertentie schuift daar na enkele
+dagen uit terwijl hij gewoon nog te koop staat. Wie afwezigheid als "verkocht" leest,
+markeert op den duur álles als verdwenen, ziet geen enkele prijsdaling meer, en de
+archief-terugkeer — de verkoper die na twee weken toegeeft — vuurt nooit. Dat is precies de
+stille storing die dit systeem niet mag hebben.
 
-Om dezelfde reden zijn er **twee** rondes nodig voordat `gone_since` gevuld wordt: Vinted
-levert niet elke ronde exact dezelfde selectie, dus één keer ontbreken zegt niets.
+Daarom worden actieve advertenties — vondsten in de inbox, op de volglijst of in het
+archief, zonder `gone_since` — **gericht hergecontroleerd**: het programma haalt hun eigen
+advertentiepagina of item-API op. Dat levert twee dingen op: de actuele prijs (naar
+`price_point` bij verandering — daar draaien de volglijst en de archief-terugkeer op) en
+het antwoord op de vraag of de advertentie nog bestaat.
+
+De regels:
+
+- Hooguit **dertig hercontroles per ronde**, roulerend op `last_checked` (oudste eerst),
+  zodat elke actieve advertentie ongeveer dagelijks langskomt. Een advertentie die deze ronde
+  toch in de zoekresultaten stond wordt overgeslagen: dan is al bewezen dat hij bestaat.
+- **De grens van zestig gaat over zoekverzoeken, niet over de hele ronde.** Dat onderscheid
+  is nodig sinds hercontroles bestaan: met de voorbeeldconfiguratie is een ronde 26 zoeken +
+  hooguit 30 hercontroles + hooguit 12 beschrijvingen, dus rond de 68 verzoeken. Dat past bij
+  anderhalve seconde ertussen, maar het hoort zichtbaar te zijn in plaats van pas op te
+  vallen als een bron gaat weigeren. `kaartenjager check` drukt daarom beide getallen af.
+- Alleen een ondubbelzinnig "bestaat niet meer" (HTTP 404/410, of de verwijderd-markering
+  van het platform) verhoogt `gone_checks`. Een netwerkfout, een 429 of een kapotte bron
+  telt níét mee: dan blijft `last_checked` staan en komt de advertentie de volgende ronde
+  weer aan de beurt. Een storing bij Vinted mag nooit als "alles is verkocht" lezen.
+- `gone_since` wordt pas gezet na **twee** opeenvolgende zulke hercontroles; één 404 kan een
+  hik zijn. Een geslaagde hercontrole zet `gone_checks` terug op nul.
+- Voor Vinted bestaat de detailroute al (de dossierfunctie gebruikt hem). Voor Marktplaats
+  is de advertentiepagina (`vipUrl`) de route.
+
+**Bij het bouwen vastgesteld (25 augustus 2026):** beide bronnen geven een schone HTTP 404 op
+een advertentie die niet bestaat, dus de weg-detectie leunt op een ondubbelzinnig signaal en
+niet op een gokje. Beide zetten ook een schema.org-`Product`-blok in de pagina, met de prijs
+en een `availability`. Vinted schrijft de prijs als getal, Marktplaats als tekst, en bij
+Marktplaats staat er een `BreadcrumbList`-blok vóór het Product-blok. Een `availability` die
+uitverkocht zegt telt als verdwenen: kopen kun je hem toch niet meer. De blokken van beide
+sites staan als testbestand in `tests/fixtures/`.
+
+Wat de pagina noemt is de **vraagprijs**; op Vinted komt daar kopersbescherming bovenop. Die
+opslag is ongeveer evenredig, dus de hercontrole houdt de verhouding van de vorige meting
+aan in plaats van de kosten weg te laten — dat laatste zou een prijsdaling voorspiegelen die
+er niet is.
+
+Het uitzetten van een zoekterm heeft hierdoor géén effect op bestaande vondsten: die worden
+via hun eigen pagina gevolgd, niet via de zoekresultaten. `found_by_terms` blijft bestaan
+voor de weergave (welke termen vonden dit), niet meer voor de weg-detectie.
 
 ## 5. De dagelijkse blik
 
@@ -291,11 +373,26 @@ loopt het niet vol als je een week niet kijkt, en beslis je zelf wanneer je iets
 De vorige stand wordt bewaard in `app_state['previous_visit']`, zodat "alles gezien" met één
 klik terug te draaien is.
 
+**De inbox heeft een afvoer.** Een vondst waarvan de advertentie verdwenen is (`gone_since`)
+of die geen vondst meer is (`still_a_find = 0`) verdwijnt vanzelf uit de inbox. Hij blijft
+zichtbaar in het archief, met het waarom erbij — "verdwenen op 3 september" of "prijs steeg
+boven de drempel". Zonder die regel staan er na een half jaar honderden dode regels onder
+"EERDER" en leest niemand de lijst nog.
+
+**En een hartslag.** Is `app_state['last_round_at']` binnen het dagvenster (08:00–22:00)
+ouder dan twee uur, dan toont de app bovenaan een rode balk, met de laatste inhoud van
+`app_state['last_round_problems']` erbij. Een dode wachter ziet er anders precies zo uit als
+een stille markt — en dat is de gevaarlijkste storing die dit systeem kent.
+
 ### Archiveren en volgen
 
 **Archiveren** legt de advertentie weg en onthoudt de prijs van dat moment. Zakt die later
-meer dan tien procent, dan komt hij terug in de inbox met de vlag *"was gearchiveerd op
-€1.150, staat nu op €980"*. Dat vangt precies de verkoper die na twee weken toegeeft.
+meer dan tien procent — de hercontrole (§4) blijft gearchiveerde advertenties volgen, dus
+die daling wordt ook echt gezien — dan toont de inbox hem opnieuw, met de vlag *"was
+gearchiveerd op €1.150, staat nu op €980"*. Dat is een leesregel in de app, geen
+statuswijziging: `state` blijft `archived` en `price_when_archived` blijft staan totdat jij
+er iets mee doet, zodat de scanner en de app nooit allebei aan dezelfde beslissing
+schrijven. Dit vangt precies de verkoper die na twee weken toegeeft.
 
 **Volgen** houdt hem zichtbaar in een aparte lijst, met elke prijswijziging eronder. Voor de
 twee of drie kaarten waar je serieus over nadenkt.
@@ -317,6 +414,13 @@ de standaarduitvoer van het programma af in het ingestelde kanaal. Print het pro
 dan is er geen bericht. Alles wat naar Discord moet is dus simpelweg wat er op stdout komt, en
 alles wat niet naar Discord moet gaat alleen de database in.
 
+Dat betekent ook: **waarschuwingen horen niet op stdout.** De huidige code print een
+PROBLEMEN-blok mee in het rondebericht; in dit regime zou "vijf vondsten kregen geen
+beschrijving" elke ronde een Discord-bericht opleveren. Problemen gaan voortaan naar stderr
+én naar `app_state['last_round_problems']`, waar de app ze bij de hartslag toont. Op stdout
+staan alleen uitschieters — plus één vangnetregel: staat er een reviewverzoek langer dan een
+uur onbeantwoord open, dan print de scan dat, zodat een verloren wekbericht zichtbaar wordt.
+
 Het bericht is kort. Geen redenen, geen dossier, geen waarschuwingen:
 
 ```
@@ -331,22 +435,51 @@ Vier regels. De rest staat in de app.
 **Eén bericht per advertentie, niet per ronde.** Zonder die regel krijg je vijftien keer per
 dag dezelfde 4090 zolang hij online staat. Er komt een kolom `pushed_at` op `finding`; een
 advertentie die al gemeld is blijft stil, tenzij de prijs sindsdien nog eens tien procent
-zakt — dan is het nieuws.
+zakt — dan is het nieuws. Omdat de ronde de finding-rij elke keer bijwerkt, moet die
+bijwerking `pushed_at` en `pushed_at_price` uitdrukkelijk laten staan (§4); wist hij ze, dan
+is dat precies fout drie uit het eerste ontwerp opnieuw.
+
+**Onder de bodem gaat niets naar Discord.** Dit kwam uit de eerste echte rondes: de hoogste
+kortingspercentages zijn vrijwel altijd oplichting. Een RTX 5090 voor €105,70 is 96% onder de
+markt en dus per definitie de luidste melding van de dag. Het programma wéét dat al — die
+prijs ligt onder `suspicious_below`, dat er juist voor is — maar de drempelregel hierboven
+keek daar niet naar, en dan bestaat het kanaal dat zeldzaam en betrouwbaar hoort te zijn
+vooral uit nepadvertenties.
+
+Dus: een vondst onder `suspicious_below` van zijn eigen kaartregel wordt niet gemeld. Hij
+staat gewoon in de app, met de waarschuwing erbij en de Hermes-knop eronder. Zo'n vondst
+krijgt wél meteen zijn `pushed_at`-stempel, anders komt hij elke ronde opnieuw langs en zou
+één prijsstijging hem alsnog het kanaal in duwen.
 
 Bij de huidige tabel zou dat ongeveer één bericht per paar dagen zijn — dat is het punt.
 
 ## 7. Hermes aan de knop
 
-De app zet een regel in `review_request`. Een cronjob van elke tien minuten werkt hem af.
+De app zet een regel in `review_request` en stuurt het wekbericht (§3). Hermes werkt de
+wachtrij af zodra dat bericht binnenkomt — er is geen poll-cron, dus een dag zonder klikken
+kost nul agent-aanroepen.
 
 ```
-kaartenjager reviews take          openstaande verzoeken als JSON, markeert ze als opgepakt
-kaartenjager reviews answer <id> --verdict <tekst> --recommendation <kijken|overslaan|oplichterij>
+kaartenjager reviews pending       openstaande verzoeken als JSON, zonder ze op te pakken
+kaartenjager reviews take          idem, en markeert ze als opgepakt
+kaartenjager reviews answer <id> --recommendation <kijken|overslaan|oplichterij>
+                                   het oordeel (de tekst) gaat via stdin — meerregelige
+                                   tekst door een shell-argument persen vraagt om
+                                   aanhaalfouten
 kaartenjager reviews fail <id> --reason <tekst>
+kaartenjager reviews request <sleutel>   een verzoek in de wachtrij zetten
 ```
 
-De database blijft zo achter het Rust-programma; Hermes praat nooit rechtstreeks met SQLite,
-zodat het schema op één plek gedefinieerd is.
+`request` staat er zodat de app het verzoek via het programma kan aanmaken in plaats van
+zelf de tabel te vullen; welke van de twee de app gebruikt is een keuze bij het bouwen.
+
+Hermes praat nooit rechtstreeks met SQLite; alles gaat via deze opdrachten. Let wel: het
+schema staat daarmee níét op één plek — de Svelte-app leest en schrijft óók rechtstreeks.
+Daarvoor is `PRAGMA user_version` er (§4): het programma hoogt hem op bij elke
+schemawijziging, de app controleert hem bij het starten en weigert met een duidelijke
+melding in plaats van half te werken op een schema dat hij niet kent. `kaartenjager update`
+vernieuwt het binaire bestand; de databasemigratie doet het programma zelf bij de
+eerstvolgende start.
 
 **Wat er met twijfelgevallen gebeurt.** In de vorige opzet gingen advertenties met
 `confidence = 'review'` automatisch naar Hermes. Nu Hermes een knop is, worden ze een
@@ -354,9 +487,10 @@ zichtbaar merkteken in de app: een oranje label *uitzoeken* met de reden erbij, 
 Hermes-knop eronder uitgelicht. Het programma beslist nog steeds wat twijfelachtig is; alleen
 gaat er niets meer vanzelf naar de agent.
 
-De skill moet daarop mee: `references/oordelen.md` beschrijft nu `queue take` en `queue done`,
-en dat wordt `reviews take` en `reviews answer`. De tweedaagse cronjob vervalt en er komt een
-van elke tien minuten voor in de plaats.
+De skill is daarop meegegaan: `references/oordelen.md` beschreef `queue take` en
+`queue done` en beschrijft nu de weg langs het wekbericht — bericht gezien, `reviews take`,
+beoordelen, `reviews answer`, en bij een lege lijst niets melden. De tweedaagse cronjob
+vervalt zonder opvolger.
 
 **Wat Hermes beoordeelt** staat al in `references/oordelen.md`: zijn de foto's van de kaart
 zelf of van de fabrikant, klinkt de beschrijving als iemand die weet wat hij verkoopt, staat
@@ -365,24 +499,30 @@ er iets over mining of reparatie, en bij een onbekend model wat het is en wat he
 Het antwoord komt in de app onder de advertentie te staan, met de aanbeveling als kleurmerk.
 
 **Wat er misgaat als niemand oplet:** een verzoek dat opgepakt is maar nooit beantwoord blijft
-hangen. Daarom zet `reviews take` een tijdstempel, en geldt een verzoek dat een uur oud is als
-mislukt en komt het weer in de wachtrij.
+hangen. Daarom zet `reviews take` `taken_at` en hoogt het `attempts` op. Een verzoek waarvan
+`taken_at` — niet `requested_at` — ouder is dan een uur komt terug in de wachtrij en wordt
+bij de eerstvolgende `reviews take` opnieuw opgepakt. Na **drie** pogingen zet het programma
+het zelf op mislukt, met als reden "drie pogingen mislukt"; zonder die grens blijft een
+advertentie waar de agent op stukloopt eeuwig terugkeren, en elke terugkeer kost geld.
+
+Mislukt is een **eindtoestand**: `reviews fail` zet naast `failed_reason` ook `answered_at`.
+Zo blijft "open = `answered_at IS NULL`" kloppen, en — belangrijker — laat de unieke index
+`review_one_open` daarna een nieuw verzoek voor dezelfde advertentie toe. De app toont het
+mislukte verzoek met de reden en een knop om het opnieuw te proberen.
 
 ### De cronjobs na deze wijziging
 
 | Naam | Wanneer | Agent | Wat |
 |---|---|---|---|
-| `kaartenjager-scan` | `0 8-22 * * *` | nee | Zoeken, beoordelen, wegschrijven. Print alleen uitschieters |
-| `kaartenjager-reviews` | `*/10 * * * *` | **ja** | Wachtrij afwerken. Doet niets als hij leeg is |
+| `kaartenjager-scan` | `0 8-22 * * *` | nee | Zoeken, beoordelen, hercontroleren, wegschrijven. Print alleen uitschieters en het wachtrij-vangnet |
 | `kaartenjager-prijzen` | `0 9 * * 0` | ja | Wekelijkse prijsherziening, ongewijzigd |
 
-`kaartenjager-oordeel` van 11:00 en 19:00 **vervalt**. Die werkte de stapel automatisch af, en
-dat is nu de knop.
-
-Die wachtrij-cronjob draait 144 keer per dag en doet vrijwel altijd niets. Dat mag geen
-agent-aanroep kosten: hij begint met `kaartenjager reviews take`, en als daar een lege lijst
-uit komt stopt hij zonder verder te denken. De skill moet dat expliciet als eerste stap
-voorschrijven.
+`kaartenjager-oordeel` van 11:00 en 19:00 **vervalt**. Die werkte de stapel automatisch af,
+en dat is nu de knop. Er komt géén poll-cron voor in de plaats: een agent-cron van elke tien
+minuten zou 144 agent-aanroepen per dag kosten, vrijwel allemaal voor een lege wachtrij —
+"stopt meteen als de lijst leeg is" verandert daar niets aan, want de agent is dan al
+gestart en dat starten ís de kostenpost. Het wekbericht uit §3 vervangt het poll-mechanisme
+volledig.
 
 ## 8. Zoektermen in de app
 
@@ -392,8 +532,18 @@ De enige configuratie die de app schrijft. Toevoegen, uitzetten, verwijderen.
 uit `kaartenjager.toml` overgenomen, en dat wordt vastgelegd in `app_state['terms_seeded']`.
 
 Zonder die markering zou het weghalen van je laatste zoekterm de hele lijst uit TOML
-terugzetten, en dat is precies het tegenovergestelde van wat je bedoelde. De grens van zestig verzoeken per ronde blijft gelden: staan
-er te veel termen aan, dan weigert de ronde te starten en zegt de app welke je uit moet zetten.
+terugzetten, en dat is precies het tegenovergestelde van wat je bedoelde.
+
+De grens van zestig zoekverzoeken per ronde wordt **in de app afgedwongen, op het moment van
+toevoegen of aanzetten**: komt het aantal actieve termen maal het aantal bronnen erboven,
+dan weigert de app de wijziging en zegt hij welke term er eerst uit moet. De controle in het
+programma blijft bestaan, maar als vangnet: weigert een ronde alsnog, dan schrijft hij dat
+naar `app_state['last_round_problems']` en kleurt de hartslag rood. Alleen bij het draaien
+controleren zou betekenen dat één extra term de wachter elk uur stilletjes laat weigeren —
+de fout hoort te vallen waar hij gemaakt wordt, in het formulier.
+
+Bij het toevoegen kiest de app ook het soort (`kind`): kaart of onderdeel. Eén keuzerondje
+in het formulier; het programma kan het niet raden.
 
 De rest van de configuratie — modellen, prijzen, filters, machine, kast — blijft in TOML. Dat
 is bewust: een verkeerde drempel legt de wachter stil, en dat wil je niet per ongeluk in een
@@ -428,18 +578,43 @@ aan. `rtx3090ti` zou met een woordgrens niet meer matchen, en dat is een veelvoo
 schrijfwijze. De regel "letters krijgen grenzen, cijfers niet" lost beide gevallen op zonder
 dat er iets ingesteld hoeft te worden.
 
+**Bijgesteld tijdens het bouwen: de grens is streng vóór het woord en soepel erachter.** Een
+grens aan beide kanten leest "voedingen" — het gewone meervoud, dat volop in titels staat —
+niet meer als een voeding, en veel erger: dan vuurt `kabel` niet meer op "kabels", en gaat een
+zak voedingskabels alsnog als voeding door. Wat vóór het woord geplakt zit verandert de
+betekenis ("borstvoeding" is geen voeding); wat erachter geplakt zit is meestal een meervoud.
+Daarom mag een patroon gevolgd worden door `en`, `s` of `e`, mits daarna het woord ophoudt.
+
+| Titel | Patroon | Uitkomst |
+|---|---|---|
+| "borstvoeding" | `voeding` | valt af — er zit iets vóór |
+| "twee voedingen" | `voeding` | past — meervoud |
+| "voedingssupplement" | `voeding` | valt af — `ssupplement` is geen uitgang |
+| "psu kabels set" | `kabel` | uitgesloten, zoals bedoeld |
+| "psufan" | `psu` | valt af — `fan` is geen uitgang |
+
 ## 10. Overgang
 
 De huidige bestanden worden bij de eerste start ingelezen en daarna genegeerd:
 
 | Van | Naar |
 |---|---|
-| `seen.json` | `listing` met `first_seen`, zonder verdere gegevens |
-| `queue.jsonl`, `queue.taken.jsonl` | `finding` met `confidence = 'review'` |
+| `seen.json` | **niets** — zie hieronder |
+| `queue.jsonl`, `queue.taken.jsonl` | `listing` plus `finding` met `confidence = 'review'` (de regels bevatten de volledige advertentie) |
 | `recent.jsonl` | `listing`, `price_point` en `finding` |
 
-Daarna blijven ze staan als terugval maar worden ze niet meer geschreven. Het overzetten
-gebeurt één keer en is te herhalen met `kaartenjager migrate --from-files`.
+`seen.json` wordt niet gemigreerd, want het kán niet en het hóéft niet. Kán niet: het
+bestand bevat alleen sleutel en tijdstempel, terwijl `listing` titel en URL eist — migreren
+zou duizenden spookrijen met lege titels opleveren. Hoeft niet: het bestand diende alleen de
+al-gezien-poort, en die bestaat in het nieuwe model niet meer (§3) — elke ronde wordt alles
+opnieuw gezeefd en beoordeeld.
+
+Gemigreerde vondsten krijgen `became_a_find_at` én `pushed_at` op het migratiemoment, en
+`app_state['last_visit']` wordt op datzelfde moment gezet. Zo begint de inbox leeg in plaats
+van met tweehonderd "nieuwe" oude bekenden, en herhaalt Discord niets dat al gemeld was.
+
+Daarna blijven de bestanden staan als terugval maar worden ze niet meer geschreven. Het
+overzetten gebeurt één keer en is te herhalen met `kaartenjager migrate --from-files`.
 
 ## 11. Wat er getest wordt
 
@@ -450,17 +625,27 @@ gebeurt één keer en is te herhalen met `kaartenjager migrate --from-files`.
 | Prijsgeschiedenis | Dezelfde prijs tweemaal geeft één regel; een andere prijs geeft er twee |
 | Nieuw sinds bezoek | Tijdstempel zetten, ronde draaien, telling controleren |
 | Terug uit archief | Archiveren op €1.150, prijs naar €980, hoort weer in de inbox |
-| Verdwenen | Twee rondes zonder de advertentie zet `gone_since`, maar alleen als de zoekterm die hem vond nog aanstaat |
-| Wachtrij | Oppakken markeert, beantwoorden sluit af, een uur oud komt terug |
+| Verdwenen | Twee hercontroles met "bestaat niet meer" zetten `gone_since`; een netwerkfout of 429 telt niet mee |
+| Hercontrole | Een prijswijziging op de eigen pagina levert een `price_point`-regel, ook voor gearchiveerde advertenties |
+| Wachtrij | Oppakken markeert en telt een poging; beantwoorden sluit af; een uur na `taken_at` komt hij terug |
 | Uitschieterdrempel | 30% stuurt niets bij een grens van 35%, 40% wel |
 | Overgang | Bestaande bestanden inlezen levert het verwachte aantal regels |
 | Eén melding per advertentie | Tweemaal dezelfde vondst stuurt één bericht; tien procent lager stuurt een tweede |
-| Uitgezette zoekterm | Advertenties eraan verdwijnen niet, ze bevriezen |
+| Uitgezette zoekterm | Bestaande vondsten blijven via hercontrole gevolgd; er verdwijnt en bevriest niets |
 | Zoektermen leeghalen | Alles verwijderen laadt de lijst niet opnieuw uit TOML |
 | Nieuw verloopt vanzelf | Een vondst van drie dagen oud telt niet meer als nieuw zonder klik |
 | Nieuw blijft niet eeuwig nieuw | Vijf rondes over dezelfde advertentie laat hem één keer als nieuw tellen |
 | Tweemaal klikken op Hermes | Levert één verzoek in de wachtrij op, geen twee |
-| Twee zoektermen, één advertentie | De ene uitzetten bevriest hem niet zolang de andere aanstaat |
+| Tweemaal oppakken | Een tweede `reviews take` geeft niets zolang het eerste nog loopt, zodat de pogingengrens niet in een seconde opgaat |
+| Meervouden | "voedingen" past op `voeding`, "kabels" sluit uit, "borstvoeding" niet |
+| Oplichterij blijft uit Discord | Een vondst onder `suspicious_below` haalt de drempel wel maar wordt niet gemeld |
+| Overgang herhalen | Een tweede `migrate --from-files` streept niet weg wat je nog niet gezien hebt, en telt onleesbare regels |
+| Mislukt verzoek | Drie keer oppakken zonder antwoord zet hem op mislukt; daarna kan er een nieuw verzoek voor dezelfde advertentie |
+| Eenmalige velden | Een ronde die de finding-rij bijwerkt laat `pushed_at`, `pushed_at_price` en `became_a_find_at` staan |
+| Niet langer interessant | Prijs boven de drempel zet `still_a_find = 0` en haalt hem uit de inbox; een drempelverschuiving zonder prijsdaling maakt hem daarna niet opnieuw "nieuw" |
+| Hartslag | Elke ronde schrijft `last_round_at`; de app toont de rode balk bij een verouderde stempel |
+| Migratie zonder herrie | Na `migrate --from-files` is de inbox leeg en stuurt Discord niets opnieuw |
+| Termgrens in de app | De term die over de grens gaat wordt in het formulier geweigerd, niet pas in de ronde |
 | Gelijktijdig schrijven | Een klik tijdens het wegschrijven van een ronde wacht en faalt niet |
 
 Alle controles blijven zonder netwerk draaien, met een database in een tijdelijke map.
