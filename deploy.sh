@@ -11,7 +11,7 @@
 #   KAARTENJAGER_DISCORD_WEBHOOK=https://discord.com/api/webhooks/... sh deploy.sh
 #
 # Zonder die webhook werkt alles, alleen wordt Hermes niet gewekt als je op de knop drukt.
-# Het verzoek komt dan wel in de wachtrij en de uurlijkse scan meldt het na een uur alsnog.
+# Het verzoek komt dan wel in de wachtrij en de scan meldt het na een kwartier alsnog.
 
 set -eu
 
@@ -68,6 +68,20 @@ else
 push_below_market_percent = 35
 TOML
   say "    [notify] onderaan toegevoegd, drempel op 35%"
+fi
+
+if grep -q '^\[scan\]' "$CONFIG"; then
+  say "    [scan] staat er al"
+else
+  cat >> "$CONFIG" <<'TOML'
+
+# Hoe de ronde zich verdeelt over zoeken en volgen. Zoeken hoort vaak te
+# gebeuren, prijzen volgen van advertenties die je al kent juist niet.
+[scan]
+recheck_every_minutes = 30
+close_watch_hours = 6
+TOML
+  say "    [scan] onderaan toegevoegd"
 fi
 
 if grep -q '^postcode = ""' "$CONFIG"; then
@@ -144,9 +158,12 @@ Niet aan het open internet hangen: de app kent geen inlog, wie binnen is mag all
 
 Twee dingen die dit script niet kan doen:
 
-  1. De cronjob 'kaartenjager-oordeel' van 11:00 en 19:00 weghalen. Die werkte de stapel
-     automatisch af, en dat is nu een knop in de app. 'kaartenjager-scan' en
-     'kaartenjager-prijzen' blijven ongewijzigd.
+  1. De cronjobs bijstellen:
+     - 'kaartenjager-oordeel' van 11:00 en 19:00 weghalen. Die werkte de stapel automatisch
+       af, en dat is nu een knop in de app.
+     - 'kaartenjager-scan' op "*/5 8-22 * * *" zetten in plaats van elk uur. Een echt koopje
+       is soms binnen een half uur weg.
+     - 'kaartenjager-prijzen' blijft ongewijzigd.
 
   2. De Discord-webhook invullen, als je hem hierboven niet hebt meegegeven. Zet in
      $UNIT de regel:
