@@ -74,9 +74,13 @@ fn carry_everything(
     }
 
     // Zonder deze twee stempels zou alles wat overkomt als "nieuw sinds je laatste bezoek"
-    // gelden, en dat is precies de muur tekst waar de app vanaf moest. Alleen bij de eerste
-    // overgang: een herhaling mag niet stilzwijgend wegstrepen wat je nog niet gezien hebt.
-    if database.state("last_visit").is_none() {
+    // gelden, en dat is precies de muur tekst waar de app vanaf moest.
+    //
+    // Alleen als er ook werkelijk iets overkwam, en alleen de eerste keer. Op een verse
+    // installatie zonder oude bestanden zou stempelen juist averechts werken: de overgang
+    // draait vlak vóór de eerste ronde, dus alles wat die ronde vindt krijgt hetzelfde
+    // tijdstempel en zou meteen als "al gezien" gelden. Dan is je allereerste inbox leeg.
+    if outcome.findings > 0 && database.state("last_visit").is_none() {
         database.set_state("last_visit", &now.to_string())?;
         database.set_state("previous_visit", &now.to_string())?;
     }

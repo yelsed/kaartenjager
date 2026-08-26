@@ -1,0 +1,33 @@
+# De app als gebruikersservice. Zet dit bestand in ~/.config/systemd/user/ en draai:
+#
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now kaartenjager-app
+#   loginctl enable-linger $USER      # zodat hij blijft draaien zonder ingelogde sessie
+#
+# Aanpassen: WorkingDirectory naar waar je de repository hebt neergezet, en het adres van de
+# Discord-webhook. Zonder die webhook blijft alles werken, alleen wordt Hermes niet gewekt
+# als je op de knop drukt — het verzoek staat dan wel in de wachtrij.
+
+[Unit]
+Description=Kaartenjager, de werkbank bij de wachter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/kaartenjager/app
+ExecStart=/usr/bin/env node build
+
+Environment=NODE_ENV=production
+# Alleen op het tailnet luisteren. De app kent geen inlog: wie binnen is mag alles, en dat is
+# precies waarom hij niet aan het open internet hoort te hangen.
+Environment=HOST=0.0.0.0
+Environment=PORT=5173
+Environment=KAARTENJAGER_DB=%h/.local/share/kaartenjager/kaartenjager.db
+# Environment=KAARTENJAGER_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
+
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

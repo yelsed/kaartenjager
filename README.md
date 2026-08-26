@@ -112,9 +112,9 @@ en waarom.
 De database is de enige koppeling tussen het programma, de app en Hermes. Er is geen API en
 geen poort: valt de app om, dan blijft het zoeken doorgaan, en andersom.
 
-De app zelf staat niet in deze repository. Waar hij zich aan moet houden — de schemacontrole,
-`busy_timeout`, de hartslag, de Hermes-knop en de grens op het aantal zoektermen — staat in
-[`docs/app-afspraken.md`](docs/app-afspraken.md).
+De app staat in [`app/`](app/): SvelteKit met server-routes, die de database leest met het
+ingebouwde `node:sqlite` — geen native module, dus geen compiler op de server. Waar hij zich
+aan moet houden staat in [`docs/app-afspraken.md`](docs/app-afspraken.md).
 
 SQLite draait in WAL-modus en elke verbinding zet `PRAGMA busy_timeout = 5000`, zodat een
 klik die samenvalt met het wegschrijven van een ronde wacht in plaats van te falen.
@@ -196,6 +196,8 @@ De melding is het begin, niet het eind:
 ```sh
 cargo build --release
 ./target/release/kaartenjager selftest
+
+cd app && npm install && npm run build
 ```
 
 Rust 1.85 of nieuwer. Vijf afhankelijkheden: `ureq`, `serde`, `toml`, `time` en `rusqlite`

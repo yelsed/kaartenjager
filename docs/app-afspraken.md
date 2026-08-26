@@ -1,16 +1,21 @@
 # Wat de app moet doen
 
-De Svelte-app draait op `openbinker` en staat niet in deze repository. Hij deelt alleen dit
-databasebestand met het programma, en dat maakt een paar afspraken bindend. Ze staan hier
-omdat het programma ze afdwingt of erop rekent.
+De app staat in [`../app/`](../app/). Hij deelt één databasebestand met het programma en met
+Hermes, en dat maakt een paar afspraken bindend. Ze staan hier apart van de code omdat het
+programma ze afdwingt of erop rekent — wie de app herschrijft of vervangt, houdt zich hieraan.
 
 ## De verbinding
 
+`node:sqlite` zit sinds Node 22 in Node zelf, dus er is geen `better-sqlite3` nodig en dus ook
+geen compiler op de server.
+
 ```js
-const db = new Database(process.env.KAARTENJAGER_DB
+import { DatabaseSync } from 'node:sqlite';
+
+const db = new DatabaseSync(process.env.KAARTENJAGER_DB
   ?? `${homedir()}/.local/share/kaartenjager/kaartenjager.db`);
 
-db.pragma('busy_timeout = 5000');
+db.exec('PRAGMA busy_timeout = 5000');
 ```
 
 `busy_timeout` is niet optioneel. Zonder die regel geeft een klik die precies samenvalt met
@@ -22,9 +27,16 @@ WAL staat al aan; die instelling zit in het bestand zelf en hoeft niet herhaald 
 ## De schemaversie controleren
 
 ```js
-const version = db.pragma('user_version', { simple: true });
-if (version !== 1) throw new Error(`kaartenjager.db heeft schema ${version}, deze app kent 1`);
+const { user_version } = db.prepare('PRAGMA user_version').get();
+if (user_version !== 1) {
+  throw new Error(`kaartenjager.db heeft schema ${user_version}, deze app kent 1`);
+}
 ```
+
+Is de versie 0, dan bestaat de database nog niet of is hij leeg. De app maakt hem bewust niet
+zelf aan: het schema hoort bij het programma, en een app die zelf tabellen verzint is precies
+hoe twee versies stilletjes uit elkaar gaan lopen. Zeg dan dat er eerst `kaartenjager run`
+moet draaien.
 
 Het programma hoogt `user_version` op bij elke schemawijziging en migreert zichzelf bij de
 eerstvolgende start. De app hoort te wéigeren bij een versie die hij niet kent, met een
@@ -110,12 +122,15 @@ een knop om het opnieuw te proberen.
 
 De app is de enige die `search_term` beheert. Bij toevoegen of aanzetten geldt:
 
-```
-(aantal termen met enabled = 1) × (aantal bronnen) ≤ 60
+```sql
+SELECT value FROM app_state WHERE name = 'max_search_terms';
 ```
 
-Bronnen zijn er twee, dus dertig aanstaande termen is het maximum. **Weiger de wijziging in
-het formulier** als hij daarboven uitkomt, en zeg welke term er eerst uit moet. Het programma
+Het programma schrijft dat getal elke ronde weg, want het hangt af van het aantal bronnen en
+dat staat in TOML — dat de app niet leest. Bij twee bronnen is het dertig.
+
+**Weiger de wijziging in het formulier** zodra het aantal aanstaande termen daarboven
+uitkomt, bij toevoegen én bij aanzetten, en zeg dat er eerst een uit moet. Het programma
 weigert de ronde óók bij overschrijding, maar dat gebeurt dan elk uur op de server — de fout
 hoort te vallen waar hij gemaakt wordt.
 

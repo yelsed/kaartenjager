@@ -157,6 +157,7 @@ pub fn run() -> bool {
         ("vastgelopen verzoek komt terug en faalt na drie pogingen", check_review_attempts),
         ("overgang uit de oude bestanden maakt geen herrie", check_migration_is_quiet),
         ("overgang herhalen streept niets weg", check_migration_repeats_safely),
+        ("verse installatie begint niet met een lege inbox", check_fresh_install_keeps_first_round),
         ("hercontrole leest prijs en verkocht uit de pagina", check_recheck_parsing),
         ("hercontrole leest een echte Vinted-pagina", check_recheck_vinted_page),
         ("hercontrole leest een echte Marktplaats-pagina", check_recheck_marktplaats_page),
@@ -1538,6 +1539,37 @@ fn check_below_floor_stays_quiet(settings: &Settings) -> Result<(), String> {
     let pushes = crate::hunt::decide_pushes(&database, settings, 2_000)?;
     if pushes.len() != 1 || pushes[0].key != "vinted:17" {
         return Err("een geloofwaardige vondst boven de bodem hoorde wel gemeld te worden".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+/// Zonder oude bestanden valt er niets weg te strepen. Stempelen zou hier averechts werken:
+/// de overgang draait vlak vóór de eerste ronde, dus alles wat die ronde vindt krijgt
+/// hetzelfde tijdstempel en zou meteen als "al gezien" gelden — een lege eerste inbox.
+fn check_fresh_install_keeps_first_round(_settings: &Settings) -> Result<(), String> {
+    let directory = scratch_directory("verse-installatie")?;
+    let database = Database::open(&directory.join("kaartenjager.db"))?;
+
+    let outcome = migrate::from_files(&database, &directory, 9_000)?;
+    if outcome.findings != 0 {
+        return Err("er stonden geen oude bestanden, dus er hoorde niets over te komen".into());
+    }
+    if database.state("last_visit").is_some() {
+        return Err("zonder overgezette vondsten hoort er geen bezoek gestempeld te worden".into());
+    }
+    // De markering zelf wél, anders probeert elke ronde het opnieuw.
+    if database.state("migrated_from_files_at").is_none() {
+        return Err("de overgang hoort zichzelf wel af te vinken".into());
+    }
+
+    // En dan telt de eerste vondst gewoon als nieuw.
+    store(&database, &sample_finding("18", 1200.0, 33.0), 9_000)?;
+    let visited: i64 = database.state("last_visit").map_or(0, |value| value.parse().unwrap_or(0));
+    if database.became_a_find_at("vinted:18")? <= visited {
+        return Err("de eerste vondst van een verse installatie hoort nieuw te zijn".into());
     }
 
     let _ = std::fs::remove_dir_all(&directory);

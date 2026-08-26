@@ -203,7 +203,7 @@ pub fn run_round(
             let reviews_waiting =
                 database.reviews_waiting_longer_than(REVIEW_NAG_AFTER_SECONDS, now)?;
 
-            record_heartbeat(database, now, &problems);
+            record_heartbeat(database, settings, now, &problems);
 
             Ok(RoundOutcome {
                 pushes,
@@ -418,10 +418,19 @@ fn below_the_floor(settings: &Settings, candidate: &PushCandidate) -> bool {
 
 /// The heartbeat. A watcher that died looks exactly like a market with no bargains, so the app
 /// needs to be able to tell the difference without anyone remembering to check.
-fn record_heartbeat(database: &Database, now: i64, problems: &[String]) {
+fn record_heartbeat(database: &Database, settings: &Settings, now: i64, problems: &[String]) {
     let _ = database.set_state("last_round_at", &now.to_string());
     let json = serde_json::to_string(problems).unwrap_or_else(|_| "[]".to_string());
     let _ = database.set_state("last_round_problems", &json);
+
+    // Hoeveel zoektermen er hoogstens aan mogen staan. De app moet die grens in het
+    // formulier afdwingen, en zou hem anders moeten afleiden uit het aantal bronnen — dat
+    // staat in TOML, dat de app niet leest.
+    let sources = settings.sources.len().max(1);
+    let _ = database.set_state(
+        "max_search_terms",
+        &(MAX_REQUESTS_PER_ROUND / sources).to_string(),
+    );
 }
 
 /// Looks a listing up for the dossier command.

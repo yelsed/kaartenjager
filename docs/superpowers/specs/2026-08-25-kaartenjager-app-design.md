@@ -22,13 +22,14 @@ wegleggen: elke melding blijft even zichtbaar als de rest.
 toevoegen betekent inloggen en een bestand bewerken, en dus gebeurt het niet. De dekking
 blijft daardoor te klein.
 
-Er draait al een Svelte-app op `openbinker` voor een transfermarkt-schraper. Kaartenjager
-krijgt daar een plek naast.
+**Bij het bouwen vastgesteld:** het wordt een eigen SvelteKit-project met server-routes, in
+`app/` binnen deze repository. Niet een route in iets bestaands: dan is de app los uit te
+rollen en te herstarten zonder er iets anders bij te betrekken.
 
-**Nog vast te stellen bij het bouwen:** of dat een SvelteKit-project is met server-routes, en
-of kaartenjager er een route in krijgt of een eigen app naast wordt. Het ontwerp hieronder gaat
-uit van SvelteKit met server-routes en `better-sqlite3`; is het een losse Svelte-app zonder
-server-kant, dan verschuift alleen waar de databasecode staat, niet wat hij doet.
+De database wordt gelezen met **`node:sqlite`**, dat sinds Node 22 in Node zelf zit, en niet
+met `better-sqlite3` zoals eerst aangenomen. Dat scheelt een native module, en daarmee een
+compiler op de server — precies het soort afhankelijkheid dat pas opvalt als je een keer wilt
+bijwerken.
 
 ## 2. Wat er blijft en wat er verandert
 
