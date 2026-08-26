@@ -478,8 +478,9 @@ Hermes praat nooit rechtstreeks met SQLite; alles gaat via deze opdrachten. Let 
 schema staat daarmee níét op één plek — de Svelte-app leest en schrijft óók rechtstreeks.
 Daarvoor is `PRAGMA user_version` er (§4): het programma hoogt hem op bij elke
 schemawijziging, de app controleert hem bij het starten en weigert met een duidelijke
-melding in plaats van half te werken op een schema dat hij niet kent. `kaartenjager update`
-vernieuwt het binaire bestand; de databasemigratie doet het programma zelf bij de
+melding in plaats van half te werken op een schema dat hij niet kent. Het binaire bestand
+vernieuw je door `install.sh` opnieuw te draaien — er is geen `kaartenjager update`, wat de
+oudere ontwerpen wel beweerden. De databasemigratie doet het programma zelf bij de
 eerstvolgende start.
 
 **Wat er met twijfelgevallen gebeurt.** In de vorige opzet gingen advertenties met

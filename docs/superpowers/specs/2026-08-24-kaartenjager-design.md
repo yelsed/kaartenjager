@@ -497,7 +497,8 @@ curl -fsSL https://raw.githubusercontent.com/yelsed/kaartenjager/main/install.sh
 
 Herkent de architectuur, haalt de nieuwste release, **controleert de SHA256**, plaatst het
 binaire bestand en de skill, en schrijft een voorbeeldconfiguratie als er nog geen is.
-Bijwerken: `kaartenjager update`.
+Bijwerken: hetzelfde script opnieuw draaien. (Het latere ontwerp beloofde hier een
+`kaartenjager update`-opdracht; die is nooit gebouwd.)
 
 ### De skill
 

@@ -118,9 +118,14 @@ mag alles, en dat is precies waarom hij daar hoort te blijven.
 ### Bijwerken
 
 ```sh
-kaartenjager update                          # het programma
+# Het programma: hetzelfde script als bij installeren. Een bestaande
+# kaartenjager.toml blijft staan; het nieuwe voorbeeld komt er als
+# kaartenjager.toml.new naast.
+curl -fsSL https://raw.githubusercontent.com/yelsed/kaartenjager/main/install.sh | sh
+
+# De app
 cd ~/kaartenjager && git pull && cd app && npm ci && npm run build
-systemctl --user restart kaartenjager-app    # de app
+systemctl --user restart kaartenjager-app
 ```
 
 Verandert het schema, dan migreert het programma zichzelf bij de eerstvolgende start en
