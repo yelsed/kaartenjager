@@ -71,12 +71,12 @@ pub fn render_round(
             out.push('\n');
         }
         let what = if reviews_waiting == 1 {
-            "Eén beoordeling wacht".to_string()
+            "Eén beoordeling wacht al even".to_string()
         } else {
-            format!("{reviews_waiting} beoordelingen wachten")
+            format!("{reviews_waiting} beoordelingen wachten al even")
         };
         out.push_str(&format!(
-            "{what} al meer dan een uur op Hermes. Vraag hem de wachtrij af te werken.\n"
+            "{what} op Hermes. Vraag hem de wachtrij af te werken met: kaartenjager reviews take\n"
         ));
     }
 
