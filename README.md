@@ -277,6 +277,21 @@ De melding is het begin, niet het eind:
    beschrijving" — niet "doet het na drie weken niet meer"
 5. Vraag of hij in een doos met opvulling gaat. Videokaarten breken bij de PCIe-connector
 
+## Uitgeven
+
+```sh
+git tag -a v1.6.0 -m 'Kaartenjager 1.6.0' && git push origin v1.6.0
+gh run list --repo yelsed/kaartenjager --limit 1     # start er een build?
+```
+
+De workflow luistert op `push` van een tag `v*`, maar dat blijkt niet betrouwbaar te vuren:
+sinds v1.4.0 kwam er geen enkele tag-push als event binnen terwijl de tags er wél staan.
+Start hem dan met de hand — dat werkt wel, en levert dezelfde release op:
+
+```sh
+gh workflow run release.yml --repo yelsed/kaartenjager --ref v1.6.0
+```
+
 ## Zelf bouwen
 
 ```sh
