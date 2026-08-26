@@ -33,6 +33,7 @@ gebruikersservice neer; lees de kop van dat bestand voor wat je moet aanpassen.
 | `KAARTENJAGER_DB` | Pad naar de database. Zonder deze valt hij terug op `~/.local/share/kaartenjager/kaartenjager.db` |
 | `KAARTENJAGER_DISCORD_WEBHOOK` | Waar het wekbericht naar Hermes heen gaat. Zonder deze blijft de knop werken, maar wordt Hermes niet gewekt |
 | `PORT`, `HOST` | Waar hij luistert. Standaard 3000 op alle adressen |
+| `TZ` | De tijdzone waarin tijdstippen getoond worden. Zonder deze staat alles in de tijdzone van de server, meestal UTC — en dan lijkt een ronde van net twee uur oud |
 | `KAARTENJAGER_BIN` | Het programma dat de knop "nu zoeken" start. Standaard `~/.local/bin/kaartenjager` |
 | `KAARTENJAGER_TRUSTED_ORIGINS` | Komma-gescheiden extra herkomsten die formulierposts mogen doen. Alleen nodig achter een reverse proxy |
 

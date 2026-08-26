@@ -122,6 +122,7 @@ if [ -f "$UNIT" ]; then
 else
   sed -e "s|%h/kaartenjager/app|$CHECKOUT/app|" \
       -e "s|^Environment=PORT=.*|Environment=PORT=$APP_PORT|" \
+      -e "s|^Environment=TZ=.*|Environment=TZ=${KAARTENJAGER_TZ:-Europe/Amsterdam}|" \
       "$CHECKOUT/app/kaartenjager-app.service" > "$UNIT"
 
   if [ -n "${KAARTENJAGER_DISCORD_WEBHOOK:-}" ]; then

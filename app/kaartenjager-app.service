@@ -19,6 +19,9 @@ WorkingDirectory=%h/kaartenjager/app
 ExecStart=/usr/bin/env node build
 
 Environment=NODE_ENV=production
+# De app rendert tijden op de server, dus zonder dit staan alle tijdstippen in UTC en lijkt
+# een ronde van vijf minuten geleden twee uur oud.
+Environment=TZ=Europe/Amsterdam
 # Alleen op het tailnet luisteren. De app kent geen inlog: wie binnen is mag alles, en dat is
 # precies waarom hij niet aan het open internet hoort te hangen.
 Environment=HOST=0.0.0.0
