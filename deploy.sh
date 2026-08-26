@@ -119,6 +119,15 @@ mkdir -p "$UNIT_DIR"
 
 if [ -f "$UNIT" ]; then
   say "    $UNIT bestaat al en blijft zoals hij is"
+
+  # Behalve de webhook: die wil je juist later kunnen invullen, zonder de rest kwijt te
+  # raken. Meegegeven betekent hier dus: zet hem, wat er ook stond.
+  if [ -n "${KAARTENJAGER_DISCORD_WEBHOOK:-}" ]; then
+    sed -i -e 's|^#* *Environment=KAARTENJAGER_DISCORD_WEBHOOK=.*|Environment=KAARTENJAGER_DISCORD_WEBHOOK='"$KAARTENJAGER_DISCORD_WEBHOOK"'|' "$UNIT"
+    grep -q '^Environment=KAARTENJAGER_DISCORD_WEBHOOK=' "$UNIT" \
+      || sed -i "/^Environment=KAARTENJAGER_DB=/a Environment=KAARTENJAGER_DISCORD_WEBHOOK=$KAARTENJAGER_DISCORD_WEBHOOK" "$UNIT"
+    say "    webhook bijgewerkt"
+  fi
 else
   sed -e "s|%h/kaartenjager/app|$CHECKOUT/app|" \
       -e "s|^Environment=PORT=.*|Environment=PORT=$APP_PORT|" \

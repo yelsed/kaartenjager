@@ -112,7 +112,16 @@ curl -fsSL https://raw.githubusercontent.com/yelsed/kaartenjager/main/deploy.sh 
 ```
 
 Twee dingen doet het script bewust niet: de cronjob `kaartenjager-oordeel` weghalen (dat gaat
-via Hermes) en je `kaartenjager.toml` aanpassen, op het toevoegen van `[notify]` na.
+via Hermes) en je `kaartenjager.toml` aanpassen, op het toevoegen van `[notify]` en `[scan]` na.
+
+De webhook mag je ook later invullen; dan zet je alleen die en blijft de rest van de service
+zoals hij is:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/yelsed/kaartenjager/main/deploy.sh \
+  | KAARTENJAGER_DISCORD_WEBHOOK=https://discord.com/api/webhooks/... sh
+systemctl --user restart kaartenjager-app
+```
 
 De losse stappen, als je liever ziet wat er gebeurt:
 
