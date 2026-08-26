@@ -20,9 +20,12 @@ pub const RECHECKS_PER_ROUND: usize = 30;
 /// koopje verdwijnt.
 pub const FRESH_RECHECKS_PER_ROUND: usize = 5;
 
-/// A review request older than this without an answer is worth printing: the wake-up message
-/// to Hermes may have gone missing, and a queue nobody works through is invisible otherwise.
-const REVIEW_NAG_AFTER_SECONDS: i64 = 3600;
+/// Een verzoek dat langer dan dit onbeantwoord staat hoort in Discord te komen: het wekbericht
+/// kan verloren zijn, en een wachtrij waar niemand doorheen gaat is verder onzichtbaar.
+///
+/// Een uur paste bij rondes van een uur. Nu er elke vijf minuten gedraaid wordt, is een
+/// kwartier ruim genoeg om Hermes de kans te geven en snel genoeg om er iets aan te hebben.
+const REVIEW_NAG_AFTER_SECONDS: i64 = 900;
 
 pub struct RoundOutcome {
     /// What goes to Discord. Everything else stays in the database.
