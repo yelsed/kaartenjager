@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { enhance } from '$app/forms';
 	import { clockTime } from '$lib/format';
 
 	let { children, data } = $props();
@@ -52,7 +53,18 @@
 	{/if}
 
 	<header>
-		<h1>Kaartenjager</h1>
+		<div class="titelbalk">
+			<h1>Kaartenjager</h1>
+			<!--
+				De cronjob doet dit elk uur. Deze knop is voor als je niet wilt wachten: net een
+				zoekterm toegevoegd, of je wilt weten of er nu iets staat.
+			-->
+			<form method="POST" action="?/nuZoeken" use:enhance>
+				<button disabled={data.ronde.running}>
+					{data.ronde.running ? 'bezig met zoeken…' : 'nu zoeken'}
+				</button>
+			</form>
+		</div>
 		<nav>
 			{#each tabbladen as tabblad (tabblad.pad)}
 				<a
@@ -67,6 +79,15 @@
 				</a>
 			{/each}
 		</nav>
+		{#if data.ronde.running && data.ronde.startedAt}
+			<p class="wachtrij">
+				Ronde gestart om {clockTime(data.ronde.startedAt)}. Ververs over een minuut; de
+				regel onderaan zegt wanneer hij klaar is.
+			</p>
+		{:else if data.ronde.lastResult}
+			<p class="wachtrij">{data.ronde.lastResult}</p>
+		{/if}
+
 		{#if data.openVerzoeken > 0}
 			<p class="wachtrij">
 				{data.openVerzoeken === 1
@@ -134,6 +155,17 @@
 
 	header {
 		margin-bottom: 1.5rem;
+	}
+
+	.titelbalk {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.titelbalk form {
+		margin: 0;
 	}
 
 	h1 {

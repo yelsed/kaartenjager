@@ -26,6 +26,9 @@ Environment=PORT=5173
 Environment=KAARTENJAGER_DB=%h/.local/share/kaartenjager/kaartenjager.db
 # Environment=KAARTENJAGER_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
 
+# Het programma dat de knop "nu zoeken" start. Alleen nodig als het ergens anders staat.
+# Environment=KAARTENJAGER_BIN=%h/.local/bin/kaartenjager
+
 Restart=on-failure
 RestartSec=5s
 

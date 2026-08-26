@@ -140,6 +140,38 @@ niet raden.
 Een term uitzetten heeft geen gevolgen voor bestaande vondsten: die worden via hun eigen
 pagina gevolgd, niet via de zoekresultaten.
 
+## Zelf een ronde starten
+
+De knop "nu zoeken" start `kaartenjager run` als los proces en wacht er niet op — een ronde
+duurt ruim een minuut, en daar een formulierpost op laten wachten levert alleen een pagina op
+die lijkt vast te zitten. Eén tegelijk: twee rondes naast elkaar leveren niets extra's op en
+verdubbelen wel het aantal verzoeken aan Vinted en Marktplaats.
+
+Het pad naar het programma komt uit `KAARTENJAGER_BIN`, met `~/.local/bin/kaartenjager` als
+terugval.
+
+Wat het programma op stdout zet gaat bij de cronjob naar Discord. Start jij de ronde vanuit de
+app, dan is er geen cronjob die dat doet — dus stuurt de app die uitvoer zelf door naar de
+webhook. Zonder die regel zou de melding verloren gaan terwijl `pushed_at` wél gestempeld is,
+en dan krijg je hem ook later nooit meer.
+
+## Formulierposts en herkomst
+
+SvelteKit weigert standaard elke formulierpost waarvan de `Origin`-kop niet exact gelijk is aan
+de herkomst van de server, schema en al. `adapter-node` kent zijn eigen schema niet en gokt
+daarom `https` zolang `ORIGIN` niet gezet is, terwijl de app over gewoon HTTP draait. Gevolg:
+403 op elke knop, en niets in het log dat daarop wijst.
+
+Daarom staat die controle uit (`csrf: { trustedOrigins: ['*'] }` in `vite.config.ts`) en doet
+`src/hooks.server.ts` hem zelf, vergelijkend op **host** in plaats van op host én schema. Dat
+houdt precies de aanval tegen waar CSRF over gaat en blijft werken of je de app nu via het IP,
+via `openbinker` of via de MagicDNS-naam opent.
+
+**Let op bij het testen.** Die hele controle staat uit in ontwikkelmodus
+(`if (!__SVELTEKIT_DEV__)` in `runtime/server/respond.js`). Een knop die het met `npm run dev`
+doet, zegt dus niets over productie. `npm run smoke` start daarom de productiebouw en post elke
+actie mét een `Origin`-kop; dat is de enige manier waarop deze fout zichtbaar wordt.
+
 ## Wat de app niet doet
 
 Geen inlog — hij hangt achter het tailnet. Geen drempels, filters of kaartregels: die staan

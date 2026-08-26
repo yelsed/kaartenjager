@@ -5,6 +5,15 @@ import { fail } from '@sveltejs/kit';
 import type { Actions } from '@sveltejs/kit';
 import * as store from './db';
 import { wakeHermes } from './hermes';
+import { startRound } from './ronde';
+
+/// Op elk tabblad beschikbaar, zodat de knop in de kop vanaf elke pagina werkt.
+const runActions: Actions = {
+	nuZoeken: async () => {
+		const { started, message } = startRound();
+		return { success: started, message };
+	}
+};
 
 function requireKey(form: FormData): string | null {
 	const key = form.get('key');
@@ -12,6 +21,8 @@ function requireKey(form: FormData): string | null {
 }
 
 export const findingActions: Actions = {
+	...runActions,
+
 	archiveren: async ({ request }) => {
 		const form = await request.formData();
 		const key = requireKey(form);
@@ -69,6 +80,8 @@ export const findingActions: Actions = {
 };
 
 export const termActions: Actions = {
+	...runActions,
+
 	toevoegen: async ({ request }) => {
 		const form = await request.formData();
 		const term = form.get('term');

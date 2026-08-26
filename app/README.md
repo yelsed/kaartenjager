@@ -33,6 +33,19 @@ gebruikersservice neer; lees de kop van dat bestand voor wat je moet aanpassen.
 | `KAARTENJAGER_DB` | Pad naar de database. Zonder deze valt hij terug op `~/.local/share/kaartenjager/kaartenjager.db` |
 | `KAARTENJAGER_DISCORD_WEBHOOK` | Waar het wekbericht naar Hermes heen gaat. Zonder deze blijft de knop werken, maar wordt Hermes niet gewekt |
 | `PORT`, `HOST` | Waar hij luistert. Standaard 3000 op alle adressen |
+| `KAARTENJAGER_BIN` | Het programma dat de knop "nu zoeken" start. Standaard `~/.local/bin/kaartenjager` |
+| `KAARTENJAGER_TRUSTED_ORIGINS` | Komma-gescheiden extra herkomsten die formulierposts mogen doen. Alleen nodig achter een reverse proxy |
+
+## Testen
+
+```sh
+npm run check     # types
+npm run smoke     # elke knop tegen de productiebouw, met een Origin-kop
+```
+
+Die tweede is er niet voor niets. De CSRF-controle van SvelteKit staat uit in ontwikkelmodus,
+dus een knop die het met `npm run dev` doet kan in productie gewoon 403 geven — dat is precies
+één keer gebeurd. `smoke.sh` start daarom de echte bouw en post zoals een browser dat doet.
 
 ## Geen inlog
 
