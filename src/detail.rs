@@ -28,6 +28,11 @@ pub enum PageState {
         price_euros: Option<f64>,
         description: Option<String>,
     },
+    /// De pagina kwam terug, maar er valt niets uit te lezen. Op Vinted is dat het teken dat
+    /// iets verkocht is — een verkochte advertentie verliest zijn schema.org-blok — maar het
+    /// is óók hoe een opmaakwijziging eruitziet. De aanroeper beslist, want die ziet of het
+    /// om één advertentie gaat of om allemaal tegelijk.
+    Unreadable,
 }
 
 pub fn enrich(listing: &mut Listing, client: &mut HttpClient) -> Result<(), String> {
@@ -63,12 +68,11 @@ pub fn recheck(listing: &Listing, client: &mut HttpClient) -> Result<PageState, 
 /// without a network.
 pub fn read_page(html: &str) -> PageState {
     let Some(product) = product_block(html) else {
-        // Geen schema.org-blok is geen bewijs van iets. De advertentie bestaat (er kwam een
-        // pagina terug), maar er valt geen prijs uit te lezen.
-        return PageState::Present {
-            price_euros: None,
-            description: None,
-        };
+        // Gemeten op 26 augustus 2026: een lévende Vinted-advertentie levert dit blok altijd,
+        // met `availability: InStock`. Een verkochte levert een pagina van bijna twee megabyte
+        // zonder blok. Het woord "Verkocht" staat er wel in, maar alleen in de taalbestanden
+        // die op elke pagina meekomen, dus daar valt niet op te toetsen.
+        return PageState::Unreadable;
     };
 
     if sold_out(&product) {

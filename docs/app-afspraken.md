@@ -193,6 +193,21 @@ ronde van vijf minuten honderden regels per advertentie per dag opleveren.
 `view_count` bestaat wel in het antwoord van Vinted maar staat in zoekresultaten altijd op
 nul; toon hem alleen als er echt iets in staat.
 
+**Hoe "verkocht" herkend wordt.** Gemeten op 26 augustus 2026, op echte pagina's:
+
+| Toestand | Wat de pagina doet |
+|---|---|
+| Te koop | HTTP 200 met een `application/ld+json`-blok, `availability: InStock` |
+| Verkocht | HTTP 200 **zonder** dat blok |
+| Weggehaald | HTTP 404 |
+
+Het woord "Verkocht" staat wél in een verkochte pagina, maar alleen in de taalbestanden die op
+élke pagina meekomen — daar valt dus niet op te toetsen. Een pagina zonder blok is daarom het
+signaal, met één voorbehoud: zo ziet een opmaakwijziging er ook uit. Komen in één ronde meer
+dan drie hercontroles onleesbaar terug én zijn dat er meer dan de leesbare, dan wordt er niets
+als verdwenen gemarkeerd en komt het als probleem naar boven. Anders zou één wijziging bij
+Vinted de hele inbox leegvegen.
+
 De app zet dit onder "hoe het verliep" in de uitgeklapte kaart: geplaatst, gevonden, hoe lang
 daarna, verkocht of weggehaald, en hoe lang hij online stond.
 

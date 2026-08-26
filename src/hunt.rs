@@ -351,6 +351,7 @@ fn recheck_followed_listings(
     let mut checked = 0usize;
     let mut newly_gone = 0usize;
     let mut problems = Vec::new();
+    let mut unreadable: Vec<Listing> = Vec::new();
 
     // Prijzen volgen hoeft niet elke ronde. Zoeken wel — daar zit het koopje — maar een
     // advertentie die je al kent verandert niet elke vijf minuten van prijs. Zonder dit
@@ -392,9 +393,41 @@ fn recheck_followed_listings(
                     )?;
                 }
             }
+            // Een pagina zonder leesbare inhoud: op Vinted het teken dat iets verkocht is,
+            // maar ook hoe een opmaakwijziging eruitziet. Daarom pas beslissen als de hele
+            // ronde erdoorheen is — dan is te zien of het om één advertentie gaat.
+            Ok(PageState::Unreadable) => unreadable.push(stored),
+
             // Een netwerkfout, een 429 of een kapotte bron telt niet mee: dan blijft
             // last_checked staan en komt de advertentie de volgende ronde weer aan de beurt.
             Err(error) => problems.push(format!("hercontrole mislukt: {error}")),
+        }
+    }
+
+    // Eén onleesbare pagina tussen leesbare is een verkochte advertentie. Zijn ze het bijna
+    // allemaal, dan is niet de markt leeggekocht maar de opmaak veranderd, en dan zou
+    // doorpakken de hele inbox leegvegen. Dat is precies de stille storing die dit systeem
+    // niet mag hebben, dus dan gebeurt er niets en komt het als probleem naar boven.
+    let readable = checked - unreadable.len();
+    if unreadable.len() > 3 && readable < unreadable.len() {
+        problems.push(format!(
+            "{} van de {checked} hercontroles leverden een onleesbare pagina op. Dat lijkt op \
+             een opmaakwijziging bij de bron, niet op verkochte advertenties, dus er is niets \
+             als verdwenen gemarkeerd.",
+            unreadable.len()
+        ));
+    } else {
+        for stored in &unreadable {
+            let key = stored.key();
+            // Op Vinted verliest een verkochte advertentie zijn schema.org-blok. Voor andere
+            // bronnen weten we dat niet, dus daar blijft het onbeslist.
+            if stored.source == "vinted" {
+                if database.note_gone(&key, true, now)? {
+                    newly_gone += 1;
+                }
+            } else {
+                database.note_still_there(&key, now)?;
+            }
         }
     }
 

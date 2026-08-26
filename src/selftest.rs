@@ -18,6 +18,7 @@ const VINTED_FIXTURE: &str = include_str!("../tests/fixtures/vinted_search.json"
 const MARKTPLAATS_FIXTURE: &str = include_str!("../tests/fixtures/marktplaats_search.json");
 const VINTED_ITEM_PAGE: &str = include_str!("../tests/fixtures/vinted_item.html");
 const MARKTPLAATS_ITEM_PAGE: &str = include_str!("../tests/fixtures/marktplaats_item.html");
+const VINTED_ITEM_SOLD: &str = include_str!("../tests/fixtures/vinted_item_sold.html");
 
 const TEST_CONFIG: &str = r#"
 card_search_terms = ["rtx 3090"]
@@ -165,6 +166,7 @@ pub fn run() -> bool {
         ("verse installatie begint niet met een lege inbox", check_fresh_install_keeps_first_round),
         ("hercontrole leest prijs en verkocht uit de pagina", check_recheck_parsing),
         ("hercontrole leest een echte Vinted-pagina", check_recheck_vinted_page),
+        ("een verkochte Vinted-pagina telt niet als aanwezig", check_sold_vinted_page),
         ("hercontrole leest een echte Marktplaats-pagina", check_recheck_marktplaats_page),
     ];
 
@@ -1344,12 +1346,16 @@ fn check_recheck_parsing(_settings: &Settings) -> Result<(), String> {
         _ => return Err("een verkochte advertentie hoort als verdwenen te tellen".into()),
     }
 
-    // Geen schema.org-blok is geen bewijs van verdwijning: de pagina kwam gewoon terug.
-    match crate::detail::read_page("<html><body>iets anders</body></html>") {
-        crate::detail::PageState::Present {
-            price_euros: None, ..
-        } => {}
-        _ => return Err("een pagina zonder blok hoort niet als verdwenen te tellen".into()),
+    // Een pagina zonder blok is niet "bestaat nog": op Vinted is dat juist hoe een verkochte
+    // advertentie eruitziet. Gemeten op 26 augustus 2026: levende advertenties leveren het
+    // blok met InStock, een verkochte levert een pagina van bijna twee megabyte zonder blok.
+    // De ronde beslist wat ermee gebeurt, want één onleesbare pagina is iets anders dan
+    // allemaal tegelijk.
+    if !matches!(
+        crate::detail::read_page("<html><body>iets anders</body></html>"),
+        crate::detail::PageState::Unreadable
+    ) {
+        return Err("een pagina zonder blok hoort als onleesbaar te tellen, niet als aanwezig".into());
     }
 
     Ok(())
@@ -1764,5 +1770,23 @@ fn check_nag_does_not_repeat(_settings: &Settings) -> Result<(), String> {
     }
 
     let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+/// Een verkochte Vinted-advertentie geeft HTTP 200 zonder schema.org-blok. Wie dat als
+/// "bestaat nog" leest, houdt hem eeuwig als levende vondst in de inbox — en dat is precies
+/// de advertentie waarvan je wilde weten hoe snel hij wegging.
+fn check_sold_vinted_page(_settings: &Settings) -> Result<(), String> {
+    if !matches!(
+        crate::detail::read_page(VINTED_ITEM_SOLD),
+        crate::detail::PageState::Unreadable
+    ) {
+        return Err("een verkochte pagina hoort onleesbaar te heten, niet aanwezig".into());
+    }
+    // En de val: "Verkocht" staat wél in de pagina, maar alleen in de taalbestanden.
+    if !VINTED_ITEM_SOLD.contains("Verkocht") {
+        return Err("het testbestand mist juist het woord waarop je niet moet toetsen".into());
+    }
     Ok(())
 }
