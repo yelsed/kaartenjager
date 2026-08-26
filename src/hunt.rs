@@ -446,17 +446,21 @@ fn recheck_followed_listings(
         }
     }
 
-    // Eén onleesbare pagina tussen leesbare is een verkochte advertentie. Zijn ze het bijna
-    // allemaal, dan is niet de markt leeggekocht maar de opmaak veranderd, en dan zou
-    // doorpakken de hele inbox leegvegen. Dat is precies de stille storing die dit systeem
-    // niet mag hebben, dus dan gebeurt er niets en komt het als probleem naar boven.
+    // Eén onleesbare pagina tussen leesbare is een verkochte advertentie. Kwam er deze ronde
+    // geen enkele pagina leesbaar terug, dan is niet de markt leeggekocht maar waarschijnlijk
+    // de opmaak veranderd — en doorpakken zou dan de hele inbox leegvegen, onherstelbaar,
+    // want wat verdwenen heet wordt niet meer gecontroleerd.
+    //
+    // Kwam er wél minstens één pagina leesbaar terug, dan werkt de lezer gewoon en betekent
+    // onleesbaar dus echt verkocht. Dat is een scherper onderscheid dan tellen hoeveel er
+    // onleesbaar waren: een inbox vol oude vondsten is juist grotendeels verkocht, en die
+    // horen dan ook gemarkeerd te worden.
     let readable = checked - unreadable.len();
-    if unreadable.len() > 3 && readable < unreadable.len() {
+    if source_markup_looks_broken(readable, unreadable.len()) {
         problems.push(format!(
-            "{} van de {checked} hercontroles leverden een onleesbare pagina op. Dat lijkt op \
+            "Geen van de {checked} hercontroles leverde een leesbare pagina op. Dat lijkt op \
              een opmaakwijziging bij de bron, niet op verkochte advertenties, dus er is niets \
-             als verdwenen gemarkeerd.",
-            unreadable.len()
+             als verdwenen gemarkeerd."
         ));
     } else {
         for stored in &unreadable {
@@ -482,6 +486,16 @@ fn recheck_followed_listings(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Of we de onleesbare pagina's van deze ronde mogen vertrouwen.
+///
+/// Kwam er minstens één pagina leesbaar terug, dan werkt de lezer en betekent onleesbaar dus
+/// echt verkocht. Kwam er geen enkele doorheen, dan valt niet te zeggen of de advertenties
+/// weg zijn of dat de bron zijn opmaak veranderde — en dan is niets doen het enige veilige,
+/// want wat eenmaal verdwenen heet wordt niet meer gecontroleerd.
+pub(crate) fn source_markup_looks_broken(readable: usize, unreadable: usize) -> bool {
+    unreadable > 0 && readable == 0
+}
+
 fn rejudge_at_new_price(
     database: &Database,
     table: &PriceTable,

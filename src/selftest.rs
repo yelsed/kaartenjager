@@ -149,6 +149,7 @@ pub fn run() -> bool {
         ("belangstelling wordt bijgehouden", check_interest_is_recorded),
         ("twee rondes tegelijk gaat niet", check_round_lock),
         ("een bron die ons tegenhoudt krijgt rust", check_source_backoff),
+        ("onleesbare pagina's: verkocht of opmaakwijziging", check_unreadable_verdict),
         ("het wachtrij-vangnet herhaalt zich niet elke ronde", check_nag_does_not_repeat),
         ("waarnemingen alleen bij verandering", check_price_history_only_on_change),
         ("eenmalige velden overleven een ronde", check_one_time_fields_survive),
@@ -1832,5 +1833,37 @@ fn check_source_backoff(_settings: &Settings) -> Result<(), String> {
     }
 
     let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+/// Een inbox vol oude vondsten is grotendeels verkocht, en die horen gemarkeerd te worden.
+/// Maar als de bron zijn opmaak verandert lijkt álles verkocht, en dat zou de inbox
+/// onherstelbaar leegvegen — wat verdwenen heet wordt immers niet meer gecontroleerd.
+fn check_unreadable_verdict(_settings: &Settings) -> Result<(), String> {
+    use crate::hunt::source_markup_looks_broken;
+
+    // Gemengd: de lezer werkt, dus onleesbaar betekent verkocht. Ook als het er veel zijn.
+    for (leesbaar, onleesbaar) in [(1usize, 1usize), (1, 29), (5, 25), (10, 0)] {
+        if source_markup_looks_broken(leesbaar, onleesbaar) {
+            return Err(format!(
+                "{onleesbaar} onleesbaar naast {leesbaar} leesbaar hoort gewoon verkocht te heten"
+            ));
+        }
+    }
+
+    // Niets leesbaar: dan valt het onderscheid niet te maken en doen we niets.
+    for (leesbaar, onleesbaar) in [(0usize, 1usize), (0, 30)] {
+        if !source_markup_looks_broken(leesbaar, onleesbaar) {
+            return Err(format!(
+                "{onleesbaar} onleesbaar zonder één leesbare pagina hoort verdacht te heten"
+            ));
+        }
+    }
+
+    // Niets onleesbaar is nooit verdacht.
+    if source_markup_looks_broken(0, 0) {
+        return Err("een ronde zonder onleesbare pagina's hoort niet verdacht te heten".into());
+    }
     Ok(())
 }
