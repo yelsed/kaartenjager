@@ -90,6 +90,13 @@ export type Heartbeat = {
 	withinDayWindow: boolean;
 };
 
+/**
+ * Een probleem met de installatie, niet met de code: het pad klopt niet, de database bestaat
+ * nog niet, of het schema is een ander. Zulke fouten mogen wél getoond worden — anders sta je
+ * bij het uitrollen naar "Internal Error" te kijken zonder te weten wat je moet doen.
+ */
+export class ConfigurationError extends Error {}
+
 let connection: DatabaseSync | null = null;
 
 export function databasePath(): string {
@@ -104,7 +111,16 @@ export function databasePath(): string {
 export function db(): DatabaseSync {
 	if (connection) return connection;
 
-	const opened = new DatabaseSync(databasePath());
+	let opened: DatabaseSync;
+	try {
+		opened = new DatabaseSync(databasePath());
+	} catch (error) {
+		throw new ConfigurationError(
+			`${databasePath()} kon niet geopend worden: ${(error as Error).message}. ` +
+				'Klopt KAARTENJAGER_DB, en heeft dit proces leesrechten?'
+		);
+	}
+
 	opened.exec('PRAGMA busy_timeout = 5000');
 	opened.exec('PRAGMA foreign_keys = ON');
 
@@ -112,13 +128,13 @@ export function db(): DatabaseSync {
 		(opened.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
 	);
 	if (version === 0) {
-		throw new Error(
+		throw new ConfigurationError(
 			`${databasePath()} bestaat nog niet of is leeg. Draai eerst \`kaartenjager run\` — ` +
 				'dat maakt de database aan en zet de oude bestanden over.'
 		);
 	}
 	if (version !== SCHEMA_VERSION) {
-		throw new Error(
+		throw new ConfigurationError(
 			`${databasePath()} heeft schema ${version}, deze app kent ${SCHEMA_VERSION}. ` +
 				'Werk het programma of de app bij; half werken op een onbekend schema is erger ' +
 				'dan niet werken.'

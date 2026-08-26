@@ -1,0 +1,66 @@
+<!doctype html>
+<!--
+	De noodpagina. Deze wordt gebruikt als de fout al in de hoofdlayout optreedt — en dat is
+	precies het geval dat ertoe doet: de database is er niet, of hij heeft een ander schema.
+	Zonder dit bestand krijg je "Internal Error" en mag je het zelf uitzoeken.
+-->
+<html lang="nl">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Kaartenjager kan niet starten</title>
+		<style>
+			body {
+				margin: 0;
+				background: #14161a;
+				color: #e6e9ee;
+				font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+				line-height: 1.5;
+			}
+
+			main {
+				max-width: 40rem;
+				margin: 4rem auto;
+				padding: 0 1rem;
+			}
+
+			h1 {
+				font-size: 1.3rem;
+				margin-bottom: 0.5rem;
+			}
+
+			.melding {
+				border-left: 3px solid #e5646d;
+				background: #1c2027;
+				padding: 0.75rem 1rem;
+				border-radius: 0 8px 8px 0;
+			}
+
+			p.hint {
+				color: #98a1ae;
+				font-size: 0.95rem;
+			}
+
+			code {
+				font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+				font-size: 0.9em;
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<h1>Kaartenjager kan niet starten</h1>
+
+			<p class="melding">%sveltekit.error.message%</p>
+
+			<p class="hint">
+				De database wordt gemaakt door het programma, niet door deze app. Draai op de server
+				één keer <code>kaartenjager run</code>, of wijs <code>KAARTENJAGER_DB</code> naar het
+				juiste bestand. Loopt het programma vooruit op de app, werk dan de app bij — half
+				werken op een schema dat je verkeerd begrijpt is erger dan niet werken.
+			</p>
+
+			<p class="hint">Foutcode %sveltekit.status%.</p>
+		</main>
+	</body>
+</html>

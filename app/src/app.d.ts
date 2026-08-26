@@ -11,3 +11,15 @@ declare global {
 }
 
 export {};
+
+declare global {
+	namespace App {
+		interface Error {
+			message: string;
+			/** True bij een installatieprobleem dat de gebruiker zelf kan verhelpen. */
+			herkend?: boolean;
+		}
+	}
+}
+
+export {};
