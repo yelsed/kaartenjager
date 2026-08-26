@@ -147,6 +147,7 @@ pub fn run() -> bool {
         ("plaatsingstijd komt uit de foto", check_posted_at_from_photo),
         ("belangstelling wordt bijgehouden", check_interest_is_recorded),
         ("twee rondes tegelijk gaat niet", check_round_lock),
+        ("het wachtrij-vangnet herhaalt zich niet elke ronde", check_nag_does_not_repeat),
         ("waarnemingen alleen bij verandering", check_price_history_only_on_change),
         ("eenmalige velden overleven een ronde", check_one_time_fields_survive),
         ("niet langer interessant, en niet opnieuw nieuw", check_leaving_and_returning),
@@ -1739,6 +1740,27 @@ fn check_round_lock(_settings: &Settings) -> Result<(), String> {
     // Een ronde die omviel laat het slot staan. Dat mag de wachter niet voorgoed stilzetten.
     if !database.take_round_lock(1_200 + 901, 900)? {
         return Err("een vastgelopen slot hoort vanzelf te vervallen".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+/// Bij rondes van vijf minuten zou een wachtrij die blijft staan elke ronde hetzelfde bericht
+/// naar Discord sturen. Dat is precies de ruis waar dit ontwerp vanaf moest.
+fn check_nag_does_not_repeat(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("vangnet")?;
+    store(&database, &sample_finding("22", 1200.0, 33.0), 1_000)?;
+    database.request_review("vinted:22", 1_000)?;
+
+    // Meteen na het verzoek is er nog niets te melden.
+    if database.reviews_waiting_longer_than(900, 1_100)? != 0 {
+        return Err("een vers verzoek hoort nog niet gemeld te worden".into());
+    }
+    // Een kwartier later wel.
+    if database.reviews_waiting_longer_than(900, 2_000)? != 1 {
+        return Err("een verzoek dat een kwartier wacht hoort gemeld te worden".into());
     }
 
     let _ = std::fs::remove_dir_all(&directory);

@@ -27,6 +27,9 @@ pub const FRESH_RECHECKS_PER_ROUND: usize = 5;
 /// kwartier ruim genoeg om Hermes de kans te geven en snel genoeg om er iets aan te hebben.
 const REVIEW_NAG_AFTER_SECONDS: i64 = 900;
 
+/// En daarna hoogstens eens per uur opnieuw, hoe vaak er ook gedraaid wordt.
+const REVIEW_NAG_REPEAT_SECONDS: i64 = 3600;
+
 pub struct RoundOutcome {
     /// What goes to Discord. Everything else stays in the database.
     pub pushes: Vec<PushCandidate>,
@@ -235,8 +238,20 @@ pub fn run_round(
         Ok(no_longer_finds) => {
             database.commit()?;
             let pushes = decide_pushes(database, settings, now)?;
-            let reviews_waiting =
-                database.reviews_waiting_longer_than(REVIEW_NAG_AFTER_SECONDS, now)?;
+            // Hoogstens één keer per uur. Bij rondes van vijf minuten zou dit anders elke
+            // ronde hetzelfde bericht sturen zolang niemand de wachtrij afwerkt — precies de
+            // ruis waar dit hele ontwerp vanaf moest.
+            let waiting = database.reviews_waiting_longer_than(REVIEW_NAG_AFTER_SECONDS, now)?;
+            let last_nag: i64 = database
+                .state("last_review_nag_at")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0);
+            let reviews_waiting = if waiting > 0 && now - last_nag >= REVIEW_NAG_REPEAT_SECONDS {
+                database.set_state("last_review_nag_at", &now.to_string())?;
+                waiting
+            } else {
+                0
+            };
 
             record_heartbeat(database, settings, now, &problems);
             let _ = database.release_round_lock();

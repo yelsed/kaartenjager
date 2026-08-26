@@ -1,6 +1,6 @@
 [package]
 name = "kaartenjager"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 rust-version = "1.85"
 description = "Watches Vinted and Marktplaats for underpriced graphics cards, power supplies and risers"
