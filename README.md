@@ -81,6 +81,26 @@ Er is bewust **geen** cronjob voor het beoordelen. Die zou 144 keer per dag een 
 kosten voor een wachtrij die vrijwel altijd leeg is. In plaats daarvan stuurt de app een kort
 bericht in het kanaal zodra je op de knop drukt, en dat is het sein voor Hermes.
 
+### Alles in één keer
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/yelsed/kaartenjager/main/deploy.sh | sh
+```
+
+Dat doet het programma, de configuratie, de database en de app achter elkaar, en het is
+idempotent: elke stap kijkt eerst of hij nodig is, en niets wat van jou is wordt overschreven.
+Wil je dat de Hermes-knop meteen werkt, geef de webhook dan mee:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/yelsed/kaartenjager/main/deploy.sh \
+  | KAARTENJAGER_DISCORD_WEBHOOK=https://discord.com/api/webhooks/... sh
+```
+
+Twee dingen doet het script bewust niet: de cronjob `kaartenjager-oordeel` weghalen (dat gaat
+via Hermes) en je `kaartenjager.toml` aanpassen, op het toevoegen van `[notify]` na.
+
+De losse stappen, als je liever ziet wat er gebeurt:
+
 ### En de app erbij
 
 De app leest de database die het programma aanmaakt, dus **draai eerst één keer
