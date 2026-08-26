@@ -159,6 +159,11 @@ fn parse_listing(item: &Value) -> Option<Listing> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
+        // Marktplaats geeft alleen "Vandaag" of "12 aug 24" — te grof om op de minuut mee te
+        // rekenen, dus geen plaatsingstijd. En geen tellers voor kijkers of favorieten.
+        posted_at: None,
+        view_count: None,
+        favourite_count: None,
         categories,
         reserved: item
             .get("reserved")

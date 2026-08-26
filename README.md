@@ -28,7 +28,7 @@ Twee taken op de server, plus beoordelen op verzoek.
 
 | Wanneer | Wat | Kosten |
 |---|---|---|
-| Elk uur, 08:00–22:00 | Het programma zoekt, rekent, volgt prijzen en schrijft alles naar de database | nul tokens |
+| Elke 5 minuten, 08:00–22:00 | Het programma zoekt, rekent en schrijft alles naar de database | nul tokens |
 | Als je in de app op "Hermes laten kijken" drukt | Hermes beoordeelt die ene advertentie | één aanroep per keer |
 | Zondag 09:00 | Hermes herziet de marktprijzen; het programma keurt het voorstel | één aanroep |
 
@@ -40,6 +40,12 @@ Discord houdt alleen uitschieters over: meer dan `push_below_market_percent` ond
 onderkant van het marktbereik, en dan één bericht per advertentie in plaats van één per
 ronde. De rest staat in de app. Zonder die regels krijg je vijftien meldingen per dag en zet
 je het na een week uit.
+
+**Hoe lang stond het er al?** Vinted noemt geen plaatsingstijd, maar de foto's dragen hun
+uploadmoment mee — en verkopers maken die bij het plaatsen. Daarmee legt het programma per
+advertentie vast wanneer hij geplaatst is, wanneer wij hem vonden, hoeveel mensen hem
+bewaarden, en wanneer hij weg was en waarom (verkocht of weggehaald). In de app staat dat
+onder "hoe het verliep", zodat je kunt zien hoe snel zo'n koopje werkelijk wegging.
 
 **Prijzen volgen gaat via de advertenties zelf.** Beide bronnen geven alleen de zestig
 nieuwste resultaten per zoekterm, dus een advertentie verdwijnt daar binnen dagen uit terwijl
@@ -71,9 +77,18 @@ kaartenjager run --dry-run
 En de twee cronjobs, vanuit Discord tegen Hermes:
 
 ```
-kaartenjager-scan      "0 8-22 * * *"   no_agent, script ~/.local/bin/kaartenjager run
-kaartenjager-prijzen   "0 9 * * 0"      skill kaartenjager
+kaartenjager-scan      "*/5 8-22 * * *"  no_agent, script ~/.local/bin/kaartenjager run
+kaartenjager-prijzen   "0 9 * * 0"       skill kaartenjager
 ```
+
+**Waarom elke vijf minuten.** Een echt koopje op Vinted is soms binnen een half uur verkocht.
+Elk uur kijken betekent dat je het gemiddeld een half uur te laat ziet, en dus meestal
+misloopt. Elke vijf minuten brengt dat terug naar tweeënhalve minuut.
+
+Dat kost niet twaalf keer zoveel verzoeken, want alleen het zóéken gaat sneller. Prijzen
+volgen van advertenties die je al kent blijft op zijn eigen tempo (`[scan]` in de
+configuratie), en beschrijvingen worden hergebruikt in plaats van elke ronde opnieuw
+opgehaald. `kaartenjager check` rekent voor wat een cadans kost.
 
 Taken die je vanuit Discord aanmaakt melden vanzelf terug in datzelfde kanaal.
 

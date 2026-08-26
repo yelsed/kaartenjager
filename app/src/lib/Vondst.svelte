@@ -1,7 +1,16 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { Finding } from '$lib/server/db';
-	import { money, roundMoney, percent, ago, sourceName, deliveryName } from '$lib/format';
+	import {
+		money,
+		roundMoney,
+		percent,
+		ago,
+		duration,
+		stamp,
+		sourceName,
+		deliveryName
+	} from '$lib/format';
 
 	let { vondst, toon = 'inbox' }: { vondst: Finding; toon?: 'inbox' | 'volglijst' | 'archief' } =
 		$props();
@@ -19,6 +28,18 @@
 			sourceName(vondst.source)
 		].filter(Boolean)
 	);
+
+	// Hoe lang de advertentie te koop stond. Vanaf het plaatsen als de bron dat prijsgeeft,
+	// anders vanaf het moment dat wij hem zagen — en dat is een ondergrens, geen exacte duur.
+	const beginpunt = $derived(vondst.postedAt ?? vondst.becameAFindAt);
+	const eindpunt = $derived(vondst.goneSince ?? vondst.lastAlive);
+	const standtijd = $derived(Math.max(0, eindpunt - beginpunt));
+
+	// De belangstelling van de eerste tot de laatste waarneming.
+	// Vinted stuurt view_count wel mee, maar in zoekresultaten staat hij altijd op nul. Een
+	// kolom met alleen nullen is ruis, dus die tonen we pas als er echt iets in staat.
+	const kijkers = $derived(vondst.sightings.filter((s) => (s.viewCount ?? 0) > 0));
+	const favorieten = $derived(vondst.sightings.filter((s) => s.favouriteCount !== null));
 
 	const terugUitArchief = $derived(
 		vondst.state === 'archived' &&
@@ -39,7 +60,14 @@
 			{#if vondst.percentUnderMarket !== null && vondst.percentUnderMarket > 0}
 				<span class="merk">{percent(vondst.percentUnderMarket)} onder de markt</span>
 			{/if}
-			{#if vondst.goneSince}<span class="merk weg">verdwenen {ago(vondst.goneSince)}</span>{/if}
+			{#if vondst.goneSince}
+				<!-- Verkocht is iets anders dan weggehaald: het eerste zegt dat iemand anders
+				     hem zag, het tweede dat de verkoper zich bedacht. -->
+				<span class="merk weg">
+					{vondst.goneReason === 'sold' ? 'verkocht' : 'weggehaald'}
+					{ago(vondst.goneSince)}
+				</span>
+			{/if}
 			{#if !vondst.stillAFind}<span class="merk weg">niet langer interessant</span>{/if}
 		</div>
 	</header>
@@ -94,11 +122,55 @@
 				<h4>De verkoper schrijft</h4>
 				<p class="beschrijving">{vondst.description}</p>
 			{/if}
+			<h4>Hoe het verliep</h4>
+			<dl class="tijdlijn">
+				{#if vondst.postedAt}
+					<dt>Geplaatst</dt>
+					<dd>{stamp(vondst.postedAt)}</dd>
+				{/if}
+				<dt>Gevonden</dt>
+				<dd>
+					{stamp(vondst.becameAFindAt)}
+					{#if vondst.postedAt}
+						<span class="na">{duration(vondst.becameAFindAt - vondst.postedAt)} na plaatsen</span>
+					{/if}
+				</dd>
+				{#if vondst.goneSince}
+					<dt>{vondst.goneReason === 'sold' ? 'Verkocht' : 'Weggehaald'}</dt>
+					<dd>{stamp(vondst.goneSince)}</dd>
+				{:else}
+					<dt>Laatst gezien</dt>
+					<dd>{stamp(vondst.lastAlive)}</dd>
+				{/if}
+				<dt>{vondst.goneSince ? 'Stond online' : 'Staat er nu'}</dt>
+				<dd>
+					{duration(standtijd)}
+					{#if !vondst.postedAt}<span class="na">minstens — plaatsingstijd onbekend</span>{/if}
+				</dd>
+			</dl>
+
+			{#if kijkers.length > 1 || favorieten.length > 1}
+				<h4>Belangstelling</h4>
+				<ul class="belangstelling">
+					{#each vondst.sightings as waarneming (waarneming.seenAt)}
+						<li>
+							<span class="tijd">{stamp(waarneming.seenAt)}</span>
+							<span>{money(waarneming.priceEuros)}</span>
+							{#if (waarneming.viewCount ?? 0) > 0}
+								<span>{waarneming.viewCount} keer bekeken</span>
+							{/if}
+							{#if waarneming.favouriteCount !== null}
+								<span>{waarneming.favouriteCount}× bewaard</span>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
 			<p class="klein">
 				{vondst.photoCount}
 				{vondst.photoCount === 1 ? "foto" : "foto's"}
 				{#if vondst.seller} · verkoper {vondst.seller}{/if}
-				· gevonden {ago(vondst.becameAFindAt)}
 			</p>
 		</div>
 	{/if}
@@ -287,6 +359,51 @@
 		margin: 0.8rem 0 0;
 		color: var(--gedempt);
 		font-size: 0.8rem;
+	}
+
+	.tijdlijn {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 0.15rem 0.9rem;
+		margin: 0;
+	}
+
+	.tijdlijn dt {
+		color: var(--gedempt);
+	}
+
+	.tijdlijn dd {
+		margin: 0;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.na {
+		color: var(--gedempt);
+		margin-left: 0.4rem;
+	}
+
+	.belangstelling {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.belangstelling li {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.9rem;
+		padding: 0.15rem 0;
+		border-bottom: 1px solid var(--rand);
+	}
+
+	.belangstelling li:last-child {
+		border-bottom: none;
+	}
+
+	.belangstelling .tijd {
+		color: var(--gedempt);
+		min-width: 8.5rem;
 	}
 
 	.knoppen {

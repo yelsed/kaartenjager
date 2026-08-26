@@ -27,6 +27,19 @@ pub struct Listing {
     pub distance_km: Option<f64>,
     pub photo_count: usize,
     pub posted: String,
+    /// Wanneer de advertentie geplaatst is, voor zover de bron dat prijsgeeft. Vinted zegt het
+    /// niet met zoveel woorden, maar de eerste foto draagt zijn uploadmoment mee, en dat is in
+    /// de praktijk het plaatsingsmoment. Zonder dit is "hoe snel ging die deal weg" niet te
+    /// beantwoorden: dan weet je alleen wanneer wíj hem zagen.
+    #[serde(default)]
+    pub posted_at: Option<i64>,
+    /// Hoeveel mensen ernaar keken en hoeveel het bewaarden. Alleen Vinted geeft dit, en het
+    /// is de enige maat voor belangstelling die we hebben — bij een echte koopje loopt dit
+    /// binnen minuten op.
+    #[serde(default)]
+    pub view_count: Option<i64>,
+    #[serde(default)]
+    pub favourite_count: Option<i64>,
     /// Source-specific category labels, used to drop listings that are not the thing we want.
     pub categories: Vec<String>,
     pub reserved: bool,
@@ -66,6 +79,9 @@ impl Default for Listing {
             distance_km: None,
             photo_count: 0,
             posted: String::new(),
+            posted_at: None,
+            view_count: None,
+            favourite_count: None,
             categories: Vec::new(),
             reserved: false,
         }

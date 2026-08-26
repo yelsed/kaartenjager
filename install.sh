@@ -114,7 +114,7 @@ Klaar. Nog vier dingen:
   3. Zet de twee cronjobs aan, met jouw kanaal erin. Vanuit Discord tegen Hermes:
 
        Maak twee cronjobs:
-       - kaartenjager-scan, "0 8-22 * * *", no_agent, script
+       - kaartenjager-scan, "*/5 8-22 * * *", no_agent, script
          ~/.local/bin/kaartenjager run, deliver naar dit kanaal
        - kaartenjager-prijzen, "0 9 * * 0", skill kaartenjager,
          prompt "Wekelijkse prijsherziening volgens de skill"

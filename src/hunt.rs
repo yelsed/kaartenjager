@@ -15,6 +15,11 @@ use std::collections::{BTreeMap, BTreeSet};
 /// every followed listing round about once a day at fifteen rounds.
 pub const RECHECKS_PER_ROUND: usize = 30;
 
+/// Wat er wél elke ronde nagekeken wordt, ook tussen de volle hercontroles door: de verse
+/// vondsten. Klein genoeg om elke vijf minuten te mogen, groot genoeg om te zien hoe snel een
+/// koopje verdwijnt.
+pub const FRESH_RECHECKS_PER_ROUND: usize = 5;
+
 /// A review request older than this without an answer is worth printing: the wake-up message
 /// to Hermes may have gone missing, and a queue nobody works through is invisible otherwise.
 const REVIEW_NAG_AFTER_SECONDS: i64 = 3600;
@@ -36,6 +41,10 @@ pub struct RoundOutcome {
     pub reviews_waiting: usize,
 }
 
+/// Zo lang geldt een ronde als bezig. Daarna is hij vastgelopen of het proces is omgevallen,
+/// en mag de volgende gewoon starten.
+const ROUND_LOCK_SECONDS: i64 = 900;
+
 pub fn run_round(
     settings: &Settings,
     database: &Database,
@@ -43,6 +52,13 @@ pub fn run_round(
     dry_run: bool,
     explain_rejections: bool,
 ) -> Result<RoundOutcome, String> {
+    // Bij rondes van vijf minuten kan een trage ronde de volgende inhalen. Twee rondes naast
+    // elkaar leveren niets extra's op en verdubbelen wel het aantal verzoeken aan Vinted en
+    // Marktplaats — precies de blokkade die het verzoekbudget moet voorkomen.
+    if !dry_run && !database.take_round_lock(now, ROUND_LOCK_SECONDS)? {
+        return Err("Er loopt al een ronde. Deze slaat over.".to_string());
+    }
+
     let terms = database.enabled_terms()?;
     if terms.is_empty() {
         return Err(
@@ -142,6 +158,16 @@ pub fn run_round(
         }
     }
 
+    // Eerst kijken wat we al hebben. Vinted stuurt de beschrijving niet mee in het
+    // zoekresultaat, dus zonder deze stap haalt elke ronde dezelfde detailpagina opnieuw op.
+    for finding in findings.iter_mut() {
+        if finding.listing.description.is_empty() {
+            if let Some(stored) = database.stored_description(&finding.listing.key()) {
+                finding.listing.description = stored;
+            }
+        }
+    }
+
     // Only findings get a detail lookup, never every listing. In exchange, Vinted findings
     // gain their description, which is the only place a seller says "collection only".
     let lookups = settings.detail_lookups_per_round.min(findings.len());
@@ -158,10 +184,13 @@ pub fn run_round(
             problems.push(format!("beschrijving niet opgehaald: {error}"));
         }
     }
-    if findings.len() > lookups {
+    let still_without = findings
+        .iter()
+        .filter(|finding| finding.listing.source == "vinted" && finding.listing.description.is_empty())
+        .count();
+    if still_without > 0 {
         problems.push(format!(
-            "{} vondsten kregen geen beschrijving (grens {} per ronde)",
-            findings.len() - lookups,
+            "{still_without} vondsten kregen geen beschrijving (grens {} per ronde)",
             settings.detail_lookups_per_round
         ));
     }
@@ -191,6 +220,9 @@ pub fn run_round(
 
     let recheck = recheck_followed_listings(settings, database, &mut client, now, &seen_this_round)?;
     problems.extend(recheck.problems);
+    if recheck.checked > 0 || recheck.ran {
+        database.set_state("last_recheck_at", &now.to_string())?;
+    }
 
     // Eén transactie per ronde, niet één per advertentie: anders staat de database duizend
     // keer kort op slot in plaats van één keer.
@@ -204,6 +236,7 @@ pub fn run_round(
                 database.reviews_waiting_longer_than(REVIEW_NAG_AFTER_SECONDS, now)?;
 
             record_heartbeat(database, settings, now, &problems);
+            let _ = database.release_round_lock();
 
             Ok(RoundOutcome {
                 pushes,
@@ -221,6 +254,7 @@ pub fn run_round(
         }
         Err(error) => {
             database.rollback();
+            let _ = database.release_round_lock();
             Err(error)
         }
     }
@@ -275,6 +309,8 @@ fn write_round(
 }
 
 struct RecheckOutcome {
+    /// Of de volledige ronde langs de gevolgde advertenties liep, of alleen langs de verse.
+    ran: bool,
     checked: usize,
     newly_gone: usize,
     problems: Vec<String>,
@@ -298,7 +334,20 @@ fn recheck_followed_listings(
     let mut newly_gone = 0usize;
     let mut problems = Vec::new();
 
-    for stored in database.due_for_recheck(RECHECKS_PER_ROUND)? {
+    // Prijzen volgen hoeft niet elke ronde. Zoeken wel — daar zit het koopje — maar een
+    // advertentie die je al kent verandert niet elke vijf minuten van prijs. Zonder dit
+    // onderscheid zou een ronde van vijf minuten dertig extra verzoeken doen voor niets.
+    let last_recheck: i64 = database
+        .state("last_recheck_at")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let due = now - last_recheck >= settings.scan.recheck_every_minutes * 60;
+
+    // Verse vondsten gaan wél elke ronde mee: juist daar wil je weten hoe snel hij weg was.
+    let fresh_since = now - settings.scan.close_watch_hours * 3600;
+    let budget = if due { RECHECKS_PER_ROUND } else { FRESH_RECHECKS_PER_ROUND };
+
+    for stored in database.due_for_recheck(budget, fresh_since)? {
         let key = stored.key();
         // Deze ronde al in de zoekresultaten langsgekomen: dan is hij aantoonbaar nog in de
         // verkoop en hoeft zijn pagina niet ook nog opgehaald te worden.
@@ -309,8 +358,8 @@ fn recheck_followed_listings(
 
         checked += 1;
         match detail::recheck(&stored, client) {
-            Ok(PageState::Gone) => {
-                if database.note_gone(&key, now)? {
+            Ok(PageState::Gone { sold }) => {
+                if database.note_gone(&key, sold, now)? {
                     newly_gone += 1;
                 }
             }
@@ -332,6 +381,7 @@ fn recheck_followed_listings(
     }
 
     Ok(RecheckOutcome {
+        ran: due,
         checked,
         newly_gone,
         problems,
@@ -419,6 +469,20 @@ fn below_the_floor(settings: &Settings, candidate: &PushCandidate) -> bool {
 /// The heartbeat. A watcher that died looks exactly like a market with no bargains, so the app
 /// needs to be able to tell the difference without anyone remembering to check.
 fn record_heartbeat(database: &Database, settings: &Settings, now: i64, problems: &[String]) {
+    // Hoe vaak er gedraaid wordt staat in de cron, en die kent de app niet. Door het gat
+    // tussen twee rondes door te geven kan de app zelf bepalen wanneer stilte verdacht is —
+    // bij rondes van vijf minuten hoort dat veel eerder te zijn dan bij rondes van een uur.
+    if let Some(previous) = database
+        .state("last_round_at")
+        .and_then(|value| value.parse::<i64>().ok())
+    {
+        let gap = now - previous;
+        // Een gat van meer dan zes uur is de nacht of een herstart, geen tempo.
+        if (60..6 * 3600).contains(&gap) {
+            let _ = database.set_state("round_gap_seconds", &gap.to_string());
+        }
+    }
+
     let _ = database.set_state("last_round_at", &now.to_string());
     let json = serde_json::to_string(problems).unwrap_or_else(|_| "[]".to_string());
     let _ = database.set_state("last_round_problems", &json);

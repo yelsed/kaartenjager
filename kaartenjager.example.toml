@@ -61,6 +61,23 @@ push_below_market_percent = 35
 
 
 # ---------------------------------------------------------------------------
+# Hoe de ronde zich verdeelt over zoeken en volgen.
+#
+# Zoeken hoort vaak te gebeuren: een echt koopje op Vinted is soms binnen een
+# half uur verkocht, dus elk uur kijken betekent dat je het misloopt. Zet de
+# cronjob daarom op "*/5 8-22 * * *".
+#
+# Hercontroleren hoort dat juist niet. Dat volgt prijzen van advertenties die
+# je al kent, en daar verandert niet elke vijf minuten iets aan. Zonder dit
+# onderscheid zou elke ronde dertig extra verzoeken doen voor niets.
+# ---------------------------------------------------------------------------
+
+[scan]
+recheck_every_minutes = 30    # hoe vaak de volledige hercontrole langsgaat
+close_watch_hours = 6         # zo lang gaat een verse vondst wel elke ronde mee
+
+
+# ---------------------------------------------------------------------------
 # Jouw machine. Hiermee kan het programma zeggen of een kaart past en of je
 # voeding hem trekt. Laat je dit blok weg, dan blijven die regels achterwege
 # in plaats van dat er gegokt wordt.

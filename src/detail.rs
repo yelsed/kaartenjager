@@ -20,8 +20,10 @@ const SCHEMA_CLOSE: &str = "</script>";
 
 /// What a recheck concluded about a listing.
 pub enum PageState {
-    /// The page is gone, or the listing on it is no longer for sale.
-    Gone,
+    /// Niet meer te koop. Verkocht en verwijderd zijn allebei "weg", maar het verschil zegt
+    /// iets: verkocht binnen het uur is een koopje dat iemand anders zag, verwijderd is
+    /// vaker een verkoper die zich bedacht.
+    Gone { sold: bool },
     Present {
         price_euros: Option<f64>,
         description: Option<String>,
@@ -50,7 +52,9 @@ pub fn enrich(listing: &mut Listing, client: &mut HttpClient) -> Result<(), Stri
 pub fn recheck(listing: &Listing, client: &mut HttpClient) -> Result<PageState, String> {
     match client.get_page(&listing.url) {
         Ok(html) => Ok(read_page(&html)),
-        Err(Failure::Gone) => Ok(PageState::Gone),
+        // De pagina bestaat niet meer. Dat is verwijderd, niet verkocht: een verkochte
+        // advertentie blijft op beide sites gewoon staan, met een markering.
+        Err(Failure::Gone) => Ok(PageState::Gone { sold: false }),
         Err(other) => Err(format!("{}: {other}", listing.url)),
     }
 }
@@ -68,7 +72,7 @@ pub fn read_page(html: &str) -> PageState {
     };
 
     if sold_out(&product) {
-        return PageState::Gone;
+        return PageState::Gone { sold: true };
     }
 
     PageState::Present {

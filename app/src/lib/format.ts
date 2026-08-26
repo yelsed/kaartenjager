@@ -51,3 +51,29 @@ export function deliveryName(delivery: string): string {
 	if (delivery === 'shipping') return 'verzenden';
 	return '';
 }
+
+/** "12 minuten", "3 uur 20", "2 dagen". Voor hoe lang iets online stond. */
+export function duration(seconds: number): string {
+	if (seconds < 60) return 'minder dan een minuut';
+
+	const minutes = Math.round(seconds / 60);
+	if (minutes < 60) return `${minutes} ${minutes === 1 ? 'minuut' : 'minuten'}`;
+
+	const hours = Math.floor(minutes / 60);
+	const rest = minutes % 60;
+	if (hours < 24) {
+		return rest === 0 ? `${hours} uur` : `${hours} uur ${rest} min`;
+	}
+
+	const days = Math.round(hours / 24);
+	return `${days} ${days === 1 ? 'dag' : 'dagen'}`;
+}
+
+export function stamp(seconds: number): string {
+	return new Date(seconds * 1000).toLocaleString('nl-NL', {
+		day: 'numeric',
+		month: 'short',
+		hour: '2-digit',
+		minute: '2-digit'
+	});
+}

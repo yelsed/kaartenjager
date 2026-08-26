@@ -172,6 +172,30 @@ via `openbinker` of via de MagicDNS-naam opent.
 doet, zegt dus niets over productie. `npm run smoke` start daarom de productiebouw en post elke
 actie mét een `Origin`-kop; dat is de enige manier waarop deze fout zichtbaar wordt.
 
+## De levensloop van een advertentie
+
+Sinds schema 2 legt het programma vast hoe een advertentie zich gedroeg, want dat is de enige
+manier om te beantwoorden hoe snel een koopje werkelijk wegging.
+
+| Waar | Wat |
+|---|---|
+| `listing.posted_at` | Wanneer de verkoper hem plaatste. Vinted noemt dat niet, maar de foto's dragen hun uploadmoment mee en die maakt een verkoper bij het plaatsen. Marktplaats geeft alleen "Vandaag", te grof, dus daar blijft het leeg |
+| `listing.first_seen` | Wanneer wij hem voor het eerst zagen. Het verschil met `posted_at` is precies hoeveel je te laat was |
+| `listing.last_seen` / `last_checked` | Laatst gezien in de resultaten, en laatst nagekeken op zijn eigen pagina. Het laatste levensteken is de hoogste van die twee |
+| `listing.gone_since` / `gone_reason` | Wanneer hij weg was, en of dat verkocht was of weggehaald |
+| `sighting` | Eén regel per waarneming waarin iets veranderde: prijs, kijkers of favorieten |
+
+`sighting` verving `price_point`, dat alleen prijzen bijhield. Er wordt alleen geschreven bij
+verandering, dus de reeks wordt vanzelf dicht waar het spannend is — bij een echt koopje lopen
+de favorieten binnen minuten op — en blijft leeg waar niets gebeurt. Zonder die regel zou een
+ronde van vijf minuten honderden regels per advertentie per dag opleveren.
+
+`view_count` bestaat wel in het antwoord van Vinted maar staat in zoekresultaten altijd op
+nul; toon hem alleen als er echt iets in staat.
+
+De app zet dit onder "hoe het verliep" in de uitgeklapte kaart: geplaatst, gevonden, hoe lang
+daarna, verkocht of weggehaald, en hoe lang hij online stond.
+
 ## Wat de app niet doet
 
 Geen inlog — hij hangt achter het tailnet. Geen drempels, filters of kaartregels: die staan

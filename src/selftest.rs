@@ -143,7 +143,11 @@ pub fn run() -> bool {
         ("automatische tabel groeit aan, vervangt niet", check_auto_table_accumulates),
         ("woordgrenzen bij letters, deelstring bij cijfers", check_word_boundaries),
         ("schema tweemaal openen breekt niets", check_schema_survives_reopening),
-        ("prijsgeschiedenis alleen bij verandering", check_price_history_only_on_change),
+        ("een bestaande database migreert naar schema 2", check_migration_to_schema_two),
+        ("plaatsingstijd komt uit de foto", check_posted_at_from_photo),
+        ("belangstelling wordt bijgehouden", check_interest_is_recorded),
+        ("twee rondes tegelijk gaat niet", check_round_lock),
+        ("waarnemingen alleen bij verandering", check_price_history_only_on_change),
         ("eenmalige velden overleven een ronde", check_one_time_fields_survive),
         ("niet langer interessant, en niet opnieuw nieuw", check_leaving_and_returning),
         ("verdwenen pas na twee hercontroles", check_gone_needs_two_checks),
@@ -1050,12 +1054,12 @@ fn check_price_history_only_on_change(_settings: &Settings) -> Result<(), String
 
     store(&database, &sample_finding("2", 1200.0, 33.0), 1_000)?;
     store(&database, &sample_finding("2", 1200.0, 33.0), 2_000)?;
-    if database.count("price_point") != 1 {
+    if database.count("sighting") != 1 {
         return Err("dezelfde prijs tweemaal hoort één regel te geven".into());
     }
 
     store(&database, &sample_finding("2", 1100.0, 39.0), 3_000)?;
-    if database.count("price_point") != 2 {
+    if database.count("sighting") != 2 {
         return Err("een andere prijs hoort een tweede regel te geven".into());
     }
 
@@ -1126,16 +1130,16 @@ fn check_gone_needs_two_checks(_settings: &Settings) -> Result<(), String> {
     let (database, directory) = scratch_database("verdwenen")?;
     store(&database, &sample_finding("5", 1200.0, 33.0), 1_000)?;
 
-    if database.note_gone("vinted:5", 2_000)? {
+    if database.note_gone("vinted:5", false, 2_000)? {
         return Err("één keer niet gevonden hoort nog niet verdwenen te zijn".into());
     }
-    if !database.note_gone("vinted:5", 3_000)? {
+    if !database.note_gone("vinted:5", false, 3_000)? {
         return Err("twee keer op rij hoort wel verdwenen te zijn".into());
     }
 
     // Toch weer teruggezien: dan bestaat hij nog.
     store(&database, &sample_finding("5", 1200.0, 33.0), 4_000)?;
-    if database.due_for_recheck(10)?.is_empty() {
+    if database.due_for_recheck(10, 0)?.is_empty() {
         return Err("een teruggeziene advertentie hoort weer meegecontroleerd te worden".into());
     }
 
@@ -1329,8 +1333,14 @@ fn check_recheck_parsing(_settings: &Settings) -> Result<(), String> {
         r#"{"@type":"Product","offers":{"@type":"Offer","price":1260.70,
             "availability":"https://schema.org/SoldOut"}}"#,
     );
-    if !matches!(crate::detail::read_page(&sold), crate::detail::PageState::Gone) {
-        return Err("een verkochte advertentie hoort als verdwenen te tellen".into());
+    match crate::detail::read_page(&sold) {
+        // Verkocht is iets anders dan verwijderd, en dat verschil hoort bewaard te blijven:
+        // binnen het uur verkocht is een koopje dat iemand anders zag.
+        crate::detail::PageState::Gone { sold: true } => {}
+        crate::detail::PageState::Gone { sold: false } => {
+            return Err("een verkochte advertentie hoorde als verkocht te tellen, niet als verwijderd".into())
+        }
+        _ => return Err("een verkochte advertentie hoort als verdwenen te tellen".into()),
     }
 
     // Geen schema.org-blok is geen bewijs van verdwijning: de pagina kwam gewoon terug.
@@ -1570,6 +1580,165 @@ fn check_fresh_install_keeps_first_round(_settings: &Settings) -> Result<(), Str
     let visited: i64 = database.state("last_visit").map_or(0, |value| value.parse().unwrap_or(0));
     if database.became_a_find_at("vinted:18")? <= visited {
         return Err("de eerste vondst van een verse installatie hoort nieuw te zijn".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+/// De database die al draait staat op schema 1. Die moet meekunnen zonder dat er iets
+/// verloren gaat — anders is bijwerken hetzelfde als opnieuw beginnen.
+fn check_migration_to_schema_two(_settings: &Settings) -> Result<(), String> {
+    let directory = scratch_directory("migratie-2")?;
+    let path = directory.join("kaartenjager.db");
+
+    // Een database zoals versie 1 hem achterliet: prijzen in price_point, geen sighting.
+    let oud = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;
+    oud.execute_batch(
+        r#"
+        PRAGMA user_version = 1;
+        CREATE TABLE listing (
+          key TEXT PRIMARY KEY, source TEXT NOT NULL, listing_id TEXT NOT NULL,
+          title TEXT NOT NULL, url TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+          location TEXT NOT NULL DEFAULT '', seller TEXT NOT NULL DEFAULT '',
+          condition TEXT NOT NULL DEFAULT '', delivery TEXT NOT NULL DEFAULT 'unknown',
+          photo_count INTEGER NOT NULL DEFAULT 0, first_seen INTEGER NOT NULL,
+          last_seen INTEGER NOT NULL, found_by_terms TEXT NOT NULL DEFAULT '[]',
+          last_checked INTEGER, gone_checks INTEGER NOT NULL DEFAULT 0, gone_since INTEGER
+        );
+        CREATE TABLE price_point (
+          key TEXT NOT NULL, seen_at INTEGER NOT NULL, price_cents INTEGER NOT NULL,
+          asking_cents INTEGER NOT NULL, PRIMARY KEY (key, seen_at)
+        );
+        CREATE TABLE finding (
+          key TEXT PRIMARY KEY, matched_as TEXT NOT NULL, kind TEXT NOT NULL,
+          confidence TEXT NOT NULL, percent_under_market REAL, euros_under_market REAL,
+          reasons TEXT NOT NULL, warnings TEXT NOT NULL, queue_note TEXT,
+          became_a_find_at INTEGER NOT NULL, judged_at INTEGER NOT NULL,
+          still_a_find INTEGER NOT NULL DEFAULT 1, left_find_at_price INTEGER,
+          pushed_at INTEGER, pushed_at_price INTEGER
+        );
+        CREATE TABLE decision (
+          key TEXT PRIMARY KEY, state TEXT NOT NULL, changed_at INTEGER NOT NULL,
+          price_when_archived INTEGER, note TEXT
+        );
+        CREATE TABLE review_request (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL,
+          requested_at INTEGER NOT NULL, taken_at INTEGER, answered_at INTEGER,
+          attempts INTEGER NOT NULL DEFAULT 0, verdict TEXT, recommendation TEXT,
+          failed_reason TEXT
+        );
+        CREATE TABLE search_term (
+          term TEXT PRIMARY KEY, kind TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+          added_at INTEGER NOT NULL, added_by TEXT NOT NULL DEFAULT 'app'
+        );
+        CREATE TABLE app_state (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+        INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen)
+          VALUES ('vinted:20', 'vinted', '20', 'oude kaart', 'https://x', 100, 200);
+        INSERT INTO price_point (key, seen_at, price_cents, asking_cents)
+          VALUES ('vinted:20', 100, 50000, 50000), ('vinted:20', 200, 45000, 45000);
+        "#,
+    )
+    .map_err(|error| error.to_string())?;
+    drop(oud);
+
+    let database = Database::open(&path)?;
+    if database.count("sighting") != 2 {
+        return Err("de prijsgeschiedenis is niet meegekomen naar sighting".into());
+    }
+    if database.listing("vinted:20").is_none() {
+        return Err("de advertentie is de migratie niet doorgekomen".into());
+    }
+    // Nog een keer openen mag niets opnieuw proberen.
+    drop(database);
+    let opnieuw = Database::open(&path)?;
+    if opnieuw.count("sighting") != 2 {
+        return Err("tweemaal openen na de migratie ging mis".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+/// Vinted noemt geen plaatsingstijd, maar de foto draagt zijn uploadmoment mee. Zonder dat
+/// weet je alleen wanneer wíj hem zagen, en niet hoe lang hij er al stond.
+fn check_posted_at_from_photo(_settings: &Settings) -> Result<(), String> {
+    let listings = vinted::parse_search(
+        &serde_json::from_str(VINTED_FIXTURE).map_err(|error| error.to_string())?,
+        "www.vinted.nl",
+    );
+    let first = listings.first().ok_or("geen advertenties in het testbestand")?;
+
+    match first.posted_at {
+        Some(stamp) if stamp > 1_700_000_000 => {}
+        other => return Err(format!("plaatsingstijd werd {other:?}")),
+    }
+    if first.favourite_count.is_none() {
+        return Err("het aantal favorieten hoorde meegelezen te worden".into());
+    }
+    if first.view_count.is_none() {
+        return Err("het aantal kijkers hoorde meegelezen te worden".into());
+    }
+    Ok(())
+}
+
+/// Bij een echt koopje lopen de tellers binnen minuten op. Dat is de enige maat voor
+/// belangstelling die we hebben, dus een verandering daarin hoort een regel op te leveren —
+/// ook als de prijs gelijk blijft.
+fn check_interest_is_recorded(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("belangstelling")?;
+
+    let mut finding = sample_finding("21", 620.0, 38.0);
+    finding.listing.view_count = Some(3);
+    finding.listing.favourite_count = Some(0);
+    store(&database, &finding, 1_000)?;
+
+    // Zelfde prijs, zelfde belangstelling: niets nieuws.
+    store(&database, &finding, 2_000)?;
+    if database.count("sighting") != 1 {
+        return Err("niets veranderd hoort geen tweede regel te geven".into());
+    }
+
+    // Zelfde prijs, meer kijkers: dat is wél nieuws.
+    finding.listing.view_count = Some(41);
+    finding.listing.favourite_count = Some(6);
+    store(&database, &finding, 3_000)?;
+    if database.count("sighting") != 2 {
+        return Err("oplopende belangstelling hoorde vastgelegd te worden".into());
+    }
+
+    // Een hercontrole levert geen tellers op; die mag geen lege regel schrijven.
+    database.record_price("vinted:21", 620.0, 620.0, 4_000)?;
+    if database.count("sighting") != 2 {
+        return Err("een hercontrole zonder tellers hoorde niets toe te voegen".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+/// Bij rondes van vijf minuten kan een trage ronde de volgende inhalen. Twee tegelijk
+/// verdubbelen alleen het aantal verzoeken aan Vinted en Marktplaats.
+fn check_round_lock(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("slot")?;
+
+    if !database.take_round_lock(1_000, 900)? {
+        return Err("het eerste slot hoorde te lukken".into());
+    }
+    if database.take_round_lock(1_100, 900)? {
+        return Err("een tweede ronde hoorde niet te mogen starten".into());
+    }
+
+    database.release_round_lock()?;
+    if !database.take_round_lock(1_200, 900)? {
+        return Err("na loslaten hoorde het weer te mogen".into());
+    }
+
+    // Een ronde die omviel laat het slot staan. Dat mag de wachter niet voorgoed stilzetten.
+    if !database.take_round_lock(1_200 + 901, 900)? {
+        return Err("een vastgelopen slot hoort vanzelf te vervallen".into());
     }
 
     let _ = std::fs::remove_dir_all(&directory);

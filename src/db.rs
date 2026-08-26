@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 /// Opgehoogd bij elke schemawijziging. De Svelte-app controleert dit bij het starten en
 /// weigert bij een versie die hij niet kent, in plaats van half te werken op een schema dat
 /// hij verkeerd begrijpt.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = r#"
 CREATE TABLE listing (
@@ -32,14 +32,21 @@ CREATE TABLE listing (
   found_by_terms TEXT NOT NULL DEFAULT '[]',
   last_checked   INTEGER,
   gone_checks    INTEGER NOT NULL DEFAULT 0,
-  gone_since     INTEGER
+  gone_since     INTEGER,
+  gone_reason    TEXT,                       -- sold | removed
+  posted_at      INTEGER                     -- wanneer de verkoper hem plaatste, indien bekend
 );
 
-CREATE TABLE price_point (
-  key            TEXT NOT NULL REFERENCES listing(key) ON DELETE CASCADE,
-  seen_at        INTEGER NOT NULL,
-  price_cents    INTEGER NOT NULL,
-  asking_cents   INTEGER NOT NULL,
+-- Eén regel per waarneming waarin iets veranderde: de prijs, het aantal kijkers of het
+-- aantal favorieten. Bij een echt koopje lopen die tellers binnen minuten op, dus wordt de
+-- reeks vanzelf dicht waar het spannend is en blijft hij leeg waar niets gebeurt.
+CREATE TABLE sighting (
+  key             TEXT NOT NULL REFERENCES listing(key) ON DELETE CASCADE,
+  seen_at         INTEGER NOT NULL,
+  price_cents     INTEGER NOT NULL,
+  asking_cents    INTEGER NOT NULL,
+  view_count      INTEGER,
+  favourite_count INTEGER,
   PRIMARY KEY (key, seen_at)
 );
 
@@ -101,6 +108,28 @@ CREATE INDEX decision_state    ON decision(state);
 CREATE INDEX review_pending    ON review_request(answered_at) WHERE answered_at IS NULL;
 
 CREATE UNIQUE INDEX review_one_open ON review_request(key) WHERE answered_at IS NULL;
+"#;
+
+/// Van schema 1 naar 2: waarnemingen in plaats van alleen prijzen, plus wanneer een
+/// advertentie geplaatst is en waarom hij weg is.
+const MIGRATION_1_TO_2: &str = r#"
+ALTER TABLE listing ADD COLUMN gone_reason TEXT;
+ALTER TABLE listing ADD COLUMN posted_at INTEGER;
+
+CREATE TABLE sighting (
+  key             TEXT NOT NULL REFERENCES listing(key) ON DELETE CASCADE,
+  seen_at         INTEGER NOT NULL,
+  price_cents     INTEGER NOT NULL,
+  asking_cents    INTEGER NOT NULL,
+  view_count      INTEGER,
+  favourite_count INTEGER,
+  PRIMARY KEY (key, seen_at)
+);
+
+INSERT INTO sighting (key, seen_at, price_cents, asking_cents)
+  SELECT key, seen_at, price_cents, asking_cents FROM price_point;
+
+DROP TABLE price_point;
 "#;
 
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
@@ -190,6 +219,14 @@ impl Database {
             connection
                 .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
                 .map_err(|error| format!("Schemaversie zetten mislukte: {error}"))?;
+        } else if version == 1 {
+            // In één transactie, zodat een halve migratie geen database achterlaat die
+            // nergens meer op lijkt.
+            connection
+                .execute_batch(&format!(
+                    "BEGIN; {MIGRATION_1_TO_2} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"
+                ))
+                .map_err(|error| format!("Migratie naar schema 2 mislukte: {error}"))?;
         } else if version > SCHEMA_VERSION {
             return Err(format!(
                 "{} is aangemaakt door een nieuwere versie van kaartenjager (schema {version}, \
@@ -314,8 +351,9 @@ impl Database {
             .execute(
                 "INSERT INTO listing (
                     key, source, listing_id, title, url, description, location, seller,
-                    condition, delivery, photo_count, first_seen, last_seen, found_by_terms
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13)
+                    condition, delivery, photo_count, first_seen, last_seen, found_by_terms,
+                    posted_at
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13,?14)
                  ON CONFLICT(key) DO UPDATE SET
                     title       = excluded.title,
                     url         = excluded.url,
@@ -327,9 +365,14 @@ impl Database {
                     delivery    = excluded.delivery,
                     photo_count = excluded.photo_count,
                     last_seen   = excluded.last_seen,
+                    -- Eenmaal bekend blijft de plaatsingstijd staan: latere waarnemingen
+                    -- kunnen hem niet beter weten, en een bron die hem een keer weglaat mag
+                    -- hem niet wissen.
+                    posted_at   = COALESCE(listing.posted_at, excluded.posted_at),
                     -- Teruggezien betekent: hij bestaat nog. Een eerdere twijfel vervalt.
                     gone_checks = 0,
                     gone_since  = NULL,
+                    gone_reason = NULL,
                     found_by_terms = ?13",
                 params![
                     key,
@@ -345,15 +388,68 @@ impl Database {
                     listing.photo_count as i64,
                     now,
                     terms_json,
+                    listing.posted_at,
                 ],
             )
             .map_err(|error| format!("{key} niet op te slaan: {error}"))?;
 
-        self.record_price(&key, listing.price_euros, listing.asking_price_euros, now)
+        self.record_sighting(listing, now)
     }
 
-    /// Alleen bij verandering. Vijftien rondes per dag maal duizend advertenties zou anders
-    /// vijftienduizend regels per dag opleveren voor niets.
+    /// Legt vast wat we bij deze waarneming zagen, maar alleen als er iets veranderd is aan
+    /// de prijs, het aantal kijkers of het aantal favorieten.
+    ///
+    /// Elke ronde een regel zou bij rondes van vijf minuten honderden regels per advertentie
+    /// per dag opleveren voor niets. Schrijven-bij-verandering maakt de reeks juist dicht
+    /// waar het spannend is: bij een echt koopje lopen de tellers binnen minuten op, en bij
+    /// een advertentie waar niemand naar kijkt gebeurt er niets.
+    pub fn record_sighting(&self, listing: &Listing, now: i64) -> Result<(), String> {
+        let key = listing.key();
+        let price = to_cents(listing.price_euros);
+        let asking = to_cents(listing.asking_price_euros);
+
+        let latest: Option<(i64, Option<i64>, Option<i64>)> = self
+            .connection
+            .query_row(
+                "SELECT price_cents, view_count, favourite_count FROM sighting
+                 WHERE key = ?1 ORDER BY seen_at DESC LIMIT 1",
+                params![&key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|error| format!("Waarnemingen van {key} niet leesbaar: {error}"))?;
+
+        // Een teller die de bron deze keer niet meegaf telt niet als verandering; anders
+        // zou een hercontrole, die geen tellers oplevert, elke keer een lege regel schrijven.
+        if let Some((was_price, was_views, was_favourites)) = latest {
+            let same_price = was_price == price;
+            let same_views = listing.view_count.is_none() || listing.view_count == was_views;
+            let same_favourites =
+                listing.favourite_count.is_none() || listing.favourite_count == was_favourites;
+            if same_price && same_views && same_favourites {
+                return Ok(());
+            }
+        }
+
+        self.connection
+            .execute(
+                "INSERT OR REPLACE INTO sighting
+                    (key, seen_at, price_cents, asking_cents, view_count, favourite_count)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    key,
+                    now,
+                    price,
+                    asking,
+                    listing.view_count,
+                    listing.favourite_count
+                ],
+            )
+            .map(|_| ())
+            .map_err(|error| format!("Waarneming van {key} niet op te slaan: {error}"))
+    }
+
+    /// Voor de hercontrole, die alleen een prijs terugvindt en geen tellers.
     pub fn record_price(
         &self,
         key: &str,
@@ -361,31 +457,18 @@ impl Database {
         asking_euros: f64,
         now: i64,
     ) -> Result<(), String> {
-        let price = to_cents(price_euros);
-        let asking = to_cents(asking_euros);
-
-        let latest: Option<i64> = self
-            .connection
-            .query_row(
-                "SELECT price_cents FROM price_point WHERE key = ?1 ORDER BY seen_at DESC LIMIT 1",
-                params![key],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|error| format!("Prijsgeschiedenis van {key} niet leesbaar: {error}"))?;
-
-        if latest == Some(price) {
-            return Ok(());
-        }
-
-        self.connection
-            .execute(
-                "INSERT OR REPLACE INTO price_point (key, seen_at, price_cents, asking_cents)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![key, now, price, asking],
-            )
-            .map(|_| ())
-            .map_err(|error| format!("Prijs van {key} niet op te slaan: {error}"))
+        let mut listing = Listing {
+            source: String::new(),
+            listing_id: String::new(),
+            price_euros,
+            asking_price_euros: asking_euros,
+            ..Listing::default()
+        };
+        // record_sighting leidt de sleutel af uit bron en id; hier hebben we hem al.
+        let (source, id) = key.split_once(':').unwrap_or((key, ""));
+        listing.source = source.to_string();
+        listing.listing_id = id.to_string();
+        self.record_sighting(&listing, now)
     }
 
     // ---------------------------------------------------------------- findings
@@ -493,6 +576,21 @@ impl Database {
             .map_err(|error| format!("Vondst {key} niet leesbaar: {error}"))
     }
 
+    /// De beschrijving die we eerder ophaalden. Het zoekresultaat van Vinted draagt er geen,
+    /// dus zonder dit zou elke ronde dezelfde detailpagina opnieuw ophalen — bij rondes van
+    /// vijf minuten honderden keren per dag voor tekst die al in de database staat.
+    pub fn stored_description(&self, key: &str) -> Option<String> {
+        self.connection
+            .query_row(
+                "SELECT description FROM listing WHERE key = ?1 AND description <> ''",
+                params![key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+    }
+
     pub fn has_finding(&self, key: &str) -> bool {
         self.connection
             .query_row("SELECT 1 FROM finding WHERE key = ?1", params![key], |_| Ok(()))
@@ -512,7 +610,7 @@ impl Database {
             .prepare(
                 "SELECT f.key, f.matched_as, f.percent_under_market, f.pushed_at,
                         f.pushed_at_price, l.title, l.url, l.source, l.delivery,
-                        (SELECT price_cents FROM price_point p WHERE p.key = f.key
+                        (SELECT price_cents FROM sighting p WHERE p.key = f.key
                          ORDER BY p.seen_at DESC LIMIT 1) AS price_cents
                  FROM finding f
                  JOIN listing l ON l.key = f.key
@@ -572,31 +670,68 @@ impl Database {
             .map_err(|error| format!("Melding van {key} niet vast te leggen: {error}"))
     }
 
+    // ------------------------------------------------------------------ het slot
+
+    /// Pakt het slot als er geen ronde loopt. Geeft false als er al eentje bezig is.
+    ///
+    /// Een ronde die is omgevallen laat het slot staan; daarom vervalt het vanzelf na
+    /// `stale_after`. Anders zou één klapper de wachter voorgoed stilzetten, en dat is
+    /// precies de stille storing die dit systeem niet mag hebben.
+    pub fn take_round_lock(&self, now: i64, stale_after: i64) -> Result<bool, String> {
+        let running: Option<i64> = self
+            .state("round_running_since")
+            .and_then(|value| value.parse().ok());
+
+        if let Some(since) = running {
+            if now - since < stale_after {
+                return Ok(false);
+            }
+        }
+
+        self.set_state("round_running_since", &now.to_string())?;
+        Ok(true)
+    }
+
+    pub fn release_round_lock(&self) -> Result<(), String> {
+        self.connection
+            .execute(
+                "DELETE FROM app_state WHERE name = 'round_running_since'",
+                [],
+            )
+            .map(|_| ())
+            .map_err(|error| format!("Slot niet los te laten: {error}"))
+    }
+
     // -------------------------------------------------------------- hercontrole
 
     /// Actieve advertenties, langst niet gecontroleerd eerst. Afwezigheid in de
     /// zoekresultaten zegt niets — beide bronnen leveren alleen de nieuwste zestig — dus
     /// prijzen volgen en "weg" vaststellen gebeurt via de advertentie zelf.
-    pub fn due_for_recheck(&self, limit: usize) -> Result<Vec<Listing>, String> {
+    /// `fresh_since` is het moment waarvóór een vondst niet meer als vers geldt.
+    pub fn due_for_recheck(&self, limit: usize, fresh_since: i64) -> Result<Vec<Listing>, String> {
         let mut statement = self
             .connection
             .prepare(
                 "SELECT l.key, l.source, l.listing_id, l.title, l.url, l.description, l.location,
                         l.seller, l.condition, l.delivery, l.photo_count,
-                        (SELECT price_cents FROM price_point p WHERE p.key = l.key
+                        (SELECT price_cents FROM sighting p WHERE p.key = l.key
                          ORDER BY p.seen_at DESC LIMIT 1),
-                        (SELECT asking_cents FROM price_point p WHERE p.key = l.key
+                        (SELECT asking_cents FROM sighting p WHERE p.key = l.key
                          ORDER BY p.seen_at DESC LIMIT 1)
                  FROM listing l
                  JOIN finding f ON f.key = l.key
                  WHERE l.gone_since IS NULL
-                 ORDER BY COALESCE(l.last_checked, 0) ASC, l.last_seen ASC
+                 -- Verse vondsten eerst. Bij een echt koopje wil je weten hoe snel hij weg
+                 -- was, en dat is alleen te meten als je er in die eerste uren bovenop zit.
+                 ORDER BY (f.became_a_find_at > ?2) DESC,
+                          COALESCE(l.last_checked, 0) ASC,
+                          l.last_seen ASC
                  LIMIT ?1",
             )
             .map_err(|error| format!("Hercontrolelijst niet op te vragen: {error}"))?;
 
         let rows = statement
-            .query_map(params![limit as i64], |row| {
+            .query_map(params![limit as i64, fresh_since], |row| {
                 Ok(Listing {
                     source: row.get(1)?,
                     listing_id: row.get(2)?,
@@ -623,7 +758,8 @@ impl Database {
     pub fn note_still_there(&self, key: &str, now: i64) -> Result<(), String> {
         self.connection
             .execute(
-                "UPDATE listing SET last_checked = ?2, gone_checks = 0, gone_since = NULL
+                "UPDATE listing SET last_checked = ?2, gone_checks = 0, gone_since = NULL,
+                     gone_reason = NULL
                  WHERE key = ?1",
                 params![key, now],
             )
@@ -633,15 +769,17 @@ impl Database {
 
     /// Ondubbelzinnig weg (404 of 410). Pas de tweede keer op rij telt als verdwenen; één
     /// keer kan een hik zijn.
-    pub fn note_gone(&self, key: &str, now: i64) -> Result<bool, String> {
+    pub fn note_gone(&self, key: &str, sold: bool, now: i64) -> Result<bool, String> {
+        let reason = if sold { "sold" } else { "removed" };
         self.connection
             .execute(
                 "UPDATE listing
                  SET last_checked = ?2,
                      gone_checks  = gone_checks + 1,
-                     gone_since   = CASE WHEN gone_checks + 1 >= 2 THEN ?2 ELSE gone_since END
+                     gone_since   = CASE WHEN gone_checks + 1 >= 2 THEN ?2 ELSE gone_since END,
+                     gone_reason  = CASE WHEN gone_checks + 1 >= 2 THEN ?3 ELSE gone_reason END
                  WHERE key = ?1",
-                params![key, now],
+                params![key, now, reason],
             )
             .map_err(|error| format!("Verdwijning van {key} niet vast te leggen: {error}"))?;
 
@@ -710,7 +848,7 @@ impl Database {
                 &format!(
                     "SELECT r.id, r.key, r.requested_at, r.attempts, l.title, l.url, l.source,
                             l.description, f.matched_as, f.queue_note,
-                            (SELECT price_cents FROM price_point p WHERE p.key = r.key
+                            (SELECT price_cents FROM sighting p WHERE p.key = r.key
                              ORDER BY p.seen_at DESC LIMIT 1),
                             f.reasons, f.warnings
                      FROM review_request r
@@ -825,9 +963,9 @@ impl Database {
             .query_row(
                 "SELECT l.source, l.listing_id, l.title, l.url, l.description, l.location,
                         l.seller, l.condition, l.delivery, l.photo_count,
-                        (SELECT price_cents FROM price_point p WHERE p.key = l.key
+                        (SELECT price_cents FROM sighting p WHERE p.key = l.key
                          ORDER BY p.seen_at DESC LIMIT 1),
-                        (SELECT asking_cents FROM price_point p WHERE p.key = l.key
+                        (SELECT asking_cents FROM sighting p WHERE p.key = l.key
                          ORDER BY p.seen_at DESC LIMIT 1)
                  FROM listing l WHERE l.key = ?1",
                 params![key],

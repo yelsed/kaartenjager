@@ -360,6 +360,23 @@ fn command_check(arguments: &Arguments) -> ExitCode {
                 settings.detail_lookups_per_round
             );
             println!(
+                "  hercontrole        volledig elke {} minuten, verse vondsten elke ronde \
+                 tot {} uur oud",
+                settings.scan.recheck_every_minutes, settings.scan.close_watch_hours
+            );
+            // Bij rondes van vijf minuten telt dit hard aan; het hoort zichtbaar te zijn in
+            // plaats van pas op te vallen als een bron gaat weigeren.
+            for (naam, per_dag) in [("elk uur", 15i64), ("elke 5 min", 180)] {
+                let zoeken = searches as i64 * per_dag;
+                let hercontroles = 30 * (14 * 60 / settings.scan.recheck_every_minutes).max(1)
+                    + 5 * per_dag;
+                println!(
+                    "  {naam:<17} ~{} verzoeken per dag, {} per bron",
+                    zoeken + hercontroles,
+                    (zoeken + hercontroles) / settings.sources.len().max(1) as i64
+                );
+            }
+            println!(
                 "  in de database     {} advertenties, {} vondsten, {} openstaande verzoeken",
                 database.count("listing"),
                 database.count("finding"),

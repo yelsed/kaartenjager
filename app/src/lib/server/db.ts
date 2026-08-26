@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { env } from '$env/dynamic/private';
 
 /** Het schema waar deze app op gebouwd is. Zie PRAGMA user_version in het programma. */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /** Onder deze fractie van de archiefprijs komt een advertentie terug in de inbox. */
 const RETURN_FROM_ARCHIVE_AT = 0.9;
@@ -18,8 +18,17 @@ const RETURN_FROM_ARCHIVE_AT = 0.9;
 /** Zo lang telt een vondst als nieuw zonder dat je op "alles gezien" drukt. */
 const STAYS_NEW_SECONDS = 48 * 3600;
 
-/** Boven deze ouderdom is de wachter stil gevallen in plaats van dat de markt rustig is. */
-const HEARTBEAT_STALE_SECONDS = 2 * 3600;
+/**
+ * Hoe lang stilte mag duren voordat het een storing is. Dit hangt af van hoe vaak de cron
+ * draait, en dat weet de app niet — dus geeft het programma het waargenomen gat tussen twee
+ * rondes door en rekenen we daar drie keer op. Bij rondes van vijf minuten slaat het alarm
+ * dan na een kwartier aan, bij rondes van een uur na drie uur.
+ */
+const HEARTBEAT_STALE_MULTIPLIER = 3;
+const HEARTBEAT_STALE_MINIMUM = 15 * 60;
+const HEARTBEAT_STALE_MAXIMUM = 3 * 3600;
+/** Zonder waargenomen tempo: de oude vaste drempel. */
+const HEARTBEAT_STALE_FALLBACK = 2 * 3600;
 
 const DAY_STARTS_AT = 8;
 const DAY_ENDS_AT = 22;
@@ -50,6 +59,10 @@ export type Finding = {
 	judgedAt: number;
 	stillAFind: boolean;
 	goneSince: number | null;
+	/** sold of removed. Verkocht binnen het uur is iets anders dan een verkoper die zich bedacht. */
+	goneReason: string | null;
+	/** Wanneer de verkoper hem plaatste, voor zover de bron dat prijsgeeft. */
+	postedAt: number | null;
 	state: State;
 	priceEuros: number;
 	askingEuros: number;
@@ -58,6 +71,17 @@ export type Finding = {
 	/** Waar de prijs vandaan komt en waar hij nu staat, als er iets veranderd is. */
 	priceMove: PriceMove | null;
 	review: Review | null;
+	/** Het laatst bevestigde levensteken: gezien in de resultaten of nagekeken op zijn pagina. */
+	lastAlive: number;
+	/** Wat we door de tijd heen zagen. Hiermee is te zien hoe snel een koopje wegging. */
+	sightings: Sighting[];
+};
+
+export type Sighting = {
+	seenAt: number;
+	priceEuros: number;
+	viewCount: number | null;
+	favouriteCount: number | null;
 };
 
 export type PriceMove = {
@@ -88,6 +112,8 @@ export type Heartbeat = {
 	problems: string[];
 	stale: boolean;
 	withinDayWindow: boolean;
+	/** Hoe lang stilte nog normaal is, afgeleid van het waargenomen tempo. */
+	allowedSilence: number;
 };
 
 /**
@@ -185,11 +211,18 @@ export function heartbeat(): Heartbeat {
 		problems = [];
 	}
 
-	const stale =
-		withinDayWindow &&
-		(lastRoundAt === null || nowSeconds() - lastRoundAt > HEARTBEAT_STALE_SECONDS);
+	const gap = Number(readState('round_gap_seconds') ?? 0);
+	const allowed = gap
+		? Math.min(
+				HEARTBEAT_STALE_MAXIMUM,
+				Math.max(HEARTBEAT_STALE_MINIMUM, gap * HEARTBEAT_STALE_MULTIPLIER)
+			)
+		: HEARTBEAT_STALE_FALLBACK;
 
-	return { lastRoundAt, problems, stale, withinDayWindow };
+	const stale =
+		withinDayWindow && (lastRoundAt === null || nowSeconds() - lastRoundAt > allowed);
+
+	return { lastRoundAt, problems, stale, withinDayWindow, allowedSilence: allowed };
 }
 
 // -------------------------------------------------------------------- bezoek
@@ -215,11 +248,12 @@ const FINDING_COLUMNS = `
 	f.key, f.matched_as, f.kind, f.confidence, f.percent_under_market, f.euros_under_market,
 	f.reasons, f.warnings, f.queue_note, f.became_a_find_at, f.judged_at, f.still_a_find,
 	l.title, l.url, l.source, l.delivery, l.location, l.seller, l.condition, l.photo_count,
-	l.description, l.gone_since,
+	l.description, l.gone_since, l.gone_reason, l.posted_at, l.first_seen, l.last_seen,
+	l.last_checked,
 	d.state, d.price_when_archived,
-	(SELECT price_cents FROM price_point p WHERE p.key = f.key ORDER BY p.seen_at DESC LIMIT 1)
+	(SELECT price_cents FROM sighting p WHERE p.key = f.key ORDER BY p.seen_at DESC LIMIT 1)
 		AS price_cents,
-	(SELECT asking_cents FROM price_point p WHERE p.key = f.key ORDER BY p.seen_at DESC LIMIT 1)
+	(SELECT asking_cents FROM sighting p WHERE p.key = f.key ORDER BY p.seen_at DESC LIMIT 1)
 		AS asking_cents
 `;
 
@@ -263,6 +297,8 @@ function toFinding(row: Row, visitedAt: number): Finding {
 		judgedAt: Number(row.judged_at),
 		stillAFind: Number(row.still_a_find) === 1,
 		goneSince: row.gone_since === null ? null : Number(row.gone_since),
+		goneReason: row.gone_reason === null ? null : String(row.gone_reason),
+		postedAt: row.posted_at === null ? null : Number(row.posted_at),
 		state: String(row.state ?? 'inbox') as State,
 		priceEuros: Number(row.price_cents ?? 0) / 100,
 		askingEuros: Number(row.asking_cents ?? 0) / 100,
@@ -270,15 +306,38 @@ function toFinding(row: Row, visitedAt: number): Finding {
 			row.price_when_archived === null ? null : Number(row.price_when_archived) / 100,
 		isNew: becameAFindAt > freshUntil,
 		priceMove: priceMove(key),
-		review: latestReview(key)
+		review: latestReview(key),
+		// Gezien in de zoekresultaten óf nagekeken op zijn eigen pagina: allebei bewijzen dat
+		// hij op dat moment nog bestond.
+		lastAlive: Math.max(Number(row.last_seen ?? 0), Number(row.last_checked ?? 0)),
+		sightings: sightings(key)
 	};
+}
+
+/** De laatste waarnemingen, oudste eerst. Genoeg om te zien hoe het liep, niet meer. */
+export function sightings(key: string, limit = 40): Sighting[] {
+	const rows = db()
+		.prepare(
+			`SELECT seen_at, price_cents, view_count, favourite_count FROM sighting
+			 WHERE key = ? ORDER BY seen_at DESC LIMIT ?`
+		)
+		.all(key, limit) as Row[];
+
+	return rows
+		.map((row) => ({
+			seenAt: Number(row.seen_at),
+			priceEuros: Number(row.price_cents) / 100,
+			viewCount: row.view_count === null ? null : Number(row.view_count),
+			favouriteCount: row.favourite_count === null ? null : Number(row.favourite_count)
+		}))
+		.reverse();
 }
 
 /** De laatste twee prijspunten. Daar draait "gezakt" op, en de terugkeer uit het archief. */
 export function priceMove(key: string): PriceMove | null {
 	const rows = db()
 		.prepare(
-			`SELECT seen_at, price_cents FROM price_point WHERE key = ?
+			`SELECT seen_at, price_cents FROM sighting WHERE key = ?
 			 ORDER BY seen_at DESC LIMIT 2`
 		)
 		.all(key) as { seen_at: number; price_cents: number }[];
@@ -345,7 +404,7 @@ export function inbox(limit: number, offset: number): Finding[] {
 		   COALESCE(d.state, 'inbox') = 'inbox'
 		   OR (d.state = 'archived'
 		       AND d.price_when_archived IS NOT NULL
-		       AND (SELECT price_cents FROM price_point p WHERE p.key = f.key
+		       AND (SELECT price_cents FROM sighting p WHERE p.key = f.key
 		            ORDER BY p.seen_at DESC LIMIT 1) < d.price_when_archived * ${RETURN_FROM_ARCHIVE_AT})
 		 )`,
 		'f.became_a_find_at DESC',
@@ -385,7 +444,7 @@ export function countInbox(): number {
 export function setState(key: string, state: State): void {
 	const price = db()
 		.prepare(
-			`SELECT price_cents FROM price_point WHERE key = ? ORDER BY seen_at DESC LIMIT 1`
+			`SELECT price_cents FROM sighting WHERE key = ? ORDER BY seen_at DESC LIMIT 1`
 		)
 		.get(key) as { price_cents: number } | undefined;
 

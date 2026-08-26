@@ -516,7 +516,7 @@ mislukte verzoek met de reden en een knop om het opnieuw te proberen.
 
 | Naam | Wanneer | Agent | Wat |
 |---|---|---|---|
-| `kaartenjager-scan` | `0 8-22 * * *` | nee | Zoeken, beoordelen, hercontroleren, wegschrijven. Print alleen uitschieters en het wachtrij-vangnet |
+| `kaartenjager-scan` | `*/5 8-22 * * *` | nee | Zoeken, beoordelen, hercontroleren, wegschrijven. Print alleen uitschieters en het wachtrij-vangnet |
 | `kaartenjager-prijzen` | `0 9 * * 0` | ja | Wekelijkse prijsherziening, ongewijzigd |
 
 `kaartenjager-oordeel` van 11:00 en 19:00 **vervalt**. Die werkte de stapel automatisch af,
@@ -651,6 +651,39 @@ overzetten gebeurt één keer en is te herhalen met `kaartenjager migrate --from
 | Gelijktijdig schrijven | Een klik tijdens het wegschrijven van een ronde wacht en faalt niet |
 
 Alle controles blijven zonder netwerk draaien, met een database in een tijdelijke map.
+
+## 13. Elke vijf minuten, en de levensloop erbij
+
+**Bijgesteld na de eerste weken.** Een echt koopje op Vinted is soms binnen een half uur
+verkocht — een 3090 voor €483 was er binnen het uur uit. Elk uur kijken betekent dat je
+gemiddeld een half uur te laat bent, en dus meestal misloopt. De scan gaat daarom naar
+`*/5 8-22 * * *`.
+
+Twaalf keer zo vaak zoeken hoeft geen twaalf keer zoveel verzoeken te kosten, en dat is waar
+het meeste werk in zat:
+
+- **Alleen het zoeken versnelt.** Prijzen volgen van advertenties die je al kent gebeurt op
+  zijn eigen tempo (`[scan] recheck_every_minutes`, standaard 30). Verse vondsten gaan wél
+  elke ronde mee, want juist daar wil je weten hoe snel ze weg zijn.
+- **Beschrijvingen worden hergebruikt.** Het zoekresultaat van Vinted draagt er geen, dus haalde
+  elke ronde dezelfde detailpagina opnieuw op. Nu komt hij uit de database: een tweede ronde
+  ging van vijftien verzoeken naar vier.
+- **Eén ronde tegelijk.** Bij vijf minuten kan een trage ronde de volgende inhalen; twee naast
+  elkaar verdubbelen alleen het aantal verzoeken. Een slot in `app_state` houdt dat tegen en
+  vervalt vanzelf na een kwartier, zodat één klapper de wachter niet voorgoed stilzet.
+
+Onder de streep ongeveer 6.500 verzoeken per dag, 3.250 per bron, gemiddeld 3,6 per minuut.
+`kaartenjager check` rekent het voor beide cadansen voor.
+
+**De hartslag stelt zichzelf bij.** De app weet niet hoe vaak de cron draait, dus geeft het
+programma het waargenomen gat tussen twee rondes door en alarmeert de app op drie keer dat
+gat. Bij vijf minuten is dat een kwartier, bij een uur drie uur — zonder dat er iets
+ingesteld hoeft te worden.
+
+**En de levensloop wordt vastgelegd** (schema 2): wanneer de advertentie geplaatst is, wanneer
+wij hem vonden, hoe de belangstelling opliep, en wanneer hij weg was en waarom. Zie
+`docs/app-afspraken.md`. Daarmee is achteraf te zien hoe snel zulke advertenties werkelijk
+gaan, in plaats van erover te gissen.
 
 ## 12. Bewust niet
 

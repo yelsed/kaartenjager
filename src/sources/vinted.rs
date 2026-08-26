@@ -62,6 +62,16 @@ impl Source for Vinted<'_> {
     }
 }
 
+/// Het uploadmoment van één foto, als het erin staat.
+fn photo_timestamp(photo: &Value) -> Option<i64> {
+    photo
+        .get("high_resolution")
+        .and_then(|block| block.get("timestamp"))
+        .and_then(Value::as_i64)
+        // Een tijdstempel van voor 2010 is geen uploadmoment maar iets anders.
+        .filter(|stamp| *stamp > 1_262_300_400)
+}
+
 pub fn parse_search(body: &Value, domain: &str) -> Vec<Listing> {
     let Some(items) = body.get("items").and_then(Value::as_array) else {
         return Vec::new();
@@ -114,6 +124,17 @@ fn parse_item(item: &Value, domain: &str) -> Option<Listing> {
         .map(Vec::len)
         .unwrap_or(0);
 
+    // Vinted noemt geen plaatsingstijd in het zoekresultaat, maar elke foto draagt zijn
+    // uploadmoment mee. Verkopers maken de foto's bij het plaatsen, dus dat is in de praktijk
+    // hetzelfde moment — en het is het enige wat we hebben om "hoe lang stond dit er al"
+    // mee te beantwoorden. De oudste foto is de veiligste gok.
+    let posted_at = item
+        .get("photos")
+        .and_then(Value::as_array)
+        .map(|photos| photos.iter().filter_map(photo_timestamp).min())
+        .unwrap_or(None)
+        .or_else(|| item.get("photo").and_then(photo_timestamp));
+
     Some(Listing {
         source: "vinted".to_string(),
         listing_id,
@@ -136,6 +157,9 @@ fn parse_item(item: &Value, domain: &str) -> Option<Listing> {
         distance_km: None,
         photo_count,
         posted: String::new(),
+        posted_at,
+        view_count: item.get("view_count").and_then(Value::as_i64),
+        favourite_count: item.get("favourite_count").and_then(Value::as_i64),
         // Vinted sends no usable category in search results, so the sieve skips that check.
         categories: Vec::new(),
         reserved: !item

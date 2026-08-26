@@ -56,8 +56,8 @@ KAARTENJAGER_DB="$DB" KAARTENJAGER_CONFIG="$WORK/kaartenjager.toml" "$BIN" check
 sqlite3 "$DB" <<'SQL'
 INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen)
   VALUES ('vinted:1', 'vinted', '1', 'RTX 3090 test', 'https://example.invalid/1', 1000, 1000);
-INSERT INTO price_point (key, seen_at, price_cents, asking_cents)
-  VALUES ('vinted:1', 1000, 60000, 60000);
+INSERT INTO sighting (key, seen_at, price_cents, asking_cents, favourite_count)
+  VALUES ('vinted:1', 1000, 60000, 60000, 3);
 INSERT INTO finding (key, matched_as, kind, confidence, reasons, warnings,
                      became_a_find_at, judged_at)
   VALUES ('vinted:1', 'RTX 3090', 'card', 'clear', '[]', '[]', 1000, 1000);

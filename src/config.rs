@@ -339,6 +339,39 @@ impl Default for Filters {
     }
 }
 
+/// Hoe de ronde zich verdeelt over zoeken en volgen.
+///
+/// Zoeken hoort vaak te gebeuren — een echt koopje op Vinted is soms binnen een half uur weg,
+/// dus elk uur kijken betekent dat je het misloopt. Hercontroleren hoort dat juist níét: dat
+/// volgt prijzen van advertenties die je al kent, en dagelijks is daarvoor genoeg. Zonder dit
+/// onderscheid zou elke ronde van vijf minuten dertig extra verzoeken doen voor niets.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Scan {
+    #[serde(default = "default_recheck_minutes")]
+    pub recheck_every_minutes: i64,
+    /// Een verse vondst wordt wél elke ronde nagekeken, want juist daar wil je weten hoe snel
+    /// hij weg is. Na deze tijd valt hij terug in het gewone tempo.
+    #[serde(default = "default_close_watch_hours")]
+    pub close_watch_hours: i64,
+}
+
+fn default_recheck_minutes() -> i64 {
+    30
+}
+
+fn default_close_watch_hours() -> i64 {
+    6
+}
+
+impl Default for Scan {
+    fn default() -> Self {
+        Scan {
+            recheck_every_minutes: default_recheck_minutes(),
+            close_watch_hours: default_close_watch_hours(),
+        }
+    }
+}
+
 /// Wanneer een vondst het waard is om je voor te storen. Alles daaronder staat in de app en
 /// blijft stil.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -382,6 +415,8 @@ pub struct Settings {
     /// so a normal round costs a handful of extra requests and a cold start a few dozen.
     #[serde(default = "default_detail_lookups")]
     pub detail_lookups_per_round: usize,
+    #[serde(default)]
+    pub scan: Scan,
     #[serde(default)]
     pub notify: Notify,
     #[serde(default)]
