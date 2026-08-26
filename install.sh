@@ -111,15 +111,16 @@ Klaar. Nog vier dingen:
        kaartenjager check
        kaartenjager run --dry-run
 
-  3. Zet de drie cronjobs aan, met jouw kanaal erin. Vanuit Discord tegen Hermes:
+  3. Zet de twee cronjobs aan, met jouw kanaal erin. Vanuit Discord tegen Hermes:
 
-       Maak drie cronjobs:
+       Maak twee cronjobs:
        - kaartenjager-scan, "0 8-22 * * *", no_agent, script
          ~/.local/bin/kaartenjager run, deliver naar dit kanaal
-       - kaartenjager-oordeel, "0 11,19 * * *", skill kaartenjager,
-         prompt "Werk de stapel van kaartenjager af"
        - kaartenjager-prijzen, "0 9 * * 0", skill kaartenjager,
          prompt "Wekelijkse prijsherziening volgens de skill"
+
+     Er is bewust geen cronjob voor het beoordelen: dat gebeurt op verzoek,
+     vanuit de app.
 
   4. Kijken of ze draaien:
        hermes cron list

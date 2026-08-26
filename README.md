@@ -1,9 +1,12 @@
 # Kaartenjager
 
 Houdt Vinted en Marktplaats in de gaten op videokaarten, voedingen en riserkabels die te
-goedkoop staan, en meldt dat in Discord via [Hermes Agent](https://hermes-agent.nousresearch.com).
+goedkoop staan. Alles wat het vindt gaat naar een SQLite-database die je in een app bekijkt;
+alleen echte uitschieters gaan óók naar Discord, via
+[Hermes Agent](https://hermes-agent.nousresearch.com).
 
-Eén statisch binair bestand. Geen runtime, geen database, geen container.
+Eén statisch binair bestand en één databasebestand. Geen runtime, geen dienst, geen
+container.
 
 ## Waarom
 
@@ -21,20 +24,29 @@ binnen dagen — als je met de hand kijkt staat de goede advertentie er al drie 
 
 ## Hoe het werkt
 
-Drie taken op de server.
+Twee taken op de server, plus beoordelen op verzoek.
 
 | Wanneer | Wat | Kosten |
 |---|---|---|
-| Elk uur, 08:00–22:00 | Het programma zoekt, rekent en meldt duidelijke vondsten | nul tokens |
-| 11:00 en 19:00 | Hermes beoordeelt de twijfelgevallen met verstand | een paar aanroepen |
+| Elk uur, 08:00–22:00 | Het programma zoekt, rekent, volgt prijzen en schrijft alles naar de database | nul tokens |
+| Als je in de app op "Hermes laten kijken" drukt | Hermes beoordeelt die ene advertentie | één aanroep per keer |
 | Zondag 09:00 | Hermes herziet de marktprijzen; het programma keurt het voorstel | één aanroep |
 
 Het dragende principe: **het programma keurt, de agent stelt voor.** Een verzinsel van het
 model wordt een geweigerd voorstel met uitleg, nooit een wachter die stilletjes niets meer
 meldt.
 
-Geen vondsten betekent geen bericht. Zonder die regel krijg je vijftien meldingen per dag en
-zet je het na een week uit.
+Discord houdt alleen uitschieters over: meer dan `push_below_market_percent` onder de
+onderkant van het marktbereik, en dan één bericht per advertentie in plaats van één per
+ronde. De rest staat in de app. Zonder die regels krijg je vijftien meldingen per dag en zet
+je het na een week uit.
+
+**Prijzen volgen gaat via de advertenties zelf.** Beide bronnen geven alleen de zestig
+nieuwste resultaten per zoekterm, dus een advertentie verdwijnt daar binnen dagen uit terwijl
+hij gewoon nog te koop staat. Elke ronde haalt daarom hooguit dertig gevolgde advertenties op
+bij hun eigen pagina — oudste eerst — en leest daar de huidige prijs en of ze nog bestaan.
+Afwezigheid in de zoekresultaten betekent niets, en een storing bij een bron mag nooit als
+"alles verkocht" lezen.
 
 ## Installeren
 
@@ -56,15 +68,18 @@ kaartenjager check
 kaartenjager run --dry-run
 ```
 
-En de drie cronjobs, vanuit Discord tegen Hermes:
+En de twee cronjobs, vanuit Discord tegen Hermes:
 
 ```
 kaartenjager-scan      "0 8-22 * * *"   no_agent, script ~/.local/bin/kaartenjager run
-kaartenjager-oordeel   "0 11,19 * * *"  skill kaartenjager
 kaartenjager-prijzen   "0 9 * * 0"      skill kaartenjager
 ```
 
 Taken die je vanuit Discord aanmaakt melden vanzelf terug in datzelfde kanaal.
+
+Er is bewust **geen** cronjob voor het beoordelen. Die zou 144 keer per dag een agent-aanroep
+kosten voor een wachtrij die vrijwel altijd leeg is. In plaats daarvan stuurt de app een kort
+bericht in het kanaal zodra je op de knop drukt, en dat is het sein voor Hermes.
 
 ## Opdrachten
 
@@ -73,16 +88,38 @@ Taken die je vanuit Discord aanmaakt melden vanzelf terug in datzelfde kanaal.
 | `kaartenjager run` | Eén ronde: zoeken, melden, onthouden |
 | `kaartenjager run --dry-run` | Zelfde ronde, niets onthouden of melden |
 | `kaartenjager check` | Configuratie controleren |
-| `kaartenjager selftest` | 24 ingebouwde controles, zonder netwerk |
-| `kaartenjager queue peek` | De stapel voor laag twee bekijken |
-| `kaartenjager queue take` | De stapel oppakken en apart zetten |
-| `kaartenjager queue done` | De opgepakte stapel als afgehandeld melden |
+| `kaartenjager selftest` | De ingebouwde controles, zonder netwerk |
+| `kaartenjager reviews pending` | De wachtrij bekijken zonder hem op te pakken |
+| `kaartenjager reviews take` | De wachtrij oppakken, als JSON |
+| `kaartenjager reviews answer <id> --recommendation <...>` | Oordeel terugschrijven; de tekst gaat via stdin |
+| `kaartenjager reviews fail <id> --reason <tekst>` | Verzoek als mislukt afsluiten |
+| `kaartenjager reviews request <sleutel>` | Zelf een verzoek in de wachtrij zetten |
+| `kaartenjager migrate --from-files` | De oude bestanden alsnog overzetten |
 | `kaartenjager dossier <sleutel>` | Plakblok voor één advertentie |
 | `kaartenjager config apply --from <bestand>` | Voorstel keuren en toepassen |
 | `kaartenjager config rollback [--to DATUM]` | Terug naar een eerdere tabel |
 
 `--config <pad>` wijst een andere configuratie aan, `--verbose` toont ook wat er geweerd werd
 en waarom.
+
+## Waar de gegevens staan
+
+| Pad | Wat |
+|---|---|
+| `~/.local/share/kaartenjager/kaartenjager.db` | De database. Instelbaar met `KAARTENJAGER_DB`, zodat de app hem kan vinden zonder te gokken |
+| `~/.config/kaartenjager/kaartenjager.toml` | Drempels, filters, machine, kast |
+
+De database is de enige koppeling tussen het programma, de app en Hermes. Er is geen API en
+geen poort: valt de app om, dan blijft het zoeken doorgaan, en andersom.
+
+De app zelf staat niet in deze repository. Waar hij zich aan moet houden — de schemacontrole,
+`busy_timeout`, de hartslag, de Hermes-knop en de grens op het aantal zoektermen — staat in
+[`docs/app-afspraken.md`](docs/app-afspraken.md).
+
+SQLite draait in WAL-modus en elke verbinding zet `PRAGMA busy_timeout = 5000`, zodat een
+klik die samenvalt met het wegschrijven van een ronde wacht in plaats van te falen.
+`PRAGMA user_version` zegt welk schema erin zit; de app hoort te weigeren bij een versie die
+hij niet kent.
 
 ## Configuratie
 
@@ -94,6 +131,10 @@ Twee bestanden in `~/.config/kaartenjager/`:
 | `cards.auto.toml` | de wekelijkse herziening, na keuring | nee |
 
 Zet je een drempel met de hand, dan blijft die staan wat de herziening ook voorstelt.
+
+**Zoektermen staan niet meer in TOML.** De lijst uit het bestand wordt bij de allereerste
+start één keer in de database gezet; daarna beheer je hem in de app. Zo zet het weghalen van
+je laatste zoekterm de hele lijst niet terug.
 
 Per kaart twee getallen die ertoe doen:
 
@@ -129,7 +170,7 @@ Beide bronnen hebben een JSON-eindpunt dat hun eigen zoekpagina gebruikt:
 - Vinted: `/api/v2/catalog/items`, met een sessiekoekje dat het programma haalt door eerst de
   voorpagina te laden. Bij een afgewezen verzoek wordt de sessie eenmaal vernieuwd.
 - Marktplaats: `/lrp/api/search`, zonder sessie. De volledige beschrijving zit al in het
-  zoekresultaat, dus laag twee hoeft daar geen enkele pagina op te halen.
+  zoekresultaat, dus een beoordeling hoeft daar geen enkele pagina voor op te halen.
 
 Geen van beide is gedocumenteerd en beide kunnen zonder aankondiging veranderen. Elke parser
 slaat een rij over in plaats van de ronde te laten klappen, en een bron die wegvalt laat de
@@ -157,12 +198,14 @@ cargo build --release
 ./target/release/kaartenjager selftest
 ```
 
-Rust 1.85 of nieuwer. Vier afhankelijkheden: `ureq`, `serde`, `toml`, `time`.
+Rust 1.85 of nieuwer. Vijf afhankelijkheden: `ureq`, `serde`, `toml`, `time` en `rusqlite`
+met meegeleverde SQLite, zodat er op de server niets geïnstalleerd hoeft te zijn.
 
 ## Wat er bewust niet in zit
 
-Geen database, geen webinterface, geen prijsgeschiedenis, geen andere platforms. Geen
-automatisch bieden of kopen — nooit.
+Geen inlog op de app — hij hangt achter het tailnet. Geen volledige configuratie in de app:
+alleen zoektermen, want een verkeerde drempel legt de wachter stil. Geen grafieken, geen
+andere platforms. Geen automatisch bieden of kopen — nooit.
 
 ## Licentie
 

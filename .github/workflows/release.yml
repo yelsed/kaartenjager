@@ -33,18 +33,17 @@ jobs:
         run: rustup target add ${{ matrix.target }}
 
       # musl geeft een volledig statisch bestand, zodat het niet uitmaakt welke glibc of
-      # architectuur de doelserver heeft.
-      - name: Bouwgereedschap voor musl
+      # architectuur de doelserver heeft. `cross` levert per doel een compleet C-gereedschap
+      # in een container; dat is nodig sinds rusqlite de meegeleverde SQLite meecompileert,
+      # en het scheelt het bij elkaar sprokkelen van cross-compilers met apt.
+      - name: cross ophalen
         run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-          fi
+          VERSION=v0.2.5
+          curl -fsSL "https://github.com/cross-rs/cross/releases/download/${VERSION}/cross-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C /usr/local/bin cross
 
       - name: Bouwen
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cross build --release --target ${{ matrix.target }}
 
       - name: Inpakken
         run: |

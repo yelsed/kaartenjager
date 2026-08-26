@@ -11,12 +11,17 @@ sources = ["vinted", "marktplaats"]
 vinted_domain = "www.vinted.nl"
 
 results_per_search = 60
-forget_seen_after_days = 30
 delay_between_requests_ms = 1500
+
 
 
 # ---------------------------------------------------------------------------
 # Zoektermen. Ook de verkeerd gespelde, want daar zit het koopje.
+#
+# Deze lijst wordt bij de allereerste start één keer in de database gezet;
+# daarna beheer je hem in de app en kijkt het programma hier niet meer naar.
+# Zo zet het weghalen van je laatste zoekterm de hele lijst niet terug.
+#
 # Let op de grens: (kaarten + onderdelen) x bronnen mag niet boven de 60.
 # ---------------------------------------------------------------------------
 
@@ -38,6 +43,21 @@ part_search_terms = [
   "pcie riser",
   "riser kabel",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Wanneer een vondst het waard is om je voor te storen.
+#
+# Alles wat het programma vindt komt in de app te staan. Alleen echte
+# uitschieters gaan óók naar Discord, en dit is waar die grens ligt: hoeveel
+# procent onder de onderkant van het marktbereik.
+#
+# Alleen [[card]]-regels halen deze drempel; onderdelen hebben geen
+# marktbereik om tegen af te zetten.
+# ---------------------------------------------------------------------------
+
+[notify]
+push_below_market_percent = 35
 
 
 # ---------------------------------------------------------------------------
