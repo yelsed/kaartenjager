@@ -2,7 +2,7 @@
 //! result — which is why layer two never has to open a Marktplaats page.
 
 use super::Source;
-use crate::http::HttpClient;
+use crate::http::{Failure, HttpClient};
 use crate::listing::{Delivery, Listing};
 use serde_json::Value;
 
@@ -24,7 +24,7 @@ impl<'client> Marktplaats<'client> {
 }
 
 impl Source for Marktplaats<'_> {
-    fn search(&mut self, term: &str, limit: u32) -> Result<Vec<Listing>, String> {
+    fn search(&mut self, term: &str, limit: u32) -> Result<Vec<Listing>, Failure> {
         let mut url = format!(
             "https://www.marktplaats.nl/lrp/api/search?query={}&limit={}&offset=0",
             crate::http::url_encode(term),
@@ -40,7 +40,7 @@ impl Source for Marktplaats<'_> {
 
         let body = self
             .client
-            .get_json(&url, Some("https://www.marktplaats.nl/"))?;
+            .get_json_detailed(&url, Some("https://www.marktplaats.nl/"))?;
         Ok(parse_search(&body))
     }
 }

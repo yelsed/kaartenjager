@@ -148,6 +148,7 @@ pub fn run() -> bool {
         ("plaatsingstijd komt uit de foto", check_posted_at_from_photo),
         ("belangstelling wordt bijgehouden", check_interest_is_recorded),
         ("twee rondes tegelijk gaat niet", check_round_lock),
+        ("een bron die ons tegenhoudt krijgt rust", check_source_backoff),
         ("het wachtrij-vangnet herhaalt zich niet elke ronde", check_nag_does_not_repeat),
         ("waarnemingen alleen bij verandering", check_price_history_only_on_change),
         ("eenmalige velden overleven een ronde", check_one_time_fields_survive),
@@ -1788,5 +1789,48 @@ fn check_sold_vinted_page(_settings: &Settings) -> Result<(), String> {
     if !VINTED_ITEM_SOLD.contains("Verkocht") {
         return Err("het testbestand mist juist het woord waarop je niet moet toetsen".into());
     }
+    Ok(())
+}
+
+
+/// Vinted blokkeerde de server nadat de scan naar elke vijf minuten ging. Elke ronde daarna
+/// dertien zoekopdrachten tegen een dichte deur gooien is precies hoe je een korte rem in een
+/// lange blokkade verandert.
+fn check_source_backoff(_settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("blokkade")?;
+
+    if database.source_blocked_until("vinted") != 0 {
+        return Err("een onbekende bron hoort niet geblokkeerd te heten".into());
+    }
+
+    // Eerste keer: een kwartier rust.
+    let wait = database.note_source_blocked("vinted", 10_000)?;
+    if wait != 900 {
+        return Err(format!("de eerste rustperiode werd {wait} seconden, verwacht 900"));
+    }
+    if database.source_blocked_until("vinted") != 10_900 {
+        return Err("de rustperiode staat niet op het juiste moment".into());
+    }
+
+    // Hielp niet: dan verdubbelen, want opnieuw hetzelfde proberen is dieper graven.
+    if database.note_source_blocked("vinted", 20_000)? != 1_800 {
+        return Err("een tweede blokkade hoort de rustperiode te verdubbelen".into());
+    }
+    if database.source_strikes("vinted") != 2 {
+        return Err("de teller loopt niet mee".into());
+    }
+
+    // En de andere bron blijft er los van staan.
+    if database.source_blocked_until("marktplaats") != 0 {
+        return Err("een blokkade bij de ene bron mag de andere niet raken".into());
+    }
+
+    // Een geslaagde ronde zet alles terug.
+    database.note_source_healthy("vinted")?;
+    if database.source_blocked_until("vinted") != 0 || database.source_strikes("vinted") != 0 {
+        return Err("na een geslaagde ronde hoort de blokkade vergeten te zijn".into());
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
     Ok(())
 }

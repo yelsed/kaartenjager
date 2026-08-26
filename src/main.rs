@@ -291,10 +291,16 @@ fn command_run(arguments: &Arguments) -> ExitCode {
         }
     }
 
-    // Problemen gaan naar stderr en naar de app, niet naar Discord: anders levert "vijf
-    // vondsten kregen geen beschrijving" elke ronde een bericht op.
-    for problem in &outcome.problems {
-        eprintln!("probleem: {problem}");
+    // Problemen gaan naar de app, niet naar Discord.
+    //
+    // Ook niet naar stderr: de cronjob levert bij Hermes álle uitvoer af, stdout en stderr,
+    // en bij rondes van vijf minuten werd dat een muur meldingen per etmaal. Ze staan in de
+    // app onder de hartslag, en dat is de plek waar je ze leest. Met --verbose kun je ze hier
+    // alsnog zien.
+    if arguments.verbose {
+        for problem in &outcome.problems {
+            eprintln!("probleem: {problem}");
+        }
     }
 
     let message = report::render_round(&outcome.pushes, outcome.reviews_waiting, &settings);
@@ -305,7 +311,9 @@ fn command_run(arguments: &Arguments) -> ExitCode {
     // Both sources down is a broken watcher, and the cron should show it as failed rather
     // than as a quiet round with nothing to report.
     if outcome.every_source_failed {
-        eprintln!("Alle bronnen faalden deze ronde.");
+        // Dit is geen ruis maar een kapotte wachter, en de cron hoort hem als mislukt te
+        // tonen. Eén regel, geen lijst.
+        eprintln!("Alle bronnen faalden deze ronde. Kijk in de app voor de reden.");
         return ExitCode::from(EXIT_RUN_ERROR);
     }
     ExitCode::SUCCESS

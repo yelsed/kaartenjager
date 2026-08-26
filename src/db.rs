@@ -670,6 +670,59 @@ impl Database {
             .map_err(|error| format!("Melding van {key} niet vast te leggen: {error}"))
     }
 
+    // ------------------------------------------------- bronnen die ons tegenhouden
+
+    /// Tot wanneer deze bron met rust gelaten wordt, als hij ons heeft tegengehouden.
+    pub fn source_blocked_until(&self, source: &str) -> i64 {
+        self.state(&format!("blocked_until:{source}"))
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0)
+    }
+
+    /// Legt vast dat een bron ons tegenhield, en hoe lang we wegblijven.
+    ///
+    /// Elke volgende keer verdubbelt de wachttijd, want als een kwartier niet hielp is een
+    /// kwartier later opnieuw proberen alleen maar dieper graven. Bij een geslaagde ronde
+    /// gaat de teller terug naar nul.
+    pub fn note_source_blocked(&self, source: &str, now: i64) -> Result<i64, String> {
+        let strikes: i64 = self
+            .state(&format!("block_strikes:{source}"))
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        let next = (strikes + 1).min(4);
+
+        // 15, 30, 60, 120 minuten.
+        let wait = 900 * 2i64.pow((next - 1) as u32);
+        self.set_state(&format!("block_strikes:{source}"), &next.to_string())?;
+        self.set_state(&format!("blocked_until:{source}"), &(now + wait).to_string())?;
+        Ok(wait)
+    }
+
+    /// Hoe vaak deze bron ons al tegenhield. Bepaalt hoeveel lucht hij krijgt.
+    pub fn source_strikes(&self, source: &str) -> i64 {
+        self.state(&format!("block_strikes:{source}"))
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0)
+    }
+
+    pub fn note_source_healthy(&self, source: &str) -> Result<(), String> {
+        if self.source_blocked_until(source) == 0
+            && self.state(&format!("block_strikes:{source}")).is_none()
+        {
+            return Ok(());
+        }
+        self.connection
+            .execute(
+                "DELETE FROM app_state WHERE name IN (?1, ?2)",
+                params![
+                    format!("blocked_until:{source}"),
+                    format!("block_strikes:{source}")
+                ],
+            )
+            .map(|_| ())
+            .map_err(|error| format!("Blokkade van {source} niet op te heffen: {error}"))
+    }
+
     // ------------------------------------------------------------------ het slot
 
     /// Pakt het slot als er geen ronde loopt. Geeft false als er al eentje bezig is.

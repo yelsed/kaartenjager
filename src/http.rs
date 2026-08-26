@@ -9,6 +9,10 @@ use std::time::{Duration, Instant};
 pub enum Failure {
     /// The server said the resource is not there (404 or 410). Unambiguous.
     Gone,
+    /// De bron houdt ons tegen (403 of 429). Doorgaan maakt het alleen erger: dertien
+    /// zoekopdrachten achter elkaar tegen een dichte deur is precies hoe je een tijdelijke
+    /// rem in een lange blokkade verandert.
+    Blocked(String),
     /// Anything else: a timeout, a rate limit, a server fault, a broken connection.
     Other(String),
 }
@@ -17,6 +21,7 @@ impl fmt::Display for Failure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Failure::Gone => write!(formatter, "de pagina bestaat niet meer"),
+            Failure::Blocked(reason) => write!(formatter, "{reason}"),
             Failure::Other(reason) => write!(formatter, "{reason}"),
         }
     }
@@ -50,6 +55,12 @@ impl HttpClient {
         }
     }
 
+    /// De tussenruimte bijstellen. Een bron die ons eerder tegenhield krijgt meer lucht: hard
+    /// terugkomen op hetzelfde tempo is hoe een korte rem een lange blokkade wordt.
+    pub fn set_delay(&mut self, delay_ms: u64) {
+        self.delay = Duration::from_millis(delay_ms);
+    }
+
     /// Rebuilding the agent is the surest way to drop every cookie, and it happens at most
     /// once per run.
     pub fn clear_cookies(&mut self) {
@@ -68,11 +79,19 @@ impl HttpClient {
     }
 
     pub fn get_json(&mut self, url: &str, referer: Option<&str>) -> Result<Value, String> {
-        let body = self
-            .get_with_headers(url, referer, "application/json, text/plain, */*")
-            .map_err(|failure| failure.to_string())?;
+        self.get_json_detailed(url, referer)
+            .map_err(|failure| failure.to_string())
+    }
+
+    /// Zoals `get_json`, maar houdt "tegengehouden" apart van "ging mis".
+    pub fn get_json_detailed(
+        &mut self,
+        url: &str,
+        referer: Option<&str>,
+    ) -> Result<Value, Failure> {
+        let body = self.get_with_headers(url, referer, "application/json, text/plain, */*")?;
         serde_json::from_str(&body)
-            .map_err(|error| format!("{url} gaf geen bruikbare JSON terug: {error}"))
+            .map_err(|error| Failure::Other(format!("{url} gaf geen bruikbare JSON terug: {error}")))
     }
 
     fn get_with_headers(
@@ -115,9 +134,14 @@ impl HttpClient {
                     if matches!(code, 404 | 410) {
                         return Err(Failure::Gone);
                     }
+                    // Tegengehouden. Niet opnieuw proberen en het meteen zeggen, zodat de
+                    // aanroeper deze bron voor even met rust kan laten.
+                    if matches!(code, 403 | 429) {
+                        return Err(Failure::Blocked(format!("{url}: HTTP {code}")));
+                    }
                     last_failure = format!("{url}: HTTP {code}");
-                    // Rate limiting and server faults may pass; anything else will not.
-                    if !matches!(code, 408 | 429 | 500 | 502 | 503 | 504) {
+                    // Server faults may pass; anything else will not.
+                    if !matches!(code, 408 | 500 | 502 | 503 | 504) {
                         break;
                     }
                 }

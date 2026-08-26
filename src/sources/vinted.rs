@@ -1,7 +1,7 @@
 //! Vinted. Needs a browser session, which the front page hands out for free.
 
 use super::{loose_f64, Source};
-use crate::http::HttpClient;
+use crate::http::{Failure, HttpClient};
 use crate::listing::{Delivery, Listing};
 use serde_json::Value;
 
@@ -41,20 +41,24 @@ impl<'client> Vinted<'client> {
 }
 
 impl Source for Vinted<'_> {
-    fn search(&mut self, term: &str, limit: u32) -> Result<Vec<Listing>, String> {
-        self.ensure_session()?;
+    fn search(&mut self, term: &str, limit: u32) -> Result<Vec<Listing>, Failure> {
+        self.ensure_session().map_err(Failure::Other)?;
         let url = self.catalog_url(term, limit);
         let referer = format!("https://{}/catalog", self.domain);
 
-        let body = match self.client.get_json(&url, Some(&referer)) {
+        let body = match self.client.get_json_detailed(&url, Some(&referer)) {
+            // Tegengehouden is geen verlopen sessie: opnieuw verbinden en het nog eens
+            // proberen maakt het alleen erger.
+            Err(blocked @ Failure::Blocked(_)) => return Err(blocked),
             Ok(body) => body,
             Err(first_failure) => {
                 // A stale session shows up as 401 or 403; one fresh handshake usually fixes it.
                 self.has_session = false;
                 self.client.clear_cookies();
-                self.ensure_session()
-                    .map_err(|error| format!("{first_failure}; opnieuw verbinden gaf: {error}"))?;
-                self.client.get_json(&url, Some(&referer))?
+                self.ensure_session().map_err(|error| {
+                    Failure::Other(format!("{first_failure}; opnieuw verbinden gaf: {error}"))
+                })?;
+                self.client.get_json_detailed(&url, Some(&referer))?
             }
         };
 

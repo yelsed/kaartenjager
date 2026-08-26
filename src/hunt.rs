@@ -102,6 +102,29 @@ pub fn run_round(
     let mut rejection_counts: BTreeMap<String, usize> = BTreeMap::new();
 
     for source_name in &settings.sources {
+        // Een bron die ons kort geleden tegenhield krijgt rust. Elke ronde opnieuw dertien
+        // zoekopdrachten tegen een dichte deur gooien is precies hoe je een tijdelijke rem in
+        // een lange blokkade verandert.
+        let blocked_until = database.source_blocked_until(source_name);
+        if now < blocked_until {
+            problems.push(format!(
+                "{source_name} hield ons tegen; met rust gelaten tot over {} minuten",
+                (blocked_until - now) / 60 + 1
+            ));
+            continue;
+        }
+
+        // Zelfregulerend tempo: elke keer dat deze bron ons tegenhield komt er een halve
+        // tussenruimte bij. Bij een geslaagde ronde valt dat vanzelf terug naar normaal.
+        let strikes = database.source_strikes(source_name);
+        let delay = settings.delay_between_requests_ms * (2 + strikes as u64) / 2;
+        client.set_delay(delay);
+        if strikes > 0 {
+            problems.push(format!(
+                "{source_name} krijgt {delay} ms tussen verzoeken na {strikes} blokkade(s)"
+            ));
+        }
+
         // Built once per source, not once per term: rebuilding the Vinted adapter would
         // fetch the front page again for every search and half again the request count.
         let mut source: Box<dyn Source> = match source_name.as_str() {
@@ -116,9 +139,18 @@ pub fn run_round(
         sources_tried += 1;
         let mut source_failed = false;
 
+        let mut blocked = false;
         for term in &terms {
             let listings = match source.search(term, settings.results_per_search) {
                 Ok(listings) => listings,
+                // Tegengehouden: stoppen met deze bron, niet doorgaan met de andere twaalf
+                // zoektermen. Doorrammen is wat een korte rem in een lange blokkade verandert.
+                Err(crate::http::Failure::Blocked(reason)) => {
+                    problems.push(format!("{source_name} houdt ons tegen: {reason}"));
+                    blocked = true;
+                    source_failed = true;
+                    break;
+                }
                 Err(error) => {
                     problems.push(format!("{source_name} · \"{term}\": {error}"));
                     source_failed = true;
@@ -158,6 +190,16 @@ pub fn run_round(
         }
 
         drop(source);
+
+        if blocked && !dry_run {
+            let wait = database.note_source_blocked(source_name, now)?;
+            problems.push(format!(
+                "{source_name} wordt de komende {} minuten overgeslagen",
+                wait / 60
+            ));
+        } else if !source_failed && !dry_run {
+            database.note_source_healthy(source_name)?;
+        }
 
         if source_failed {
             sources_failed += 1;

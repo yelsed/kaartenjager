@@ -11,7 +11,12 @@ sources = ["vinted", "marktplaats"]
 vinted_domain = "www.vinted.nl"
 
 results_per_search = 60
-delay_between_requests_ms = 1500
+
+# Tussenruimte tussen twee verzoeken. Bij rondes van vijf minuten telt dit aan:
+# Vinted blokkeerde de server op 26 augustus 2026 met 1500 ms. Het programma
+# rekt dit vanzelf op zodra een bron ons tegenhoudt, en laat het weer krimpen
+# na een geslaagde ronde, maar begin ruim.
+delay_between_requests_ms = 2500
 
 
 
