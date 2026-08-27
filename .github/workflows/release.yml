@@ -8,6 +8,14 @@ on:
 permissions:
   contents: write
 
+# Twee builds op dezelfde tag uploaden naar dezelfde release en rijden elkaar in de wielen:
+# bij v1.6.0 hield die race een release over met alleen SHA256SUMS erin, zonder dat er ergens
+# iets rood werd. Eén tegelijk per tag, en een lopende niet afbreken — die is misschien al
+# halverwege het uploaden.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ubuntu-latest

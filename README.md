@@ -293,13 +293,18 @@ git tag -a v1.6.0 -m 'Kaartenjager 1.6.0' && git push origin v1.6.0
 gh run list --repo yelsed/kaartenjager --limit 1     # start er een build?
 ```
 
-De workflow luistert op `push` van een tag `v*`, maar dat blijkt niet betrouwbaar te vuren:
-sinds v1.4.0 kwam er geen enkele tag-push als event binnen terwijl de tags er wél staan.
-Start hem dan met de hand — dat werkt wel, en levert dezelfde release op:
+De workflow luistert op `push` van een tag `v*`. Tussen v1.4.0 en v1.5.2 vuurde dat niet —
+de tags stonden er wel, maar er kwam geen enkel event binnen — en sinds v1.6.1 werkt het weer.
+Start er alleen met de hand eentje bij als er na een minuut niets draait:
 
 ```sh
-gh workflow run release.yml --repo yelsed/kaartenjager --ref v1.6.0
+gh workflow run release.yml --repo yelsed/kaartenjager --ref v1.6.2
 ```
+
+**Niet allebei tegelijk.** Twee runs op dezelfde tag uploaden naar dezelfde release en rijden
+elkaar in de wielen; bij v1.6.0 bleef er zo een release over met alleen `SHA256SUMS` erin,
+zonder dat er ergens iets rood werd. De workflow heeft daar nu een `concurrency`-grendel voor,
+maar kijk eerst met `gh run list` voordat je er een start.
 
 ## Zelf bouwen
 
