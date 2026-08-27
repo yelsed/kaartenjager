@@ -67,28 +67,18 @@ impl HttpClient {
         self.agent = build_agent(self.timeout);
     }
 
-    pub fn get_text(&mut self, url: &str) -> Result<String, String> {
-        self.get_page(url).map_err(|failure| failure.to_string())
-    }
-
-    /// Like `get_text`, but keeps "this listing no longer exists" apart from "something went
-    /// wrong". A recheck may only conclude a listing is gone on the first; a network fault or
-    /// a rate limit must never read as "sold".
+    /// Haalt een pagina op en houdt "bestaat niet meer" en "wordt tegengehouden" apart van
+    /// "er ging iets mis".
+    ///
+    /// Er is met opzet géén variant die dat onderscheid platslaat tot een tekst. Die was er
+    /// wel, en op drie plekken werd hij gebruikt — met als gevolg dat een 403 nooit als
+    /// blokkade bij de aanroeper aankwam en het programma vrolijk dertien zoektermen tegen
+    /// een dichte deur bleef gooien.
     pub fn get_page(&mut self, url: &str) -> Result<String, Failure> {
         self.get_with_headers(url, None, "text/html,application/xhtml+xml,*/*")
     }
 
-    pub fn get_json(&mut self, url: &str, referer: Option<&str>) -> Result<Value, String> {
-        self.get_json_detailed(url, referer)
-            .map_err(|failure| failure.to_string())
-    }
-
-    /// Zoals `get_json`, maar houdt "tegengehouden" apart van "ging mis".
-    pub fn get_json_detailed(
-        &mut self,
-        url: &str,
-        referer: Option<&str>,
-    ) -> Result<Value, Failure> {
+    pub fn get_json(&mut self, url: &str, referer: Option<&str>) -> Result<Value, Failure> {
         let body = self.get_with_headers(url, referer, "application/json, text/plain, */*")?;
         serde_json::from_str(&body)
             .map_err(|error| Failure::Other(format!("{url} gaf geen bruikbare JSON terug: {error}")))

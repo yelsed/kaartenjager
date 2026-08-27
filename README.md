@@ -184,6 +184,7 @@ verkeerd begrijpt is erger dan niet werken.
 | `kaartenjager run --dry-run` | Zelfde ronde, niets onthouden of melden |
 | `kaartenjager check` | Configuratie controleren |
 | `kaartenjager selftest` | De ingebouwde controles, zonder netwerk |
+| `kaartenjager doctor` | Alles nalopen als de wachter stilstaat: configuratie, database, klok, hartslag, slot, zoektermen, blokkades |
 | `kaartenjager reviews pending` | De wachtrij bekijken zonder hem op te pakken |
 | `kaartenjager reviews take` | De wachtrij oppakken, als JSON |
 | `kaartenjager reviews answer <id> --recommendation <...>` | Oordeel terugschrijven; de tekst gaat via stdin |

@@ -60,17 +60,17 @@ impl Source for Vinted<'_> {
         let url = self.catalog_url(term, limit);
         let referer = format!("{}/catalog", self.base());
 
-        let body = match self.client.get_json_detailed(&url, Some(&referer)) {
+        let body = match self.client.get_json(&url, Some(&referer)) {
             // Tegengehouden is geen verlopen sessie: opnieuw verbinden en het nog eens
             // proberen maakt het alleen erger.
             Err(blocked @ Failure::Blocked(_)) => return Err(blocked),
             Ok(body) => body,
-            Err(first_failure) => {
+            Err(_stale_session) => {
                 // A stale session shows up as 401 or 403; one fresh handshake usually fixes it.
                 self.has_session = false;
                 self.client.clear_cookies();
                 self.ensure_session()?;
-                self.client.get_json_detailed(&url, Some(&referer))?
+                self.client.get_json(&url, Some(&referer))?
             }
         };
 

@@ -1,6 +1,7 @@
 mod config;
 mod db;
 mod detail;
+mod doctor;
 mod dossier;
 mod filter;
 mod http;
@@ -25,6 +26,7 @@ kaartenjager — houdt Vinted en Marktplaats in de gaten
   kaartenjager run                 Eén ronde: zoeken, melden, onthouden
   kaartenjager run --dry-run       Zelfde ronde, maar niets onthouden of melden
   kaartenjager check               Configuratie controleren en stoppen
+  kaartenjager doctor              Alles nalopen als de wachter stilstaat
   kaartenjager selftest            Ingebouwde controles, zonder netwerk
 
   kaartenjager reviews pending     Toon de wachtrij zonder hem op te pakken
@@ -95,6 +97,13 @@ fn main() -> ExitCode {
         }
         "run" => command_run(&arguments),
         "check" => command_check(&arguments),
+        "doctor" => {
+            if doctor::run(arguments.config.as_deref(), now_seconds()) {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(EXIT_RUN_ERROR)
+            }
+        }
         "reviews" => command_reviews(&arguments),
         "migrate" => command_migrate(&arguments),
         "dossier" => command_dossier(&arguments),

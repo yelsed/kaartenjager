@@ -40,7 +40,7 @@ impl Source for Marktplaats<'_> {
 
         let body = self
             .client
-            .get_json_detailed(&url, Some("https://www.marktplaats.nl/"))?;
+            .get_json(&url, Some("https://www.marktplaats.nl/"))?;
         Ok(parse_search(&body))
     }
 }

@@ -159,6 +159,7 @@ pub fn run() -> bool {
         ("gereserveerd haalt de vondst uit de inbox", check_reserved_clears_finding),
         ("uitschieterdrempel laat 30% stil en 40% door", check_push_threshold),
         ("een regel die nooit kan melden wordt gemeld", check_silent_rule_is_reported),
+        ("doctor stopt niet bij de eerste fout", check_doctor_keeps_going),
         ("het Discord-bericht is vier regels", check_push_message),
         ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
         ("één melding per advertentie, tien procent lager een tweede", check_push_once),
@@ -1963,5 +1964,34 @@ fn check_blocked_survives_every_path(_settings: &Settings) -> Result<(), String>
         Ok(()) => return Err("een 403 hoort geen beschrijving op te leveren".into()),
     }
 
+    Ok(())
+}
+
+
+/// `check` stopt bij de eerste fout; `doctor` moet juist doorlopen. Het programma viel negen
+/// uur stil zonder spoor, en dan wil je niet één regel zien maar alles wat eraan schort.
+fn check_doctor_keeps_going(_settings: &Settings) -> Result<(), String> {
+    let directory = scratch_directory("doctor")?;
+
+    // Een configuratie die niet laadt, én geen database. Beide horen gemeld te worden.
+    let config = directory.join("kapot.toml");
+    std::fs::write(&config, "card_search_terms = [\"rtx 3090\"\n[notify]\n")
+        .map_err(|error| error.to_string())?;
+
+    // De database staat elders; doctor kijkt naar KAARTENJAGER_DB.
+    unsafe { std::env::set_var("KAARTENJAGER_DB", directory.join("bestaat-niet.db")) };
+    let rapport = crate::doctor::diagnose(Some(&config), 1_800_000_000);
+    unsafe { std::env::remove_var("KAARTENJAGER_DB") };
+
+    // Twee losse problemen: de configuratie én de database. Eén ervan melden en stoppen zou
+    // betekenen dat je het tweede pas ontdekt nadat je het eerste hebt opgelost.
+    if rapport.problems() < 2 {
+        return Err(format!(
+            "doctor meldde {} probleem(en), verwacht er minstens twee",
+            rapport.problems()
+        ));
+    }
+
+    let _ = std::fs::remove_dir_all(&directory);
     Ok(())
 }
