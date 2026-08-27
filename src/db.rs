@@ -736,7 +736,11 @@ impl Database {
             .and_then(|value| value.parse().ok());
 
         if let Some(since) = running {
-            if now - since < stale_after {
+            // Een stempel uit de toekomst — een klok die terugliep, een handmatige bewerking —
+            // zou met een gewone vergelijking altijd "nog bezig" opleveren en de wachter
+            // voorgoed stilzetten. Die telt daarom als vervallen.
+            let age = now - since;
+            if (0..stale_after).contains(&age) {
                 return Ok(false);
             }
         }

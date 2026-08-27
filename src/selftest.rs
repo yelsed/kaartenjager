@@ -1752,6 +1752,13 @@ fn check_round_lock(_settings: &Settings) -> Result<(), String> {
         return Err("een vastgelopen slot hoort vanzelf te vervallen".into());
     }
 
+    // En een stempel uit de toekomst, van een klok die terugliep, mag hem al helemaal niet
+    // voorgoed stilzetten — dat is precies een storing die je nooit ziet aankomen.
+    database.set_state("round_running_since", "999999999999")?;
+    if !database.take_round_lock(2_000, 900)? {
+        return Err("een slot uit de toekomst hoort te vervallen, niet eeuwig te blokkeren".into());
+    }
+
     let _ = std::fs::remove_dir_all(&directory);
     Ok(())
 }
