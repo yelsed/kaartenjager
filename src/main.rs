@@ -347,6 +347,25 @@ fn command_check(arguments: &Arguments) -> ExitCode {
          behalve onder suspicious_below",
         settings.notify.push_below_market_percent
     );
+    let stille_regels =
+        settings.cards_that_can_never_notify(settings.notify.push_below_market_percent);
+    if !stille_regels.is_empty() {
+        println!(
+            "  LET OP             {} kaartregel(s) kunnen nooit een Discord-bericht geven,",
+            stille_regels.len()
+        );
+        println!("                     want de bodem ligt boven de meldgrens:");
+        for (naam, grens, bodem) in &stille_regels {
+            println!(
+                "                       {naam}: meldgrens {} maar bodem {}",
+                money::euros(*grens),
+                money::euros(*bodem)
+            );
+        }
+        println!(
+            "                     Verlaag push_below_market_percent of suspicious_below."
+        );
+    }
 
     // Ook `check` zaait de termen: bij de allereerste start is dit het moment waarop de
     // lijst uit TOML in de database komt, en dan hoort het overzicht dat te tonen.

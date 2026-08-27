@@ -59,10 +59,16 @@ part_search_terms = [
 #
 # Alleen [[card]]-regels halen deze drempel; onderdelen hebben geen
 # marktbereik om tegen af te zetten.
+#
+# Let op de samenhang met suspicious_below: die bodem filtert oplichting weg.
+# Zet je deze drempel te hoog, dan ligt hij ónder die bodem en is elke melding
+# die hem haalt al weggezet als oplichterij — dan blijft het kanaal stil zonder
+# dat iets kapot lijkt. Op 35% was dat bij de 4090 precies het geval.
+# `kaartenjager check` waarschuwt wanneer een kaartregel zo stil komt te staan.
 # ---------------------------------------------------------------------------
 
 [notify]
-push_below_market_percent = 35
+push_below_market_percent = 25
 
 
 # ---------------------------------------------------------------------------

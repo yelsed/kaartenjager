@@ -497,6 +497,26 @@ impl Settings {
         Ok(())
     }
 
+    /// Kaartregels die nooit een Discord-bericht kunnen opleveren.
+    ///
+    /// De meldgrens ligt op een percentage onder de marktprijs; de oplichtingsbodem ligt op
+    /// een vast bedrag. Kruisen die elkaar, dan is elke advertentie die de meldgrens haalt
+    /// per definitie al als oplichterij weggezet en blijft het kanaal stil. Dat is precies
+    /// het soort fout dat je pas na weken opvalt, dus `check` hoort het te zeggen.
+    pub fn cards_that_can_never_notify(&self, percent: f64) -> Vec<(&str, f64, f64)> {
+        self.cards
+            .iter()
+            .filter_map(|card| {
+                let push_below = card.used_price_low * (1.0 - percent / 100.0);
+                (card.suspicious_below >= push_below).then_some((
+                    card.name.as_str(),
+                    push_below,
+                    card.suspicious_below,
+                ))
+            })
+            .collect()
+    }
+
     /// Rules keyed by name, so the weekly review can compare old against proposed.
     pub fn cards_by_name(&self) -> BTreeMap<String, &CardRule> {
         self.cards.iter().map(|card| (card.name.clone(), card)).collect()

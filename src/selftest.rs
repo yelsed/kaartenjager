@@ -157,6 +157,7 @@ pub fn run() -> bool {
         ("verdwenen pas na twee hercontroles", check_gone_needs_two_checks),
         ("gereserveerd haalt de vondst uit de inbox", check_reserved_clears_finding),
         ("uitschieterdrempel laat 30% stil en 40% door", check_push_threshold),
+        ("een regel die nooit kan melden wordt gemeld", check_silent_rule_is_reported),
         ("het Discord-bericht is vier regels", check_push_message),
         ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
         ("één melding per advertentie, tien procent lager een tweede", check_push_once),
@@ -1864,6 +1865,25 @@ fn check_unreadable_verdict(_settings: &Settings) -> Result<(), String> {
     // Niets onleesbaar is nooit verdacht.
     if source_markup_looks_broken(0, 0) {
         return Err("een ronde zonder onleesbare pagina's hoort niet verdacht te heten".into());
+    }
+    Ok(())
+}
+
+
+/// De meldgrens is een percentage onder de markt, de oplichtingsbodem een vast bedrag.
+/// Kruisen die elkaar, dan is elke advertentie die de meldgrens haalt al als oplichterij
+/// weggezet en blijft het kanaal stil — een fout die je pas na weken opvalt.
+fn check_silent_rule_is_reported(settings: &Settings) -> Result<(), String> {
+    // De testtabel: 3090 Ti met markt 950 en bodem 550. Bij 35% is de grens 617,50, dus die
+    // regel kan melden.
+    if !settings.cards_that_can_never_notify(35.0).is_empty() {
+        return Err("bij 35% hoort geen enkele regel stil te staan in deze tabel".into());
+    }
+
+    // Bij 45% zakt de grens naar 522,50 en komt hij onder de bodem van 550 te liggen.
+    let stil = settings.cards_that_can_never_notify(45.0);
+    if !stil.iter().any(|(naam, _, _)| *naam == "RTX 3090 Ti") {
+        return Err("bij 45% hoort de 3090 Ti als stille regel gemeld te worden".into());
     }
     Ok(())
 }

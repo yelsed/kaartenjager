@@ -452,7 +452,26 @@ staat gewoon in de app, met de waarschuwing erbij en de Hermes-knop eronder. Zo'
 krijgt wél meteen zijn `pushed_at`-stempel, anders komt hij elke ronde opnieuw langs en zou
 één prijsstijging hem alsnog het kanaal in duwen.
 
-Bij de huidige tabel zou dat ongeveer één bericht per paar dagen zijn — dat is het punt.
+**Bijgesteld na de eerste dagen: de drempel stond op 35% en dat leverde nul berichten op.**
+
+De meldgrens is een percentage onder de markt; `suspicious_below` is een vast bedrag per
+kaart. Die twee kruisen elkaar. Bij 35% lag de meldgrens van de 4090 op €1.170 terwijl de
+bodem op €1.250 stond: alles wat de grens haalde was dus al als oplichterij weggezet, en die
+regel kón niets melden. Bij de andere kaarten was het venster een strook van enkele tientjes.
+
+Gemeten aan zevenendertig echte vondsten haalden er drie de 35%, en dat waren alle drie
+oplichtingspogingen. De hoogste échte vondsten zaten op 29% en 30% — en het voorbeeldbericht
+hierboven, de 4090 van €1.260,70, is er zelf één van. Met een drempel van 35% zou juist dat
+bericht nooit verstuurd zijn.
+
+De drempel staat daarom op **25%**. Dan heeft elke kaartregel een bruikbaar venster en komt de
+soort vondst waar dit systeem voor gemaakt is er ook echt doorheen.
+
+`kaartenjager check` waarschuwt voortaan wanneer een kaartregel zo stil komt te staan. Dat is
+precies het soort fout waar dit ontwerp bang voor is: niets lijkt kapot, er komt alleen nooit
+meer iets.
+
+Bij deze tabel is dat ongeveer een paar berichten per week — dat is het punt.
 
 ## 7. Hermes aan de knop
 
