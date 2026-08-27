@@ -149,6 +149,7 @@ pub fn run() -> bool {
         ("belangstelling wordt bijgehouden", check_interest_is_recorded),
         ("twee rondes tegelijk gaat niet", check_round_lock),
         ("een bron die ons tegenhoudt krijgt rust", check_source_backoff),
+        ("403 blijft 403 langs elke weg", check_blocked_survives_every_path),
         ("onleesbare pagina's: verkocht of opmaakwijziging", check_unreadable_verdict),
         ("het wachtrij-vangnet herhaalt zich niet elke ronde", check_nag_does_not_repeat),
         ("waarnemingen alleen bij verandering", check_price_history_only_on_change),
@@ -1885,5 +1886,75 @@ fn check_silent_rule_is_reported(settings: &Settings) -> Result<(), String> {
     if !stil.iter().any(|(naam, _, _)| *naam == "RTX 3090 Ti") {
         return Err("bij 45% hoort de 3090 Ti als stille regel gemeld te worden".into());
     }
+    Ok(())
+}
+
+
+/// Een 403 moet als `Blocked` bij de aanroeper aankomen, langs élke weg: de sessie-aanvraag,
+/// het zoeken, de hercontrole en het ophalen van een beschrijving.
+///
+/// Dit is geen theoretische zorg. Tweemaal is precies hier een fout ingeslopen: een
+/// `map_err` die `Blocked` platsloeg tot een gewone fout, waardoor de terugvalregeling niet
+/// vuurde en de ronde vrolijk dertien zoektermen en dertig hercontroles tegen een dichte deur
+/// bleef gooien. Een luisteraar op localhost die niets anders doet dan 403 teruggeven vangt
+/// dat, zonder ook maar één keer het echte internet aan te raken.
+fn check_blocked_survives_every_path(_settings: &Settings) -> Result<(), String> {
+    use crate::detail;
+    use crate::http::{Failure, HttpClient};
+    use crate::sources::{vinted::Vinted, Source};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
+    let port = listener.local_addr().map_err(|error| error.to_string())?.port();
+
+    // Losgelaten, niet afgewacht: hoeveel verbindingen de cliënt precies maakt hangt af van
+    // hergebruik, en wachten op een aantal dat nooit komt zou de zelftest laten hangen.
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut weg = [0u8; 1024];
+            let _ = stream.read(&mut weg);
+            let _ = stream.write_all(
+                b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+    });
+
+    let domain = format!("http://127.0.0.1:{port}");
+    let mut client = HttpClient::new(0);
+
+    // 1. Zoeken. Hier valt ook de sessie-aanvraag onder: die gaat als eerste naar de
+    //    voorpagina, en juist daar hield Vinted ons tegen.
+    let mut bron = Vinted::new(&mut client, &domain);
+    match bron.search("rtx 3090", 5) {
+        Err(Failure::Blocked(_)) => {}
+        Err(other) => return Err(format!("zoeken gaf {other} in plaats van tegengehouden")),
+        Ok(_) => return Err("zoeken hoorde niet te lukken tegen een dichte deur".into()),
+    }
+    drop(bron);
+
+    let advertentie = Listing {
+        source: "vinted".to_string(),
+        listing_id: "1".to_string(),
+        url: format!("{domain}/items/1"),
+        ..Listing::default()
+    };
+
+    // 2. De hercontrole.
+    match detail::recheck(&advertentie, &mut client) {
+        Err(Failure::Blocked(_)) => {}
+        Err(other) => return Err(format!("hercontrole gaf {other} in plaats van tegengehouden")),
+        Ok(_) => return Err("een 403 hoort geen uitspraak over de advertentie te zijn".into()),
+    }
+
+    // 3. Het ophalen van een beschrijving.
+    let mut kopie = advertentie.clone();
+    match detail::enrich(&mut kopie, &mut client) {
+        Err(Failure::Blocked(_)) => {}
+        Err(other) => return Err(format!("beschrijving gaf {other} in plaats van tegengehouden")),
+        Ok(()) => return Err("een 403 hoort geen beschrijving op te leveren".into()),
+    }
+
     Ok(())
 }

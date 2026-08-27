@@ -20,20 +20,34 @@ impl<'client> Vinted<'client> {
         }
     }
 
-    fn ensure_session(&mut self) -> Result<(), String> {
+    /// Geeft `Failure::Blocked` door in plaats van het plat te slaan. Vinted houdt ons namelijk
+    /// juist op de voorpagina tegen, en dat is precies het moment waarop de ronde met deze
+    /// bron moet stoppen — niet dertien zoektermen later.
+    fn ensure_session(&mut self) -> Result<(), Failure> {
         if self.has_session {
             return Ok(());
         }
         // The API answers only to a browser session; loading the front page sets the cookies.
-        self.client.get_text(&format!("https://{}/", self.domain))?;
+        self.client.get_page(&format!("{}/", self.base()))?;
         self.has_session = true;
         Ok(())
     }
 
+    /// Het adres van de bron. Draagt `vinted_domain` al een schema, dan blijft dat staan —
+    /// zonder dat is deze adapter niet tegen een testluisteraar te zetten, en juist hier zijn
+    /// tweemaal fouten ingeslopen die alleen met een echt antwoord zichtbaar worden.
+    fn base(&self) -> String {
+        if self.domain.starts_with("http://") || self.domain.starts_with("https://") {
+            self.domain.trim_end_matches('/').to_string()
+        } else {
+            format!("https://{}", self.domain)
+        }
+    }
+
     fn catalog_url(&self, term: &str, limit: u32) -> String {
         format!(
-            "https://{}/api/v2/catalog/items?search_text={}&order=newest_first&per_page={}&page=1",
-            self.domain,
+            "{}/api/v2/catalog/items?search_text={}&order=newest_first&per_page={}&page=1",
+            self.base(),
             crate::http::url_encode(term),
             limit
         )
@@ -42,9 +56,9 @@ impl<'client> Vinted<'client> {
 
 impl Source for Vinted<'_> {
     fn search(&mut self, term: &str, limit: u32) -> Result<Vec<Listing>, Failure> {
-        self.ensure_session().map_err(Failure::Other)?;
+        self.ensure_session()?;
         let url = self.catalog_url(term, limit);
-        let referer = format!("https://{}/catalog", self.domain);
+        let referer = format!("{}/catalog", self.base());
 
         let body = match self.client.get_json_detailed(&url, Some(&referer)) {
             // Tegengehouden is geen verlopen sessie: opnieuw verbinden en het nog eens
@@ -55,9 +69,7 @@ impl Source for Vinted<'_> {
                 // A stale session shows up as 401 or 403; one fresh handshake usually fixes it.
                 self.has_session = false;
                 self.client.clear_cookies();
-                self.ensure_session().map_err(|error| {
-                    Failure::Other(format!("{first_failure}; opnieuw verbinden gaf: {error}"))
-                })?;
+                self.ensure_session()?;
                 self.client.get_json_detailed(&url, Some(&referer))?
             }
         };

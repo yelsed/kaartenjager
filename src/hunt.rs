@@ -228,8 +228,15 @@ pub fn run_round(
             continue;
         }
         looked_up += 1;
-        if let Err(error) = detail::enrich(&mut finding.listing, &mut client) {
-            problems.push(format!("beschrijving niet opgehaald: {error}"));
+        match detail::enrich(&mut finding.listing, &mut client) {
+            Ok(()) => {}
+            // Tegengehouden: geen twaalf pogingen meer doen. De beschrijvingen komen een
+            // volgende ronde wel, de blokkade wordt er alleen langer van.
+            Err(crate::http::Failure::Blocked(reason)) => {
+                problems.push(format!("beschrijvingen gestopt, bron houdt ons tegen: {reason}"));
+                break;
+            }
+            Err(error) => problems.push(format!("beschrijving niet opgehaald: {error}")),
         }
     }
     let still_without = findings
@@ -408,8 +415,20 @@ fn recheck_followed_listings(
     let fresh_since = now - settings.scan.close_watch_hours * 3600;
     let budget = if due { RECHECKS_PER_ROUND } else { FRESH_RECHECKS_PER_ROUND };
 
+    // Bronnen die deze ronde al tegengehouden hebben, of dat tijdens het hercontroleren gaan
+    // doen. Doorgaan met een bron die de deur dichthoudt maakt de blokkade alleen langer.
+    let mut blocked_sources: BTreeSet<String> = settings
+        .sources
+        .iter()
+        .filter(|name| now < database.source_blocked_until(name))
+        .cloned()
+        .collect();
+
     for stored in database.due_for_recheck(budget, fresh_since)? {
         let key = stored.key();
+        if blocked_sources.contains(&stored.source) {
+            continue;
+        }
         // Deze ronde al in de zoekresultaten langsgekomen: dan is hij aantoonbaar nog in de
         // verkoop en hoeft zijn pagina niet ook nog opgehaald te worden.
         if already_seen.contains(&key) {
@@ -440,8 +459,24 @@ fn recheck_followed_listings(
             // ronde erdoorheen is — dan is te zien of het om één advertentie gaat.
             Ok(PageState::Unreadable) => unreadable.push(stored),
 
-            // Een netwerkfout, een 429 of een kapotte bron telt niet mee: dan blijft
-            // last_checked staan en komt de advertentie de volgende ronde weer aan de beurt.
+            // Tegengehouden: stoppen met deze bron. De rest van zijn advertenties blijft
+            // ongemoeid en komt een volgende ronde weer aan de beurt.
+            Err(crate::http::Failure::Blocked(reason)) => {
+                problems.push(format!(
+                    "{} houdt ons tegen bij het hercontroleren: {reason}",
+                    stored.source
+                ));
+                let wait = database.note_source_blocked(&stored.source, now)?;
+                problems.push(format!(
+                    "{} wordt de komende {} minuten overgeslagen",
+                    stored.source,
+                    wait / 60
+                ));
+                blocked_sources.insert(stored.source.clone());
+            }
+
+            // Een netwerkfout of een kapotte bron telt niet mee: dan blijft last_checked
+            // staan en komt de advertentie de volgende ronde weer aan de beurt.
             Err(error) => problems.push(format!("hercontrole mislukt: {error}")),
         }
     }

@@ -344,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "kaartenjager"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "rusqlite",
  "serde",

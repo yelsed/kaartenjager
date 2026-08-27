@@ -35,14 +35,17 @@ pub enum PageState {
     Unreadable,
 }
 
-pub fn enrich(listing: &mut Listing, client: &mut HttpClient) -> Result<(), String> {
+pub fn enrich(listing: &mut Listing, client: &mut HttpClient) -> Result<(), Failure> {
     if listing.source != "vinted" || !listing.description.is_empty() {
         return Ok(());
     }
 
-    let html = client.get_text(&listing.url)?;
+    let html = client.get_page(&listing.url)?;
     let Some(description) = extract_description(&html) else {
-        return Err(format!("{}: geen beschrijving in de pagina", listing.url));
+        return Err(Failure::Other(format!(
+            "{}: geen beschrijving in de pagina",
+            listing.url
+        )));
     };
 
     listing.description = description;
@@ -54,13 +57,15 @@ pub fn enrich(listing: &mut Listing, client: &mut HttpClient) -> Result<(), Stri
 /// Only an unambiguous answer counts as gone: HTTP 404 or 410, or an availability marker that
 /// says the item is sold. A timeout, a rate limit or a broken connection returns an error, and
 /// the caller leaves the listing alone — a Vinted outage must never read as "everything sold".
-pub fn recheck(listing: &Listing, client: &mut HttpClient) -> Result<PageState, String> {
+pub fn recheck(listing: &Listing, client: &mut HttpClient) -> Result<PageState, Failure> {
     match client.get_page(&listing.url) {
         Ok(html) => Ok(read_page(&html)),
         // De pagina bestaat niet meer. Dat is verwijderd, niet verkocht: een verkochte
         // advertentie blijft op beide sites gewoon staan, met een markering.
         Err(Failure::Gone) => Ok(PageState::Gone { sold: false }),
-        Err(other) => Err(format!("{}: {other}", listing.url)),
+        // Tegengehouden gaat ongeschonden terug: de ronde moet dan met deze bron stoppen,
+        // niet dertig advertenties lang doorgaan.
+        Err(other) => Err(other),
     }
 }
 
