@@ -43,8 +43,10 @@ card_search_terms = [
 ]
 
 part_search_terms = [
-  "voeding 850w",
   "voeding 1000w",
+  "voeding 1200w",
+  "corsair voeding",
+  "seasonic voeding",
   "pcie riser",
   "riser kabel",
 ]
@@ -326,14 +328,29 @@ slots_max = 2
 # van een berekend oordeel.
 # ---------------------------------------------------------------------------
 
+# Deze naam is wat je in de app en in de meldingen terugleest — het is de naam
+# van de regel, niet van een zoekterm. De zoektermen hierboven bepalen waar
+# gezocht wordt; deze regel bepaalt wat er van de vangst overblijft.
+#
+# Onderdelen komen alleen in de app terecht, nooit in Discord: dat kanaal
+# vraagt om een percentage onder de markt, en een voeding heeft geen
+# marktbereik om tegen af te zetten.
+#
+# Onderdeelregels worden op volgorde afgelopen en de eerste die past wint, dus
+# een tweede voedingsregel hieronder komt nooit meer aan bod.
 [[part]]
-name = "Voeding 700 W of meer"
+name = "Voeding 1000 W of meer"
 patterns = ["voeding", "psu", "power supply", "netzteil"]
-exclude_patterns = ["laptop", "adapter", "oplader", "kabel", "cable", "snoer"]
-min_watts = 700
-alert_below = 90
-suspicious_below = 30
-note = "Let op 80 PLUS Gold of beter, volledig modulair, en maximaal 180 mm lang voor de 4000D."
+# Bronze eruit: onder 80 PLUS Gold is het rendement bij een kaart van 450 W
+# genoeg verschil om de aanschaf terug te verdienen aan stroom.
+exclude_patterns = [
+  "laptop", "adapter", "oplader", "kabel", "cable", "snoer",
+  "bronze", "defect", "kapot",
+]
+min_watts = 1000
+alert_below = 150
+suspicious_below = 45
+note = "Wil zien: 80 PLUS Gold of beter, volledig modulair, ATX 3.1 met een losse 12V-2x6-stekker, en maximaal 180 mm lang voor de 4000D. Vraag naar het bouwjaar — condensatoren verouderen, dus boven de vijf jaar is een koopje het niet meer waard."
 
 [[part]]
 name = "PCIe riser"
