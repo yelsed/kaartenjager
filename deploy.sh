@@ -152,7 +152,11 @@ fi
 
 if systemctl --user show-environment >/dev/null 2>&1; then
   systemctl --user daemon-reload
-  systemctl --user enable --now kaartenjager-app
+  systemctl --user enable kaartenjager-app
+  # restart en niet `enable --now`: die laat een service die al draait ongemoeid, en dan
+  # blijft de app na een update op de oude bouw staan terwijl het script zegt dat het gelukt
+  # is. restart start hem ook wanneer hij nog stilstond, dus dit dekt beide gevallen.
+  systemctl --user restart kaartenjager-app
   # Zonder linger stopt de service zodra je uitlogt, en dan staat de app er niet meer als je
   # er de volgende ochtend naar wilt kijken.
   loginctl enable-linger "$(id -un)" 2>/dev/null || say "    (linger aanzetten lukte niet)"
