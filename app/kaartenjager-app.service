@@ -27,6 +27,11 @@ Environment=TZ=Europe/Amsterdam
 Environment=HOST=0.0.0.0
 Environment=PORT=5173
 Environment=KAARTENJAGER_DB=%h/.local/share/kaartenjager/kaartenjager.db
+# Welk configuratiebestand het instellingenscherm bewerkt. Expliciet, want de app en de
+# cronjob zoeken hem allebei zelf op en hebben niet dezelfde werkmap: zonder deze regel kan
+# het scherm een ander bestand bewerken dan de wachter leest, en dan lijkt een wijziging te
+# lukken terwijl er niets verandert.
+Environment=KAARTENJAGER_CONFIG=%h/.config/kaartenjager/kaartenjager.toml
 # Environment=KAARTENJAGER_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
 
 # Het programma dat de knop "nu zoeken" start. Alleen nodig als het ergens anders staat.

@@ -120,8 +120,13 @@ mkdir -p "$UNIT_DIR"
 if [ -f "$UNIT" ]; then
   say "    $UNIT bestaat al en blijft zoals hij is"
 
-  # Behalve de webhook: die wil je juist later kunnen invullen, zonder de rest kwijt te
-  # raken. Meegegeven betekent hier dus: zet hem, wat er ook stond.
+  # Behalve twee dingen. Het configuratiepad hoort er altijd in te staan: zonder dat kan
+  # het instellingenscherm een ander bestand bewerken dan de wachter leest.
+  grep -q '^Environment=KAARTENJAGER_CONFIG=' "$UNIT" \
+    || sed -i "/^Environment=KAARTENJAGER_DB=/a Environment=KAARTENJAGER_CONFIG=$CONFIG_DIR/kaartenjager.toml" "$UNIT"
+
+  # En de webhook: die wil je juist later kunnen invullen, zonder de rest kwijt te raken.
+  # Meegegeven betekent hier dus: zet hem, wat er ook stond.
   if [ -n "${KAARTENJAGER_DISCORD_WEBHOOK:-}" ]; then
     sed -i -e 's|^#* *Environment=KAARTENJAGER_DISCORD_WEBHOOK=.*|Environment=KAARTENJAGER_DISCORD_WEBHOOK='"$KAARTENJAGER_DISCORD_WEBHOOK"'|' "$UNIT"
     grep -q '^Environment=KAARTENJAGER_DISCORD_WEBHOOK=' "$UNIT" \
@@ -131,6 +136,7 @@ if [ -f "$UNIT" ]; then
 else
   sed -e "s|%h/kaartenjager/app|$CHECKOUT/app|" \
       -e "s|^Environment=PORT=.*|Environment=PORT=$APP_PORT|" \
+      -e "s|^Environment=KAARTENJAGER_CONFIG=.*|Environment=KAARTENJAGER_CONFIG=$CONFIG_DIR/kaartenjager.toml|" \
       -e "s|^Environment=TZ=.*|Environment=TZ=${KAARTENJAGER_TZ:-Europe/Amsterdam}|" \
       "$CHECKOUT/app/kaartenjager-app.service" > "$UNIT"
 

@@ -66,17 +66,27 @@ SQL
 
 # -------------------------------------------------------------------- server
 
-# De knop "nu zoeken" start een los proces. Hier een stub, want deze proef gaat over de app
-# en niet over de zoekmachine — het echte programma heeft zijn eigen zelftest. De stub doet
-# er even over, zodat ook te zien is dat er niet twee rondes tegelijk starten.
-cat > "$WORK/nep-kaartenjager" <<'STUB'
+# De knop "nu zoeken" start een los proces. Alleen `run` wordt hier nagebootst, want deze
+# proef gaat over de app en niet over de zoekmachine — het echte programma heeft zijn eigen
+# zelftest. De stub doet er even over, zodat ook te zien is dat er niet twee rondes tegelijk
+# starten.
+#
+# Al het andere gaat door naar het echte programma. Het instellingenscherm laat `check` en
+# `config path` erdoor draaien, en juist dát is wat het scherm veilig maakt: een nagebootste
+# controle die alles goedkeurt zou de proef groen maken voor een scherm dat in productie
+# kapotte configuratie wegschrijft.
+cat > "$WORK/nep-kaartenjager" <<STUB
 #!/bin/sh
-sleep 2
+case "\$1" in
+  run) sleep 2 ;;
+  *) exec "$BIN" "\$@" ;;
+esac
 STUB
 chmod +x "$WORK/nep-kaartenjager"
 
 say "==> Productiebouw starten op poort $PORT"
 KAARTENJAGER_DB="$DB" PORT="$PORT" KAARTENJAGER_BIN="$WORK/nep-kaartenjager" \
+  KAARTENJAGER_CONFIG="$WORK/kaartenjager.toml" \
   node build > "$WORK/server.log" 2>&1 &
 SERVER_PID=$!
 
@@ -156,6 +166,39 @@ zegt "Ronde gestart"
 # aan Vinted en Marktplaats.
 probeer "/" nuZoeken 200 --data 'x=1'
 zegt "Er loopt al een ronde"
+
+say "==> De instellingen"
+curl -sS "http://localhost:$PORT/instellingen" -o "$WORK/instellingen.html"
+grep -qF "$WORK/kaartenjager.toml" "$WORK/instellingen.html" \
+  || fout "het instellingenscherm toont niet het bestand dat de wachter leest"
+grep -qF "alert_below" "$WORK/instellingen.html" \
+  || fout "het instellingenscherm toont de inhoud niet"
+
+# Kapotte TOML mag nooit weggeschreven worden: dat is de enige reden dat dit scherm mag
+# bestaan. Zonder deze controle is het een knop die de wachter vannacht stilzet.
+VOOR="$(cat "$WORK/kaartenjager.toml")"
+probeer "/instellingen" bewaren 200 --data-urlencode 'inhoud=dit is [geen geldige toml'
+zegt "keurde dit af"
+[ "$(cat "$WORK/kaartenjager.toml")" = "$VOOR" ] \
+  || fout "kapotte TOML werd tóch weggeschreven"
+[ ! -f "$WORK/kaartenjager.toml.nieuw" ] \
+  || fout "de afgekeurde versie bleef als .nieuw achter"
+
+# Ook een bestand dat wél geldige TOML is maar door `check` afgekeurd wordt — hier een
+# kaartregel met een drempel boven het marktbereik — hoort te blijven liggen.
+probeer "/instellingen" bewaren 200 --data-urlencode 'inhoud=card_search_terms = []
+part_search_terms = []'
+[ "$(cat "$WORK/kaartenjager.toml")" = "$VOOR" ] \
+  || fout "een configuratie zonder zoektermen werd weggeschreven"
+
+probeer "/instellingen" bewaren 200 --data-urlencode "inhoud=$VOOR
+# door de proef toegevoegd"
+grep -qF "door de proef toegevoegd" "$WORK/kaartenjager.toml" \
+  || fout "een goedgekeurde wijziging werd niet weggeschreven"
+[ -f "$WORK/kaartenjager.toml.vorige" ] \
+  || fout "er werd geen vorige versie bewaard"
+[ "$(cat "$WORK/kaartenjager.toml.vorige")" = "$VOOR" ] \
+  || fout "de bewaarde vorige versie klopt niet"
 
 say "==> De bescherming"
 probeer_vreemd() {

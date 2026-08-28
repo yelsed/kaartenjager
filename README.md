@@ -229,8 +229,20 @@ Twee bestanden in `~/.config/kaartenjager/`:
 Zet je een drempel met de hand, dan blijft die staan wat de herziening ook voorstelt.
 
 **Zoektermen staan niet meer in TOML.** De lijst uit het bestand wordt bij de allereerste
-start één keer in de database gezet; daarna beheer je hem in de app. Zo zet het weghalen van
-je laatste zoekterm de hele lijst niet terug.
+start één keer in de database gezet; daarna beheer je hem in de app, onder Zoektermen. Zo
+zet het weghalen van je laatste zoekterm de hele lijst niet terug.
+
+**De rest van het bestand bewerk je onder Instellingen.** Daar staat de echte TOML in een
+tekstvak. Bewaren draait eerst `kaartenjager check` op de nieuwe versie en vervangt pas als
+die goedkeurt, dus een typefout kan de wachter niet stilleggen; de versie van ervoor blijft
+als `.vorige` naast het bestand staan. Welk bestand dat is vraagt de app op met
+`kaartenjager config path` — de zoekvolgorde staat op één plek, in het programma zelf.
+
+Twee lijsten die snel door elkaar lopen: **zoektermen** bepalen waar gezocht wordt,
+**regels** bepalen wat er van de vangst overblijft. Een melding draagt de naam van de regel
+die hem ving, niet die van de zoekterm. Zie je `Voeding 1000 W of meer` in je meldingen maar
+niet in je zoektermen, dan is dat geen fout: er kwam iets binnen op `voeding 1200w`, en die
+regel zette er zijn naam op.
 
 Per kaart twee getallen die ertoe doen:
 
@@ -238,7 +250,9 @@ Per kaart twee getallen die ertoe doen:
 - `suspicious_below` — hieronder is het vaker oplichterij dan een buitenkans
 
 Een regel past als één patroon in de **titel** voorkomt en géén enkel `exclude_pattern`. De
-volgorde in het bestand is daarmee niet bepalend.
+volgorde in het bestand is daarmee niet bepalend — behalve bij `[[part]]`, want daar wint de
+eerste die past. Twee voedingsregels met dezelfde `patterns` betekent dus dat de tweede nooit
+aan bod komt, hoe de wattages ook staan.
 
 ### De 3060-val
 

@@ -9,7 +9,8 @@
 		{ pad: '/', naam: 'Inbox' },
 		{ pad: '/volglijst', naam: 'Volglijst' },
 		{ pad: '/archief', naam: 'Archief' },
-		{ pad: '/zoektermen', naam: 'Zoektermen' }
+		{ pad: '/zoektermen', naam: 'Zoektermen' },
+		{ pad: '/instellingen', naam: 'Instellingen' }
 	];
 </script>
 

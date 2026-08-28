@@ -213,6 +213,19 @@ daarna, verkocht of weggehaald, en hoe lang hij online stond.
 
 ## Wat de app niet doet
 
-Geen inlog — hij hangt achter het tailnet. Geen drempels, filters of kaartregels: die staan
-in TOML, waar een fout niet met één klik gemaakt is. Geen grafieken; de prijsontwikkeling is
-een regel tekst. En nooit bieden of kopen.
+Geen inlog — hij hangt achter het tailnet. Geen grafieken; de prijsontwikkeling is een regel
+tekst. En nooit bieden of kopen.
+
+Drempels, filters en kaartregels stonden hier lang bij, omdat een fout daarin niet met één
+klik gemaakt moest zijn. Dat is omgedraaid: ze staan nu onder Instellingen, als het echte
+TOML-bestand in een tekstvak. De reden is dat de helft die wél in de app stond — de
+zoektermen — precies de helft is die niets bepaalt, en dat wie een regel voor een nieuw
+kaartmodel wilde alsnog met een shell op de server moest zien te komen.
+
+De angst was terecht, dus die is opgelost in plaats van weggewuifd. Bewaren schrijft de
+nieuwe versie eerst naast het bestand, draait daar `kaartenjager check` op — hetzelfde
+programma dat de wachter zelf gebruikt, geen nabouw in TypeScript — en vervangt pas als die
+goedkeurt. De vorige versie blijft als `.vorige` staan. De ergste uitkomst is dus een
+afgekeurde bewaarpoging met de reden erbij, in plaats van een wachter die vannacht stilvalt.
+`app/smoke.sh` schrijft twee keer expres iets kapots weg en controleert dat het bestand niet
+veranderde.

@@ -44,6 +44,7 @@ kaartenjager — houdt Vinted en Marktplaats in de gaten
   kaartenjager config apply --from <bestand>   Voorstel keuren en toepassen
   kaartenjager config apply --from <bestand> --check   Alleen tonen wat er zou gebeuren
   kaartenjager config rollback [--to JJJJ-MM-DD]
+  kaartenjager config path         Welk bestand er gelezen wordt
 
 Opties:
   --config <pad>   Ander configuratiebestand
@@ -625,6 +626,24 @@ fn command_dossier(arguments: &Arguments) -> ExitCode {
 
 fn command_config(arguments: &Arguments) -> ExitCode {
     let action = arguments.subcommand.as_deref().unwrap_or("check");
+
+    // Vóór het inlezen, want het pad moet juist ook op te vragen zijn wanneer het bestand
+    // stuk is: dan wil de app hem kunnen openen om de fout te herstellen. Zonder deze
+    // opdracht zou de app de zoekvolgorde moeten nabouwen, en een app die een ander bestand
+    // bewerkt dan de wachter leest is erger dan geen bewerkscherm.
+    if action == "path" {
+        return match config::find_config(arguments.config.as_deref()) {
+            Ok(path) => {
+                println!("{}", path.display());
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(EXIT_CONFIG_ERROR)
+            }
+        };
+    }
+
     let (settings, config_path) = match load_settings(arguments) {
         Ok(loaded) => loaded,
         Err(code) => return code,
@@ -678,7 +697,7 @@ fn command_config(arguments: &Arguments) -> ExitCode {
         },
         "check" => command_check(arguments),
         other => {
-            eprintln!("config kent apply, rollback en check — niet \"{other}\".");
+            eprintln!("config kent apply, rollback, check en path — niet \"{other}\".");
             ExitCode::from(EXIT_CONFIG_ERROR)
         }
     }

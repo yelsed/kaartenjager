@@ -12,8 +12,10 @@
 {/if}
 
 <p class="uitleg">
-	Dit is de enige configuratie die de app schrijft. Drempels, filters en kaartregels blijven in
-	TOML op de server, waar een fout niet met één klik gemaakt is.
+	Deze lijst bepaalt waar gezocht wordt. Wat er van de vangst overblijft — de prijstabel,
+	de drempels en de filters — staat onder <a href="/instellingen">Instellingen</a>. Een
+	melding draagt de naam van de regel die hem ving, niet die van de zoekterm; staat er
+	iets in je meldingen dat je hier niet terugvindt, kijk dan daar.
 </p>
 
 <p class="ruimte" class:vol={ruimte <= 0}>
