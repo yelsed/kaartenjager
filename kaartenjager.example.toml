@@ -49,6 +49,9 @@ part_search_terms = [
   "seasonic voeding",
   "pcie riser",
   "riser kabel",
+  "crt tv",
+  "crt televisie",
+  "trinitron",
 ]
 
 
@@ -121,8 +124,9 @@ free_slots = 7
 # ---------------------------------------------------------------------------
 
 [filters]
-postcode = ""                 # INVULLEN. Zonder postcode geeft Marktplaats geen
-                              # afstand terug en werkt het ophaal-filter niet.
+# Zonder postcode geeft Marktplaats geen afstand terug. Dan werkt het ophaal-filter
+# hieronder niet, en weigert `check` elke regel die op afstand zeeft.
+postcode = "1816EE"           # Alkmaar
 max_pickup_km = 30            # verder weg en alleen ophalen: overslaan
 skip_pickup_only = false      # true = ophalen altijd overslaan
 
@@ -351,6 +355,30 @@ min_watts = 1000
 alert_below = 150
 suspicious_below = 45
 note = "Wil zien: 80 PLUS Gold of beter, volledig modulair, ATX 3.1 met een losse 12V-2x6-stekker, en maximaal 180 mm lang voor de 4000D. Vraag naar het bouwjaar — condensatoren verouderen, dus boven de vijf jaar is een koopje het niet meer waard."
+
+# Een beeldbuis haal je zelf op, wat de verkoper ook aanvinkt bij de bezorgkeuze. Daarom
+# staat de afstand hier op de regel zelf en niet alleen in [filters]: het filter daar telt
+# pas mee bij advertenties die "alleen ophalen" zeggen, en dertig kilo televisie staat vaak
+# op "ophalen of verzenden" omdat dat het standaardvinkje is.
+#
+# max_pickup_km rekent vanaf de postcode in [filters]. Vanaf Alkmaar dekt 45 km ongeveer
+# heel Noord-Holland: Amsterdam ligt op 35, Haarlem op 30, Den Helder op 40.
+#
+# Twee dingen die deze regel niet ziet. Advertenties zonder prijs — "gratis af te halen" —
+# vallen al eerder af, en dat is bij beeldbuizen een deel van de markt. En op Vinted staat
+# nooit een afstand, dus daar levert deze regel per definitie niets op; de zoektermen gaan
+# er wel heen, wat drie verzoeken per ronde kost.
+[[part]]
+name = "Beeldbuistelevisie"
+patterns = ["crt", "beeldbuis", "trinitron"]
+exclude_patterns = [
+  "lcd", "led", "oled", "plasma",
+  "afstandsbediening", "kabel", "beugel", "onderdelen",
+]
+max_pickup_km = 45
+alert_below = 150
+suspicious_below = 1
+note = "Vraag om een foto van een aan staand scherm: inbranden en een scheve geometrie zie je niet op een foto van een uit toestel. Let op de aansluitingen — SCART of component is bruikbaar, alleen coax niet. En vraag hoe zwaar hij is voordat je de auto pakt."
 
 [[part]]
 name = "PCIe riser"

@@ -254,6 +254,23 @@ volgorde in het bestand is daarmee niet bepalend — behalve bij `[[part]]`, wan
 eerste die past. Twee voedingsregels met dezelfde `patterns` betekent dus dat de tweede nooit
 aan bod komt, hoe de wattages ook staan.
 
+### Dingen die je zelf moet ophalen
+
+`max_pickup_km` op een `[[part]]`-regel maakt afstand een voorwaarde van die regel, gerekend
+vanaf de `postcode` in `[filters]`.
+
+Dat is iets anders dan `max_pickup_km` in `[filters]`. Dat filter telt alleen mee bij
+advertenties die "alleen ophalen" zeggen, en dat is precies waar dit op stukloopt: een
+beeldbuistelevisie van dertig kilo staat vaak op "ophalen of verzenden", omdat de verkoper
+dat vinkje uit gewoonte laat staan. Voor de zeef is hij dan verzendbaar en komt hij uit heel
+Nederland binnen.
+
+Staat `max_pickup_km` op de regel, dan telt de afstand altijd. Een advertentie waarvan de
+afstand niet te bepalen is valt af — dat is op Vinted alle advertenties, en op Marktplaats
+alleen wanneer er geen postcode ingevuld staat. `check` weigert daarom een regel die op
+afstand zeeft zolang `postcode` leeg is; zonder die controle zou hij alles stilzwijgend
+weggooien.
+
 ### De 3060-val
 
 De RTX 3060 bestaat met 8 en met 12 GB en heet in advertentietitels allebei "RTX 3060";

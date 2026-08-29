@@ -4,7 +4,7 @@
 //! The fixtures are real responses captured on 24 August 2026 and are compiled in, so the
 //! binary can verify itself anywhere.
 
-use crate::config::{parse_settings, CardRule, Filters, Settings};
+use crate::config::{parse_settings, CardRule, Filters, PartRule, Settings};
 use crate::db::Database;
 use crate::filter::Sieve;
 use crate::listing::{Confidence, Delivery, Finding, FindingKind, Listing, Rejection};
@@ -133,6 +133,7 @@ pub fn run() -> bool {
         ("kastmaten komen in de redenen", check_case_fit),
         ("kastoordeel klopt in beide richtingen", check_case_fit_reports_only_what_is_true),
         ("ophalen te ver weg wordt geweerd", check_pickup_filter),
+        ("een ophaalregel weegt de afstand altijd", check_part_pickup_distance),
         ("Vinted-antwoord ontleden", check_vinted_parsing),
         ("Marktplaats-antwoord ontleden", check_marktplaats_parsing),
         ("Vinted rekent met de totaalprijs", check_vinted_total_price),
@@ -668,6 +669,65 @@ fn check_pickup_filter(_settings: &Settings) -> Result<(), String> {
     };
     if sieve.check(&near).is_err() {
         return Err("12 km ophalen hoort door te mogen".into());
+    }
+    Ok(())
+}
+
+/// De gewone zeef weegt de afstand alleen bij "alleen ophalen". Een beeldbuistelevisie staat
+/// vaak op "ophalen of verzenden" omdat de verkoper dat uit gewoonte aanvinkt, en werd
+/// daardoor uit heel Nederland gemeld. Deze regel is precies dat gat.
+fn check_part_pickup_distance(settings: &Settings) -> Result<(), String> {
+    let mut aangepast = settings.clone();
+    aangepast.parts = vec![PartRule {
+        name: "Beeldbuistelevisie".to_string(),
+        patterns: vec!["crt".to_string()],
+        exclude_patterns: Vec::new(),
+        require_all: Vec::new(),
+        min_watts: None,
+        max_pickup_km: Some(45.0),
+        alert_below: 150.0,
+        suspicious_below: 1.0,
+        note: String::new(),
+    }];
+    let table = PriceTable::new(&aangepast);
+
+    // Verzendbaar volgens de advertentie, maar 180 km verderop: de gewone zeef laat hem door
+    // en deze regel hoort hem alsnog te weren.
+    let ver = Listing {
+        delivery: Delivery::ShippingAvailable,
+        distance_km: Some(180.0),
+        ..listing_with("Sony CRT televisie", 40.0)
+    };
+    if table.judge(&ver).is_some() {
+        return Err("een televisie op 180 km hoort geen vondst te zijn".into());
+    }
+
+    let dichtbij = Listing {
+        delivery: Delivery::ShippingAvailable,
+        distance_km: Some(18.0),
+        ..listing_with("Sony CRT televisie", 40.0)
+    };
+    let vondst = table
+        .judge(&dichtbij)
+        .ok_or("een televisie op 18 km hoort wel een vondst te zijn")?;
+    if !vondst.reasons.iter().any(|reden| reden.contains("18 km")) {
+        return Err("de afstand hoort bij de redenen te staan".into());
+    }
+
+    // Zonder afstand is niet te zeggen of je ervoor moet rijden. Dat is bij Vinted altijd zo.
+    let onbekend = Listing {
+        distance_km: None,
+        ..listing_with("Sony CRT televisie", 40.0)
+    };
+    if table.judge(&onbekend).is_some() {
+        return Err("zonder afstand hoort een ophaalregel niets te melden".into());
+    }
+
+    // En een regel die op afstand zeeft zonder postcode gooit alles weg zonder dat het
+    // opvalt; daar hoort `check` op te struikelen in plaats van stil te blijven.
+    aangepast.filters.postcode = String::new();
+    if aangepast.validate().is_ok() {
+        return Err("afstand zeven zonder postcode hoort geweigerd te worden".into());
     }
     Ok(())
 }

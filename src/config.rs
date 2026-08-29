@@ -115,6 +115,12 @@ pub struct PartRule {
     pub require_all: Vec<String>,
     #[serde(default)]
     pub min_watts: Option<u32>,
+    /// Voor dingen die je hoe dan ook zelf ophaalt. Het afstandsfilter in [filters] grijpt
+    /// alleen aan bij advertenties die "alleen ophalen" zeggen, en een beeldbuistelevisie
+    /// van dertig kilo staat vaak op "ophalen of verzenden" omdat de verkoper dat uit
+    /// gewoonte aanvinkt. Staat dit gezet, dan telt de afstand voor deze regel altijd.
+    #[serde(default)]
+    pub max_pickup_km: Option<f64>,
     pub alert_below: f64,
     pub suspicious_below: f64,
     #[serde(default)]
@@ -490,6 +496,16 @@ impl Settings {
                 return Err(ConfigError::Rejected(format!(
                     "Onderdeel \"{}\": suspicious_below ({}) moet onder alert_below ({}) liggen.",
                     part.name, part.suspicious_below, part.alert_below
+                )));
+            }
+            // Zonder postcode geeft Marktplaats geen afstand terug, en een regel die op
+            // afstand zeeft gooit dan élke advertentie weg zonder dat er iets kapot lijkt.
+            if part.max_pickup_km.is_some() && self.filters.postcode.trim().is_empty() {
+                return Err(ConfigError::Rejected(format!(
+                    "Onderdeel \"{}\" zeeft op afstand, maar er staat geen postcode in \
+                     [filters]. Zonder postcode geeft Marktplaats geen afstand terug en zou \
+                     deze regel alles weggooien.",
+                    part.name
                 )));
             }
         }

@@ -209,6 +209,20 @@ impl<'settings> PriceTable<'settings> {
             money::euros(part.alert_below)
         )];
 
+        // Sommige dingen haal je zelf op, wat de verkoper ook aanvinkt. Daarom telt de
+        // afstand hier altijd, en niet — zoals in de gewone zeef — alleen wanneer de
+        // bezorgkeuze op "alleen ophalen" staat.
+        if let Some(limit) = part.max_pickup_km {
+            match listing.distance_km {
+                Some(distance) if distance > limit => return None,
+                Some(distance) => reasons.push(format!("{distance:.0} km hiervandaan")),
+                // Vinted geeft nooit een afstand, en Marktplaats alleen met een postcode in
+                // [filters]. Iets wat je zelf moet ophalen en niet te plaatsen is, is geen
+                // vondst — dan sta je zo in Groningen voor een televisie.
+                None => return None,
+            }
+        }
+
         if let Some(minimum) = part.min_watts {
             match stated_watts(&listing.title) {
                 Some(found) if found < minimum => return None,
