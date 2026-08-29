@@ -488,6 +488,24 @@ impl Settings {
             )));
         }
 
+        // Twee regels met dezelfde naam is altijd een ongeluk: bij onderdelen wint de eerste
+        // die past en komt de tweede nooit aan bod, en bij kaarten weet de prijsherziening
+        // niet meer welke ze moet bijwerken. Het viel niemand op omdat er niets stukging —
+        // een regel die je net toevoegde deed alleen niets.
+        for (soort, namen) in [
+            ("Kaart", self.cards.iter().map(|card| &card.name).collect::<Vec<_>>()),
+            ("Onderdeel", self.parts.iter().map(|part| &part.name).collect::<Vec<_>>()),
+        ] {
+            let mut gezien = std::collections::BTreeSet::new();
+            for naam in namen {
+                if !gezien.insert(naam) {
+                    return Err(ConfigError::Rejected(format!(
+                        "{soort} \"{naam}\" staat er twee keer in. Haal er één weg."
+                    )));
+                }
+            }
+        }
+
         for card in &self.cards {
             validate_card(card)?;
         }
