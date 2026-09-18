@@ -94,6 +94,48 @@ close_watch_hours = 6         # zo lang gaat een verse vondst wel elke ronde mee
 
 
 # ---------------------------------------------------------------------------
+# De browser
+#
+# Vinted beantwoordt zijn eigen zoek-API sinds september 2026 met 403. De gewone
+# cataloguspagina werkt wel, maar die is pas compleet als een echte browser hem
+# heeft geladen. Sinds versie 2.0 draait er daarom een Chromium mee: eentje per
+# ronde, die de zoektermen na elkaar afloopt. Geen stealth, geen omzeiling --
+# houdt Vinted ons tegen, dan stopt de ronde daar en wachten we.
+#
+# Installeren:  Arch      pacman -S chromium
+#               Debian    apt install chromium
+#               Fedora    dnf install chromium
+#               Alpine    apk add chromium   (zet dan ook no_sandbox aan)
+# Controleren:  kaartenjager doctor
+# Uitproberen:  kaartenjager probe "rtx 3090"
+#
+# Staat er geen browser, dan levert Vinted niets op en draait Marktplaats gewoon
+# door. Er valt dan geen blokkade-strike: een ontbrekende browser is iets anders
+# dan een bron die ons tegenhoudt, en die twee vragen om een ander antwoord.
+# ---------------------------------------------------------------------------
+
+[browser]
+enabled = true                # uit = alleen Marktplaats zoekt
+executable = ""               # leeg = zelf zoeken in PATH
+max_pages = 2                 # per zoekterm. Eén pagina geeft er 96, dus bij
+                              # results_per_search = 60 komt de tweede nooit aan
+                              # bod. Dit is er voor wie die limiet omhoog zet.
+page_timeout_ms = 20000       # per paginalading
+delay_between_pages_ms = 2000 # tussen twee paginaladingen. Wordt vanzelf ruimer
+                              # zodra een bron ons tegenhoudt, net als hierboven.
+round_budget_seconds = 240    # noodrem op de klok. Dertien zoektermen die
+                              # allemaal op hun timeout wachten duren samen
+                              # langer dan het rondeslot van een kwartier, en dan
+                              # staat de wachter stil zonder dat er iets stuk is.
+no_sandbox = false            # alleen aanzetten als root of in een container.
+                              # Als gewone gebruiker werkt de zandbak gewoon.
+profile_dir = ""              # leeg = naast de database. Het profiel blijft
+                              # staan tussen rondes: driehonderd keer per dag als
+                              # gloednieuwe bezoeker langskomen vanaf hetzelfde
+                              # adres valt meer op dan één die terugkomt. Na een
+                              # controlepagina wordt hij wel weggegooid.
+
+# ---------------------------------------------------------------------------
 # Jouw machine. Hiermee kan het programma zeggen of een kaart past en of je
 # voeding hem trekt. Laat je dit blok weg, dan blijven die regels achterwege
 # in plaats van dat er gegokt wordt.
@@ -198,9 +240,16 @@ tdp_watt = 450
 # Gecontroleerd op 25 augustus 2026: vraagprijzen op Marktplaats stonden op
 # 1.150-1.250, het Duitse tweedehandsgemiddelde op ongeveer 1.029. Een eerdere
 # schatting van 950-1.050 was te laag.
-used_price_low = 1050
-used_price_high = 1250
-alert_below = 950
+#
+# Bijgesteld op 18 september 2026, op verzoek: melden onder 1.100. Omdat
+# alert_below nooit boven used_price_low mag liggen -- anders meldt de regel
+# gewone marktprijzen als koopje en weigert `check` hem -- schuift het
+# marktbereik mee. Let op wat dat betekent: met alert_below gelijk aan de
+# ondergrens is alles op of onder die ondergrens een vondst. Dat is een veel
+# wijder net dan de 950/1050 hiervoor, en de inbox groeit navenant.
+used_price_low = 1100
+used_price_high = 1300
+alert_below = 1100
 suspicious_below = 600
 length_mm_min = 285
 length_mm_max = 340
@@ -213,9 +262,13 @@ exclude_patterns = ["3090 ti", "3090ti"]
 vram_gb = 24
 bandwidth_gbs = 936
 tdp_watt = 350
-used_price_low = 750
-used_price_high = 925
-alert_below = 700
+# Bijgesteld op 18 september 2026, op verzoek: melden onder 1.000. Zelfde verhaal
+# als bij de Ti hierboven -- alert_below mag niet boven used_price_low liggen, dus
+# het marktbereik schuift mee, en daarmee wordt het net flink wijder dan de
+# 750-925 die op 25 augustus 2026 was nagekeken.
+used_price_low = 1000
+used_price_high = 1200
+alert_below = 1000
 suspicious_below = 450
 length_mm_min = 285
 length_mm_max = 336

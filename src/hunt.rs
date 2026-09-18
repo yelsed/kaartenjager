@@ -10,6 +10,7 @@ use crate::listing::{Confidence, Delivery, Finding, Listing};
 use crate::pricing::PriceTable;
 use crate::sources::{marktplaats::Marktplaats, vinted::Vinted, Source};
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Duration;
 
 /// How many listings get their own page fetched per round. Rotating oldest-first, this brings
 /// every followed listing round about once a day at fifteen rounds.
@@ -77,17 +78,22 @@ pub fn run_round(
     // De grens gaat over zoekverzoeken; hercontroles en beschrijvingen komen daar bovenop
     // en staan in `check`. De grens hoort in het formulier te vallen, niet hier; dit is het
     // vangnet eronder.
-    let searches = terms.len() * settings.sources.len();
+    let searches = settings.searches_for(terms.len());
     if searches > MAX_REQUESTS_PER_ROUND {
         return Err(format!(
-            "{searches} zoekverzoeken per ronde is te veel (grens {MAX_REQUESTS_PER_ROUND}): \
-             {} zoektermen maal {} bronnen. Zet zoektermen uit in de app.",
+            "{searches} paginabezoeken per ronde is te veel (grens {MAX_REQUESTS_PER_ROUND}): \
+             {} zoektermen over {} bronnen, en Vinted telt per zoekterm mee voor {} pagina's. \
+             Zet zoektermen uit in de app.",
             terms.len(),
-            settings.sources.len()
+            settings.sources.len(),
+            settings.browser.max_pages.max(1)
         ));
     }
 
     let mut client = HttpClient::new(settings.delay_between_requests_ms);
+    // Pas gestart zodra Vinted echt aan de beurt is: een ronde met alleen Marktplaats hoort geen
+    // browser aan te zetten. Valt hij aan het eind van de ronde uit bereik, dan gaat Chromium mee.
+    let mut browser: Option<crate::browser::Browser> = None;
     let mut problems: Vec<String> = Vec::new();
     let sieve = Sieve::new(&settings.filters);
     let table = PriceTable::new(settings);
@@ -128,7 +134,32 @@ pub fn run_round(
         // Built once per source, not once per term: rebuilding the Vinted adapter would
         // fetch the front page again for every search and half again the request count.
         let mut source: Box<dyn Source> = match source_name.as_str() {
-            "vinted" => Box::new(Vinted::new(&mut client, &settings.vinted_domain)),
+            "vinted" => {
+                match ready_browser(&mut browser, settings) {
+                    Ok(handle) => Box::new(Vinted::new(
+                        handle,
+                        &settings.vinted_domain,
+                        // De opgerekte tussenruimte gaat mee naar de browser. Zonder dat werkt de
+                        // terugvalregeling nog voor Marktplaats maar niet meer voor Vinted, en
+                        // juist voor Vinted is hij geschreven.
+                        Duration::from_millis(delay.max(settings.browser.delay_between_pages_ms)),
+                        Duration::from_millis(settings.browser.page_timeout_ms),
+                        settings.browser.max_pages,
+                        Duration::from_secs(settings.browser.round_budget_seconds.max(30)),
+                    )),
+                    Err(reason) => {
+                        // Geen browser is geen bron die ons tegenhoudt: geen strike, geen
+                        // terugvaltrap. Wel meetellen als mislukt, anders ziet een wachter die
+                        // alleen Vinted doet er bij een kapotte installatie gezond uit.
+                        problems.push(format!(
+                            "vinted overgeslagen: {reason}. De andere bronnen draaien door."
+                        ));
+                        sources_tried += 1;
+                        sources_failed += 1;
+                        continue;
+                    }
+                }
+            }
             "marktplaats" => Box::new(Marktplaats::new(&mut client, &settings.filters.postcode)),
             other => {
                 problems.push(format!("Onbekende bron \"{other}\" overgeslagen"));
@@ -190,6 +221,15 @@ pub fn run_round(
         }
 
         drop(source);
+
+        if blocked && source_name == "vinted" {
+            // Een sessie die net is tegengehouden is de enige keer dat schoon beginnen helpt: dan
+            // zit er een koekje in dat ons aanwijst. Verder blijft het profiel juist staan --
+            // driehonderd keer per dag als gloednieuwe bezoeker langskomen vanaf hetzelfde adres
+            // valt meer op dan één die terugkomt.
+            browser = None;
+            crate::browser::forget_profile(&browser_profile(settings));
+        }
 
         if blocked && !dry_run {
             let wait = database.note_source_blocked(source_name, now)?;
@@ -642,4 +682,36 @@ fn record_heartbeat(database: &Database, settings: &Settings, now: i64, problems
 /// Looks a listing up for the dossier command.
 pub fn find_listing(database: &Database, key: &str) -> Option<Listing> {
     database.listing(key)
+}
+
+/// Start de browser bij de eerste Vinted-zoekopdracht van de ronde, en hergebruikt hem daarna.
+///
+/// Eén proces en één tabblad voor de hele ronde. Dat is wat eis "één browsercontext per ronde"
+/// betekent in de praktijk: de koekjes bouwen zich binnen de ronde op — na drie pagina's staan er
+/// zeventien, waaronder `cf_clearance` — en dat gaat verloren zodra je per zoekterm opnieuw begint.
+fn ready_browser<'a>(
+    slot: &'a mut Option<crate::browser::Browser>,
+    settings: &Settings,
+) -> Result<&'a mut crate::browser::Browser, String> {
+    if !settings.browser.enabled {
+        return Err("de browser staat uit ([browser] enabled = false)".to_string());
+    }
+    if slot.is_none() {
+        let executable = crate::browser::find_executable(&settings.browser.executable)?;
+        let profile = browser_profile(settings);
+        *slot = Some(crate::browser::Browser::launch(
+            &executable,
+            &profile,
+            settings.browser.no_sandbox,
+        )?);
+    }
+    Ok(slot.as_mut().expect("net gezet"))
+}
+
+fn browser_profile(settings: &Settings) -> std::path::PathBuf {
+    if settings.browser.profile_dir.trim().is_empty() {
+        crate::browser::default_profile()
+    } else {
+        std::path::PathBuf::from(settings.browser.profile_dir.trim())
+    }
 }

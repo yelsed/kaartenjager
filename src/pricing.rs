@@ -414,11 +414,12 @@ fn fit_reasons(computer_case: &CaseProfile, card: &CardRule) -> Vec<String> {
 
 fn listing_warnings(listing: &Listing) -> Vec<String> {
     let mut warnings = Vec::new();
+    // Nul betekent onbekend, niet "geen foto's". Marktplaats leest het veld met `unwrap_or(0)`,
+    // en de Vinted-cataloguspagina toont er één per rij wat over het werkelijke aantal niets zegt
+    // -- daar vult `detail::enrich` het aan. Een waarschuwing hangen aan een veld dat ook gewoon
+    // kan ontbreken zet "maar één foto" onder élke Vinted-vondst, en die gaat mee naar Discord.
     if listing.photo_count == 1 {
         warnings.push("maar één foto".to_string());
-    }
-    if listing.photo_count == 0 {
-        warnings.push("geen foto's".to_string());
     }
     if matches!(listing.delivery, crate::listing::Delivery::PickupOnly) {
         let where_from = if listing.location.is_empty() {

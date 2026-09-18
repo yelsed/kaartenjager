@@ -14,12 +14,3 @@ pub trait Source {
     /// plaats van dertien keer achter elkaar tegen dezelfde dichte deur te lopen.
     fn search(&mut self, term: &str, limit: u32) -> Result<Vec<Listing>, Failure>;
 }
-
-/// Reads a number that the source may send as a JSON number or as a quoted string.
-pub fn loose_f64(value: &serde_json::Value) -> Option<f64> {
-    match value {
-        serde_json::Value::Number(number) => number.as_f64(),
-        serde_json::Value::String(text) => text.parse().ok(),
-        _ => None,
-    }
-}

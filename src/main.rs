@@ -1,3 +1,4 @@
+mod browser;
 mod config;
 mod db;
 mod detail;
@@ -28,6 +29,8 @@ kaartenjager — houdt Vinted en Marktplaats in de gaten
   kaartenjager check               Configuratie controleren en stoppen
   kaartenjager doctor              Alles nalopen als de wachter stilstaat
   kaartenjager selftest            Ingebouwde controles, zonder netwerk
+  kaartenjager probe <zoekterm>    Eén Vinted-zoekopdracht via de browser.
+                                   Schrijft niets weg en meldt niets.
 
   kaartenjager reviews pending     Toon de wachtrij zonder hem op te pakken
   kaartenjager reviews take        Pak de openstaande verzoeken op (JSON)
@@ -97,6 +100,7 @@ fn main() -> ExitCode {
             }
         }
         "run" => command_run(&arguments),
+        "probe" => command_probe(&arguments),
         "check" => command_check(&arguments),
         "doctor" => {
             if doctor::run(arguments.config.as_deref(), now_seconds()) {
@@ -329,6 +333,113 @@ fn command_run(arguments: &Arguments) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Eén zoekopdracht langs de browser, zonder iets vast te leggen.
+///
+/// Raakt de database met opzet niet aan: `open_database` zaait bij de allereerste keer de
+/// zoektermen uit TOML en zet daar een markering bij, en dat hoort een proefrit niet te doen. Om
+/// dezelfde reden is dit geen vlag op `run`: die loopt alle zoektermen langs, opent de database
+/// wel, en zijn uitvoer wordt door de app gelezen als "dit moet naar Discord".
+fn command_probe(arguments: &Arguments) -> ExitCode {
+    let term = arguments.positional.first().cloned().unwrap_or_default();
+    if term.trim().is_empty() {
+        eprintln!("Geef een zoekterm mee: kaartenjager probe \"rtx 3090\"");
+        return ExitCode::from(EXIT_CONFIG_ERROR);
+    }
+
+    let (settings, _path) = match load_settings(arguments) {
+        Ok(loaded) => loaded,
+        Err(code) => return code,
+    };
+
+    if !settings.browser.enabled {
+        eprintln!("De browser staat uit ([browser] enabled = false), dus Vinted levert niets op.");
+        return ExitCode::from(EXIT_CONFIG_ERROR);
+    }
+
+    let executable = match browser::find_executable(&settings.browser.executable) {
+        Ok(path) => path,
+        Err(reason) => {
+            eprintln!("{reason}");
+            return ExitCode::from(EXIT_RUN_ERROR);
+        }
+    };
+    let profile = if settings.browser.profile_dir.trim().is_empty() {
+        browser::default_profile()
+    } else {
+        PathBuf::from(settings.browser.profile_dir.trim())
+    };
+
+    println!("browser      {}", executable.display());
+    let mut handle =
+        match browser::Browser::launch(&executable, &profile, settings.browser.no_sandbox) {
+            Ok(started) => started,
+            Err(reason) => {
+                eprintln!("Browser start niet: {reason}");
+                return ExitCode::from(EXIT_RUN_ERROR);
+            }
+        };
+    println!("versie       {}", handle.product());
+
+    let url = format!(
+        "https://{}/catalog?search_text={}",
+        settings.vinted_domain.trim_matches('/'),
+        http::url_encode(term.trim())
+    );
+    println!("pagina       {url}");
+
+    let began = std::time::Instant::now();
+    let page = match handle.load(
+        &url,
+        std::time::Duration::from_millis(settings.browser.page_timeout_ms),
+    ) {
+        Ok(page) => page,
+        Err(reason) => {
+            eprintln!("Pagina laadt niet: {reason}");
+            return ExitCode::from(EXIT_RUN_ERROR);
+        }
+    };
+    println!(
+        "antwoord     HTTP {} in {:.1} s, {} tekens opmaak",
+        page.status
+            .map(|status| status.to_string())
+            .unwrap_or_else(|| "onbekend".to_string()),
+        began.elapsed().as_secs_f64(),
+        page.html.len()
+    );
+
+    use sources::vinted::{classify, parse_catalog, Outcome};
+    let (listings, rows) = parse_catalog(&page.html, &settings.vinted_domain);
+    println!("rijen        {rows} gezien, {} gelezen", listings.len());
+
+    let outcome = classify(&page.html, page.status, listings, rows);
+    let (label, mislukt) = match &outcome {
+        Outcome::Items(found) => (format!("gelukt, {} advertenties", found.len()), false),
+        Outcome::NoResults => ("geen resultaten".to_string(), false),
+        Outcome::HttpBlocked(status) => (format!("tegengehouden, HTTP {status}"), true),
+        Outcome::Challenge(what) => (format!("tegengehouden: {what}"), true),
+        Outcome::Changed(what) => (format!("opmaak gewijzigd: {what}"), true),
+    };
+    println!("uitkomst     {label}");
+
+    if let Outcome::Items(found) = &outcome {
+        for listing in found.iter().take(5) {
+            println!(
+                "  {:>9.2}  {:>9.2}  {}",
+                listing.asking_price_euros,
+                listing.price_euros,
+                listing.title.chars().take(58).collect::<String>()
+            );
+        }
+        println!("\n(vraagprijs, totaal met kopersbescherming, titel. Er is niets opgeslagen.)");
+    }
+
+    if mislukt {
+        ExitCode::from(EXIT_RUN_ERROR)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
 fn command_check(arguments: &Arguments) -> ExitCode {
     let (settings, path) = match load_settings(arguments) {
         Ok(loaded) => loaded,
@@ -348,10 +459,23 @@ fn command_check(arguments: &Arguments) -> ExitCode {
         settings.parts.len()
     );
     println!(
-        "  zoekverzoeken      {} (grens {})",
+        "  paginabezoeken     {} (grens {})",
         settings.requests_per_round(),
         config::MAX_REQUESTS_PER_ROUND
     );
+    // Alleen kijken óf er een browser staat. Niet starten en niets laden: `check` hoort snel te
+    // zijn en offline te werken, en de app toont deze uitvoer letterlijk aan de gebruiker.
+    if settings.sources.iter().any(|source| source == "vinted") {
+        let browser_line = if !settings.browser.enabled {
+            "uit; alleen de andere bronnen zoeken".to_string()
+        } else {
+            match browser::find_executable(&settings.browser.executable) {
+                Ok(path) => format!("gevonden op {}", path.display()),
+                Err(reason) => format!("NIET GEVONDEN -- {reason}"),
+            }
+        };
+        println!("  browser            {browser_line}");
+    }
     println!(
         "  uitschieter        meer dan {:.0}% onder de markt gaat naar Discord, \
          behalve onder suspicious_below",
@@ -383,9 +507,9 @@ fn command_check(arguments: &Arguments) -> ExitCode {
         Ok(database) => {
             let terms = database.enabled_terms().unwrap_or_default();
             println!("  database           {}", database.path.display());
-            let searches = terms.len() * settings.sources.len();
+            let searches = settings.searches_for(terms.len());
             let followed = database.count("finding").min(hunt::RECHECKS_PER_ROUND as i64);
-            println!("  zoektermen aan     {} ({searches} zoekverzoeken)", terms.len());
+            println!("  zoektermen aan     {} ({searches} paginabezoeken)", terms.len());
             // De grens hierboven gaat alleen over zoekverzoeken. Hercontroles en
             // beschrijvingen komen daar bovenop, en dat hoort zichtbaar te zijn in plaats
             // van pas op te vallen als een bron gaat weigeren.

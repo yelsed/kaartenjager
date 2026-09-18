@@ -1,6 +1,6 @@
 [package]
 name = "kaartenjager"
-version = "1.9.1"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.85"
 description = "Watches Vinted and Marktplaats for underpriced graphics cards, power supplies and risers"
@@ -14,6 +14,9 @@ serde_json = "1"
 toml = "1.1"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+# Alleen voor `dup2` en `prctl` bij het starten van de browser. Stond al in Cargo.lock via
+# rusqlite en ureq, dus dit kost geen extra pakket en geen extra bytes.
+libc = "0.2"
 
 [profile.release]
 opt-level = "z"

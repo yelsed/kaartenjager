@@ -43,6 +43,20 @@ if [ "$NODE_MAJOR" -lt 22 ]; then
 fi
 say "    node $(node --version), npm $(npm --version)"
 
+# Chromium is nodig voor Vinted, maar het is geen reden om te stoppen: zonder browser draait
+# Marktplaats gewoon door en meldt de app dat Vinted niets oplevert.
+BROWSER=""
+for kandidaat in chromium chromium-browser google-chrome-stable google-chrome; do
+  if command -v "$kandidaat" >/dev/null 2>&1; then BROWSER="$kandidaat"; break; fi
+done
+if [ -n "$BROWSER" ]; then
+  say "    browser $(command -v "$BROWSER")"
+else
+  say "    LET OP: geen Chromium gevonden. Vinted levert dan niets op; Marktplaats blijft werken."
+  say "            Installeren: apt install chromium  (of pacman -S chromium / dnf install chromium)"
+  say "            Daarna controleren met: kaartenjager doctor"
+fi
+
 # ------------------------------------------------------------------- 2. programma
 
 step "Het programma installeren of bijwerken"

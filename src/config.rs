@@ -427,6 +427,8 @@ pub struct Settings {
     pub notify: Notify,
     #[serde(default)]
     pub filters: Filters,
+    #[serde(default)]
+    pub browser: BrowserSettings,
     #[serde(default, rename = "card")]
     pub cards: Vec<CardRule>,
     #[serde(default, rename = "part")]
@@ -457,13 +459,102 @@ fn default_detail_lookups() -> usize {
     12
 }
 
+/// Hoe Vinted wordt bezocht. Sinds versie 2.0 gaat dat via een echte Chromium, omdat de
+/// rechtstreekse API 403 geeft. Elke sleutel heeft een standaard, zodat een configuratiebestand
+/// van 1.8 of 1.9 ongewijzigd blijft laden.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BrowserSettings {
+    /// Uit betekent: Vinted levert niets en Marktplaats draait gewoon door.
+    #[serde(default = "default_browser_enabled")]
+    pub enabled: bool,
+    /// Leeg laten is het gewone geval; dan wordt Chromium in PATH gezocht.
+    #[serde(default)]
+    pub executable: String,
+    /// Het raster telt zesennegentig advertenties per pagina, dus bij de standaardlimiet van
+    /// zestig komt er nooit een tweede aan te pas. Dit is er voor wie die limiet omhoog zet.
+    #[serde(default = "default_max_pages")]
+    pub max_pages: u32,
+    #[serde(default = "default_page_timeout")]
+    pub page_timeout_ms: u64,
+    #[serde(default = "default_between_pages")]
+    pub delay_between_pages_ms: u64,
+    /// De noodrem op de klok. Dertien zoektermen die allemaal op hun eigen timeout wachten zouden
+    /// samen langer duren dan het rondeslot van een kwartier; dan staat de wachter stil zonder dat
+    /// er iets stuk is.
+    #[serde(default = "default_round_budget")]
+    pub round_budget_seconds: u64,
+    /// Alleen nodig als root of in een container. Als gewone gebruiker werkt de zandbak gewoon, en
+    /// die uitzetten zonder reden is beveiliging weggeven voor niets.
+    #[serde(default)]
+    pub no_sandbox: bool,
+    /// Leeg = naast de database. Het profiel blijft tussen rondes staan: driehonderd keer per dag
+    /// als een gloednieuwe bezoeker langskomen vanaf hetzelfde adres valt meer op dan één die
+    /// terugkomt. Na een controlepagina wordt hij wel weggegooid.
+    #[serde(default)]
+    pub profile_dir: String,
+}
+
+fn default_browser_enabled() -> bool {
+    true
+}
+
+fn default_max_pages() -> u32 {
+    2
+}
+
+fn default_page_timeout() -> u64 {
+    20_000
+}
+
+fn default_between_pages() -> u64 {
+    2_000
+}
+
+fn default_round_budget() -> u64 {
+    240
+}
+
+impl Default for BrowserSettings {
+    fn default() -> Self {
+        BrowserSettings {
+            enabled: default_browser_enabled(),
+            executable: String::new(),
+            max_pages: default_max_pages(),
+            page_timeout_ms: default_page_timeout(),
+            delay_between_pages_ms: default_between_pages(),
+            round_budget_seconds: default_round_budget(),
+            no_sandbox: false,
+            profile_dir: String::new(),
+        }
+    }
+}
+
 /// Above this the configuration has grown greedy enough to risk a rate-limit block, and a
 /// refusal to start is friendlier than a silent lockout.
 pub const MAX_REQUESTS_PER_ROUND: usize = 60;
 
 impl Settings {
     pub fn requests_per_round(&self) -> usize {
-        (self.card_search_terms.len() + self.part_search_terms.len()) * self.sources.len()
+        self.searches_for(self.card_search_terms.len() + self.part_search_terms.len())
+    }
+
+    /// Hoeveel paginabezoeken een ronde kost bij dit aantal zoektermen.
+    ///
+    /// Vinted telt zwaarder sinds 2.0: daar staat een browser die per zoekterm tot `max_pages`
+    /// pagina's kan laden. Deze rekensom staat hier één keer omdat `check` hem over de termen uit
+    /// TOML doet en de ronde over de termen uit de database — en twee kopieën die uiteenlopen is
+    /// precies het soort fout dat niemand ziet.
+    pub fn searches_for(&self, terms: usize) -> usize {
+        self.sources
+            .iter()
+            .map(|source| {
+                if source == "vinted" && self.browser.enabled {
+                    terms * self.browser.max_pages.max(1) as usize
+                } else {
+                    terms
+                }
+            })
+            .sum()
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {

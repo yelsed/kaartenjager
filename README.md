@@ -41,11 +41,13 @@ onderkant van het marktbereik, en dan één bericht per advertentie in plaats va
 ronde. De rest staat in de app. Zonder die regels krijg je vijftien meldingen per dag en zet
 je het na een week uit.
 
-**Hoe lang stond het er al?** Vinted noemt geen plaatsingstijd, maar de foto's dragen hun
-uploadmoment mee — en verkopers maken die bij het plaatsen. Daarmee legt het programma per
-advertentie vast wanneer hij geplaatst is, wanneer wij hem vonden, hoeveel mensen hem
-bewaarden, en wanneer hij weg was en waarom (verkocht of weggehaald). In de app staat dat
-onder "hoe het verliep", zodat je kunt zien hoe snel zo'n koopje werkelijk wegging.
+**Hoe lang stond het er al?** Het programma legt per advertentie vast wanneer wij hem vonden,
+hoeveel mensen hem bewaarden, en wanneer hij weg was en waarom (verkocht of weggehaald). In de app
+staat dat onder "hoe het verliep", zodat je kunt zien hoe snel zo'n koopje werkelijk wegging.
+
+Een echte plaatsingstijd zat er tot versie 1.9 bij: die kwam uit de tijdstempel van de foto's. De
+cataloguspagina die sinds 2.0 gelezen wordt draagt die niet, dus voor nieuwe Vinted-advertenties
+staat er "minstens" bij. Wat er al in de database stond blijft staan.
 
 **Prijzen volgen gaat via de advertenties zelf.** Beide bronnen geven alleen de zestig
 nieuwste resultaten per zoekterm, dus een advertentie verdwijnt daar binnen dagen uit terwijl
@@ -55,6 +57,33 @@ Afwezigheid in de zoekresultaten betekent niets, en een storing bij een bron mag
 "alles verkocht" lezen.
 
 ## Installeren
+
+### Chromium erbij
+
+Vinted wordt sinds versie 2.0 via een echte browser bezocht, want zijn zoek-API geeft 403. Er moet
+dus een Chromium op de server staan:
+
+| | |
+|---|---|
+| Arch, Omarchy | `pacman -S chromium` |
+| Debian, Ubuntu | `apt install chromium` (ouder: `chromium-browser`) |
+| Fedora | `dnf install chromium` |
+| Alpine | `apk add chromium`, en zet `[browser] no_sandbox = true` |
+
+Google Chrome werkt ook; het programma zoekt achtereenvolgens naar `chromium`,
+`chromium-browser`, `google-chrome-stable` en `google-chrome`. Staat hij ergens anders, zet dan
+`[browser] executable` in de configuratie.
+
+Op Ubuntu is `chromium` een snap. Die kan niet bij mappen buiten je eigen `$HOME`, dus laat
+`[browser] profile_dir` leeg — dan komt het profiel naast de database te staan en gaat het goed.
+
+In een container of als root: `[browser] no_sandbox = true`, en geef de container `--shm-size=1g`
+mee. Als gewone gebruiker werkt de zandbak gewoon en hoef je niets uit te zetten.
+
+**Zonder browser draait de rest gewoon door.** Vinted levert dan niets op en de app meldt dat;
+Marktplaats zoekt verder alsof er niets aan de hand is.
+
+### Het programma
 
 Op de server, zonder root en zonder GitHub-account:
 
@@ -71,6 +100,8 @@ Daarna:
 ```sh
 nano ~/.config/kaartenjager/kaartenjager.toml   # postcode invullen
 kaartenjager check
+kaartenjager doctor                             # ook: browser, browser start, cataloguspagina
+kaartenjager probe "rtx 3090"                   # één zoekopdracht, schrijft niets weg
 kaartenjager run --dry-run
 ```
 
@@ -159,6 +190,13 @@ meldt het na een uur alsnog.
 **Niet aan het open internet hangen.** De app kent geen inlog: wie op het tailnet binnen is
 mag alles, en dat is precies waarom hij daar hoort te blijven.
 
+### Bijwerken naar 2.0
+
+Installeer eerst Chromium (zie hierboven), draai dan `install.sh` opnieuw en controleer met
+`kaartenjager doctor`. De database blijft staan, je configuratie blijft staan, je zoektermen
+blijven aan, en het schema verandert niet — de app hoeft dus niet mee. Het volledige verhaal staat
+in [CHANGELOG.md](CHANGELOG.md).
+
 ### Bijwerken
 
 ```sh
@@ -183,8 +221,9 @@ verkeerd begrijpt is erger dan niet werken.
 | `kaartenjager run` | Eén ronde: zoeken, melden, onthouden |
 | `kaartenjager run --dry-run` | Zelfde ronde, niets onthouden of melden |
 | `kaartenjager check` | Configuratie controleren |
-| `kaartenjager selftest` | De ingebouwde controles, zonder netwerk |
-| `kaartenjager doctor` | Alles nalopen als de wachter stilstaat: configuratie, database, klok, hartslag, slot, zoektermen, blokkades |
+| `kaartenjager selftest` | De ingebouwde controles, zonder netwerk en zonder browser |
+| `kaartenjager probe <zoekterm>` | Eén Vinted-zoekopdracht via de browser. Schrijft niets weg en meldt niets |
+| `kaartenjager doctor` | Alles nalopen als de wachter stilstaat: configuratie, database, klok, hartslag, slot, zoektermen, blokkades, browser |
 | `kaartenjager reviews pending` | De wachtrij bekijken zonder hem op te pakken |
 | `kaartenjager reviews take` | De wachtrij oppakken, als JSON |
 | `kaartenjager reviews answer <id> --recommendation <...>` | Oordeel terugschrijven; de tekst gaat via stdin |
@@ -194,6 +233,8 @@ verkeerd begrijpt is erger dan niet werken.
 | `kaartenjager dossier <sleutel>` | Plakblok voor één advertentie |
 | `kaartenjager config apply --from <bestand>` | Voorstel keuren en toepassen |
 | `kaartenjager config rollback [--to DATUM]` | Terug naar een eerdere tabel |
+| `kaartenjager config path` | Welk bestand er gelezen wordt |
+| `kaartenjager --version` | Het versienummer |
 
 `--config <pad>` wijst een andere configuratie aan, `--verbose` toont ook wat er geweerd werd
 en waarom.
@@ -292,19 +333,34 @@ advertenties.
 
 ## Hoe het aan de gegevens komt
 
-Beide bronnen hebben een JSON-eindpunt dat hun eigen zoekpagina gebruikt:
+De twee bronnen gaan sinds versie 2.0 langs verschillende wegen.
 
-- Vinted: `/api/v2/catalog/items`, met een sessiekoekje dat het programma haalt door eerst de
-  voorpagina te laden. Bij een afgewezen verzoek wordt de sessie eenmaal vernieuwd.
-- Marktplaats: `/lrp/api/search`, zonder sessie. De volledige beschrijving zit al in het
-  zoekresultaat, dus een beoordeling hoeft daar geen enkele pagina voor op te halen.
+- **Marktplaats**: `/lrp/api/search`, zonder sessie. De volledige beschrijving zit al in het
+  zoekresultaat, dus een beoordeling hoeft daar geen enkele pagina voor op te halen. Ongewijzigd.
+- **Vinted**: de gewone cataloguspagina `/catalog?search_text=...`, geladen in een echte Chromium.
+  Zijn JSON-eindpunt `/api/v2/catalog/items` antwoordt sinds september 2026 met 403. De
+  cataloguspagina staat wél gewoon door de server ingevuld, dus er valt te lezen wat er staat —
+  maar pas nadat de pagina echt geladen is. Eén browser en één tabblad per ronde, zoektermen na
+  elkaar, nooit parallel.
+- De **artikelpagina** van Vinted gaat nog steeds gewoon over HTTP: daar staat een
+  `application/ld+json`-blok met prijs, beschrijving en of hij verkocht is. Dat is waar de
+  hercontrole op draait, en dat werkt onveranderd.
 
-Geen van beide is gedocumenteerd en beide kunnen zonder aankondiging veranderen. Elke parser
-slaat een rij over in plaats van de ronde te laten klappen, en een bron die wegvalt laat de
-andere doorlopen.
+Geen van beide is gedocumenteerd en beide kunnen zonder aankondiging veranderen. De ontleder
+houdt zich uitsluitend aan `data-testid`-attributen; de klassenamen zijn gehutselde bouwnamen die
+bij elke uitrol veranderen. Een rij die niet te lezen is wordt overgeslagen in plaats van de ronde
+te laten klappen, en een bron die wegvalt laat de andere doorlopen.
 
-Anderhalve seconde tussen twee verzoeken, 27 verzoeken per ronde, vijftien rondes per dag.
-Ruim onder wat beide sites verdragen.
+Verandert Vinted zijn opmaak, dan komt dat als *opmaakwijziging* binnen en niet als blokkade:
+er valt geen strike, de terugvaltrap gaat niet lopen, en er staat elke ronde een zichtbare
+probleemregel in de app. Dat is met opzet — bij een verbouwing valt er niets te wachten, er moet
+iemand naar kijken.
+
+Geen stealth, geen CAPTCHA-omzeiling, geen tweede poging onder een andere naam. Houdt Vinted ons
+tegen, dan stopt de ronde daar en wachten we vijftien minuten tot twee uur, oplopend.
+
+Tweeënhalve seconde tussen twee verzoeken, twee tot vier seconden per paginalading, vijftien
+rondes per dag. Een ronde duurt daardoor ongeveer een minuut in plaats van een paar seconden.
 
 ## Als er iets langskomt
 
@@ -347,14 +403,20 @@ cargo build --release
 cd app && npm install && npm run build
 ```
 
-Rust 1.85 of nieuwer. Vijf afhankelijkheden: `ureq`, `serde`, `toml`, `time` en `rusqlite`
-met meegeleverde SQLite, zodat er op de server niets geïnstalleerd hoeft te zijn.
+Rust 1.85 of nieuwer. Zes afhankelijkheden: `ureq`, `serde`, `toml`, `time`, `rusqlite` met
+meegeleverde SQLite, en `libc` — die laatste alleen om bij het starten van de browser twee
+bestandsbeschrijvingen op hun plek te zetten, en hij zat al in `Cargo.lock`.
+
+Geen SQLite en geen Node nodig op de server. Chromium wél, en alleen voor Vinted: zonder browser
+blijft die bron leeg en draait Marktplaats gewoon door.
 
 ## Wat er bewust niet in zit
 
-Geen inlog op de app — hij hangt achter het tailnet. Geen volledige configuratie in de app:
-alleen zoektermen, want een verkeerde drempel legt de wachter stil. Geen grafieken, geen
-andere platforms. Geen automatisch bieden of kopen — nooit.
+Geen inlog op de app — hij hangt achter het tailnet. Geen grafieken, geen andere platforms.
+Geen automatisch bieden of kopen — nooit.
+
+Geen stealth, geen CAPTCHA-omzeiling, geen vermomde browser. Houdt Vinted ons tegen, dan wachten
+we. Dat is de hele strategie, en elke andere kost uiteindelijk het account.
 
 ## Licentie
 

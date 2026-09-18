@@ -14,7 +14,12 @@ use crate::selfupdate;
 use crate::sources::{marktplaats, vinted};
 use std::path::{Path, PathBuf};
 
-const VINTED_FIXTURE: &str = include_str!("../tests/fixtures/vinted_search.json");
+const VINTED_CATALOG: &str = include_str!("../tests/fixtures/vinted_catalog.html");
+const VINTED_CATALOG_EMPTY: &str = include_str!("../tests/fixtures/vinted_catalog_leeg.html");
+const VINTED_CATALOG_CHALLENGE: &str =
+    include_str!("../tests/fixtures/vinted_catalog_controle.html");
+const VINTED_CATALOG_CHANGED: &str =
+    include_str!("../tests/fixtures/vinted_catalog_gewijzigd.html");
 const MARKTPLAATS_FIXTURE: &str = include_str!("../tests/fixtures/marktplaats_search.json");
 const VINTED_ITEM_PAGE: &str = include_str!("../tests/fixtures/vinted_item.html");
 const MARKTPLAATS_ITEM_PAGE: &str = include_str!("../tests/fixtures/marktplaats_item.html");
@@ -146,11 +151,18 @@ pub fn run() -> bool {
         ("woordgrenzen bij letters, deelstring bij cijfers", check_word_boundaries),
         ("schema tweemaal openen breekt niets", check_schema_survives_reopening),
         ("een bestaande database migreert naar schema 2", check_migration_to_schema_two),
-        ("plaatsingstijd komt uit de foto", check_posted_at_from_photo),
+        ("velden die de catalogpagina niet meer geeft", check_vinted_catalog_velden),
         ("belangstelling wordt bijgehouden", check_interest_is_recorded),
         ("twee rondes tegelijk gaat niet", check_round_lock),
         ("een bron die ons tegenhoudt krijgt rust", check_source_backoff),
+        ("zonder browser haakt alleen Vinted af", check_round_survives_a_missing_browser),
         ("403 blijft 403 langs elke weg", check_blocked_survives_every_path),
+        ("403 op de cataloguspagina houdt ons tegen", check_blocked_page_is_blocked),
+        ("een controlepagina houdt ons tegen", check_challenge_page_is_blocked),
+        ("datadome op een gezonde pagina is geen blokkade", check_healthy_page_is_not_a_challenge),
+        ("gewijzigde opmaak is geen blokkade", check_changed_markup_is_not_a_block),
+        ("een lege zoekopdracht is geen storing", check_empty_search_is_not_a_problem),
+        ("bedragen lezen in beide schrijfwijzen", check_price_parsing),
         ("onleesbare pagina's: verkocht of opmaakwijziging", check_unreadable_verdict),
         ("het wachtrij-vangnet herhaalt zich niet elke ronde", check_nag_does_not_repeat),
         ("waarnemingen alleen bij verandering", check_price_history_only_on_change),
@@ -172,6 +184,7 @@ pub fn run() -> bool {
         ("verse installatie begint niet met een lege inbox", check_fresh_install_keeps_first_round),
         ("hercontrole leest prijs en verkocht uit de pagina", check_recheck_parsing),
         ("hercontrole leest een echte Vinted-pagina", check_recheck_vinted_page),
+        ("de verkoper komt van de artikelpagina", check_vinted_page_names_the_seller),
         ("een verkochte Vinted-pagina telt niet als aanwezig", check_sold_vinted_page),
         ("hercontrole leest een echte Marktplaats-pagina", check_recheck_marktplaats_page),
     ];
@@ -733,9 +746,19 @@ fn check_part_pickup_distance(settings: &Settings) -> Result<(), String> {
 }
 
 fn check_vinted_parsing(_settings: &Settings) -> Result<(), String> {
-    let body: serde_json::Value =
-        serde_json::from_str(VINTED_FIXTURE).map_err(|error| error.to_string())?;
-    let listings = vinted::parse_search(&body, "www.vinted.nl");
+    let (listings, rijen) = vinted::parse_catalog(VINTED_CATALOG, "www.vinted.nl");
+
+    // Zeven rijen staan er, zes zijn te lezen: bij de zevende is de prijs eruit geknipt. Eén
+    // kapotte advertentie hoort de andere zes niet mee te nemen.
+    if rijen != 7 {
+        return Err(format!("{rijen} rijen gezien, zeven verwacht"));
+    }
+    if listings.len() != 6 {
+        return Err(format!("{} advertenties gelezen, zes verwacht", listings.len()));
+    }
+    if listings.iter().any(|listing| listing.listing_id == "9000000007") {
+        return Err("de rij zonder prijs hoorde overgeslagen te worden".into());
+    }
 
     if listings.is_empty() {
         return Err("geen enkele advertentie uit het opgeslagen antwoord".into());
@@ -802,9 +825,7 @@ fn check_marktplaats_parsing(_settings: &Settings) -> Result<(), String> {
 }
 
 fn check_vinted_total_price(_settings: &Settings) -> Result<(), String> {
-    let body: serde_json::Value =
-        serde_json::from_str(VINTED_FIXTURE).map_err(|error| error.to_string())?;
-    let listings = vinted::parse_search(&body, "www.vinted.nl");
+    let (listings, _) = vinted::parse_catalog(VINTED_CATALOG, "www.vinted.nl");
 
     // Buyer protection is not optional, so the total is the only number comparable to a
     // Marktplaats price. Getting this wrong flatters every Vinted listing by a few percent.
@@ -1435,8 +1456,8 @@ fn check_recheck_vinted_page(_settings: &Settings) -> Result<(), String> {
             price_euros: Some(price),
             description,
         } => {
-            if (price - 15.0).abs() > 0.01 {
-                return Err(format!("prijs werd {price} in plaats van 15"));
+            if (price - 450.0).abs() > 0.01 {
+                return Err(format!("prijs werd {price} in plaats van 450"));
             }
             if description.is_none() {
                 return Err("de beschrijving hoorde meegelezen te worden".into());
@@ -1734,25 +1755,91 @@ fn check_migration_to_schema_two(_settings: &Settings) -> Result<(), String> {
     Ok(())
 }
 
-/// Vinted noemt geen plaatsingstijd, maar de foto draagt zijn uploadmoment mee. Zonder dat
-/// weet je alleen wanneer wíj hem zagen, en niet hoe lang hij er al stond.
-fn check_posted_at_from_photo(_settings: &Settings) -> Result<(), String> {
-    let listings = vinted::parse_search(
-        &serde_json::from_str(VINTED_FIXTURE).map_err(|error| error.to_string())?,
-        "www.vinted.nl",
-    );
-    let first = listings.first().ok_or("geen advertenties in het testbestand")?;
+/// Wat de cataloguspagina wél en niet levert, vastgezet.
+///
+/// De oude JSON-API gaf een plaatsingstijd (uit de fotostempel), een kijkersteller en een
+/// zichtbaarheidsvlag. Die staan alle drie niet op de cataloguspagina. Dat is geen ramp — niets in
+/// Rust leest `posted_at`, de hercontrole sorteert op `became_a_find_at`; `view_count` stond in
+/// zoekresultaten altijd al op nul; en gereserveerd komt bij de eerstvolgende hercontrole alsnog
+/// boven water. Maar het moet vaststaan, want als er ooit weer iets binnenkomt hoort dat op te
+/// vallen in plaats van stilletjes te gebeuren.
+fn check_vinted_catalog_velden(_settings: &Settings) -> Result<(), String> {
+    let (listings, _) = vinted::parse_catalog(VINTED_CATALOG, "www.vinted.nl");
+    let eerste = listings.first().ok_or("geen advertenties in het testbestand")?;
 
-    match first.posted_at {
-        Some(stamp) if stamp > 1_700_000_000 => {}
-        other => return Err(format!("plaatsingstijd werd {other:?}")),
+    if eerste.listing_id != "9903695264" {
+        return Err(format!("eerste advertentie is {}", eerste.listing_id));
     }
-    if first.favourite_count.is_none() {
-        return Err("het aantal favorieten hoorde meegelezen te worden".into());
+    if eerste.title != "RTX 3090 (hs)" {
+        return Err(format!("titel werd {:?}", eerste.title));
     }
-    if first.view_count.is_none() {
-        return Err("het aantal kijkers hoorde meegelezen te worden".into());
+    if eerste.condition != "Goed" {
+        return Err(format!("staat werd {:?}", eerste.condition));
     }
+    if (eerste.asking_price_euros - 450.0).abs() > 0.005 {
+        return Err(format!("vraagprijs werd {}", eerste.asking_price_euros));
+    }
+    if (eerste.price_euros - 473.20).abs() > 0.005 {
+        return Err(format!("totaalprijs werd {}", eerste.price_euros));
+    }
+    if eerste.url != "https://www.vinted.nl/items/9903695264-rtx-3090-hs" {
+        return Err(format!("URL werd {:?}", eerste.url));
+    }
+    if eerste.favourite_count != Some(22) {
+        return Err(format!("favorieten werden {:?}", eerste.favourite_count));
+    }
+
+    if eerste.posted_at.is_some() {
+        return Err("de cataloguspagina geeft geen plaatsingstijd; hier stond er wel een".into());
+    }
+    if eerste.view_count.is_some() {
+        return Err("de cataloguspagina geeft geen kijkersteller".into());
+    }
+    if eerste.reserved {
+        return Err("het raster zegt niets over gereserveerd; standaard hoort false te zijn".into());
+    }
+    // Eén foto per rij in het raster zegt niets over hoeveel er zijn. Nul betekent onbekend, net
+    // als bij Marktplaats. Eén zou de waarschuwing "maar één foto" onder élke Vinted-vondst
+    // zetten, en die staat dan in Discord.
+    if eerste.photo_count != 0 {
+        return Err(format!("fototelling werd {}", eerste.photo_count));
+    }
+
+    // Zonder "Merk:" in de samenvatting staat de titel in `--description-title` en wordt de
+    // ondertitel "maat - staat". Wie titel of staat uit die elementen haalt leest hier "Wandelshirt"
+    // als merk en "L / 40 / 12 - Nieuw zonder prijskaartje" als staat.
+    let zonder_merk = listings
+        .iter()
+        .find(|listing| listing.listing_id == "7881532373")
+        .ok_or("de rij zonder merk staat niet in het testbestand")?;
+    if zonder_merk.title != "Wandelshirt" {
+        return Err(format!("titel zonder merk werd {:?}", zonder_merk.title));
+    }
+    if zonder_merk.condition != "Nieuw zonder prijskaartje" {
+        return Err(format!("staat zonder merk werd {:?}", zonder_merk.condition));
+    }
+
+    // Een komma in de titel zelf, terwijl de samenvatting ook op komma's is opgebouwd.
+    let met_komma = listings
+        .iter()
+        .find(|listing| listing.listing_id == "8036665284")
+        .ok_or("de rij met een komma in de titel ontbreekt")?;
+    if !met_komma.title.contains("( Waterblock seul, pas de gpu )") {
+        return Err(format!("titel met komma werd {:?}", met_komma.title));
+    }
+
+    // &amp; hoort als & terug te komen, anders zoekt de prijstabel naar het verkeerde woord.
+    let met_entiteit = listings
+        .iter()
+        .find(|listing| listing.listing_id == "9659182431")
+        .ok_or("de rij met een HTML-entiteit ontbreekt")?;
+    if !met_entiteit.title.contains("5090 &") {
+        return Err(format!("titel met entiteit werd {:?}", met_entiteit.title));
+    }
+    if (met_entiteit.price_euros - 3045.70).abs() > 0.005 {
+        return Err(format!("prijs van vier cijfers werd {}", met_entiteit.price_euros));
+    }
+
     Ok(())
 }
 
@@ -1969,7 +2056,6 @@ fn check_silent_rule_is_reported(settings: &Settings) -> Result<(), String> {
 fn check_blocked_survives_every_path(_settings: &Settings) -> Result<(), String> {
     use crate::detail;
     use crate::http::{Failure, HttpClient};
-    use crate::sources::{vinted::Vinted, Source};
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
@@ -1992,15 +2078,11 @@ fn check_blocked_survives_every_path(_settings: &Settings) -> Result<(), String>
     let domain = format!("http://127.0.0.1:{port}");
     let mut client = HttpClient::new(0);
 
-    // 1. Zoeken. Hier valt ook de sessie-aanvraag onder: die gaat als eerste naar de
-    //    voorpagina, en juist daar hield Vinted ons tegen.
-    let mut bron = Vinted::new(&mut client, &domain);
-    match bron.search("rtx 3090", 5) {
-        Err(Failure::Blocked(_)) => {}
-        Err(other) => return Err(format!("zoeken gaf {other} in plaats van tegengehouden")),
-        Ok(_) => return Err("zoeken hoorde niet te lukken tegen een dichte deur".into()),
-    }
-    drop(bron);
+    // 1. Zoeken staat niet meer in deze lijst. Dat loopt sinds 2.0 langs een browser, en die
+    //    laat zich niet aan een TcpListener hangen zonder dat er een Chromium moet draaien —
+    //    en deze zelftest is ook de installatiepoort in install.sh, dus die mag dat niet eisen.
+    //    Het oordeel zelf is een pure functie geworden en staat in
+    //    `check_blocked_page_is_blocked` hieronder, met een echte 403 erin.
 
     let advertentie = Listing {
         source: "vinted".to_string(),
@@ -2051,6 +2133,205 @@ fn check_doctor_keeps_going(_settings: &Settings) -> Result<(), String> {
             rapport.problems()
         ));
     }
+
+    let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+/// Een 403 of 429 op de cataloguspagina hoort als tegengehouden binnen te komen, want dat is wat
+/// de terugvaltrap laat lopen en de ronde bij Vinted laat stoppen.
+///
+/// Dit is de andere helft van `check_blocked_survives_every_path`. Tweemaal is precies hier een
+/// fout ingeslopen — een `map_err` die `Blocked` platsloeg — waardoor de ronde vrolijk dertien
+/// zoektermen lang tegen een dichte deur bleef gooien.
+fn check_blocked_page_is_blocked(_settings: &Settings) -> Result<(), String> {
+    use crate::sources::vinted::{classify, Outcome};
+
+    match classify(VINTED_CATALOG, Some(403), Vec::new(), 0) {
+        Outcome::HttpBlocked(403) => {}
+        other => return Err(format!("403 werd {other:?}")),
+    }
+    match classify(VINTED_CATALOG, Some(429), Vec::new(), 0) {
+        Outcome::HttpBlocked(429) => {}
+        other => return Err(format!("429 werd {other:?}")),
+    }
+    Ok(())
+}
+
+/// Een controlepagina telt als tegengehouden: wachten helpt, doorgaan niet.
+fn check_challenge_page_is_blocked(_settings: &Settings) -> Result<(), String> {
+    use crate::sources::vinted::{classify, Outcome};
+
+    match classify(VINTED_CATALOG_CHALLENGE, Some(200), Vec::new(), 0) {
+        Outcome::Challenge(_) => Ok(()),
+        other => Err(format!("de controlepagina werd {other:?}")),
+    }
+}
+
+/// Het woord "datadome" staat zesmaal op een pagina waar niets aan de hand is: in
+/// `DATADOME_CLIENT_SIDE_KEY`, in `web_datadome_script`, in `datadome_script_source` en in een
+/// Nederlandse foutmelding in het woordenboek. Wie daarop zoekt om een blokkade te herkennen,
+/// meldt élke geslaagde ronde als blokkade — en de terugvaltrap zet Vinted dan voorgoed stil.
+///
+/// Hetzelfde geldt voor `catalog.empty_state.title`: die staat in het woordenboek van elke pagina,
+/// ook een pagina die volstaat met advertenties.
+fn check_healthy_page_is_not_a_challenge(_settings: &Settings) -> Result<(), String> {
+    use crate::sources::vinted::{classify, parse_catalog, Outcome};
+
+    if !VINTED_CATALOG.contains("datadome_script_source") {
+        return Err("het testbestand mist de echte datadome-regels; dan bewijst dit niets".into());
+    }
+    if !VINTED_CATALOG.contains("catalog.empty_state.title") {
+        return Err("het testbestand mist de lege-staat-tekst; dan bewijst dit niets".into());
+    }
+
+    let (listings, rijen) = parse_catalog(VINTED_CATALOG, "www.vinted.nl");
+    match classify(VINTED_CATALOG, Some(200), listings, rijen) {
+        Outcome::Items(found) if found.len() == 6 => Ok(()),
+        other => Err(format!("een gezonde pagina werd {other:?}")),
+    }
+}
+
+/// Een verbouwing bij Vinted is geen blokkade. Het verschil is niet academisch: een blokkade zet
+/// Vinted een kwartier tot twee uur stil en laat de trap oplopen, terwijl er niets te wachten valt
+/// en er juist iemand naar moet kijken. Er hoort elke ronde een zichtbare probleemregel te komen.
+fn check_changed_markup_is_not_a_block(_settings: &Settings) -> Result<(), String> {
+    use crate::sources::vinted::{classify, parse_catalog, Outcome};
+
+    let (listings, rijen) = parse_catalog(VINTED_CATALOG_CHANGED, "www.vinted.nl");
+    if !listings.is_empty() {
+        return Err("uit een verbouwde pagina kwamen advertenties, verwacht geen".into());
+    }
+    match classify(VINTED_CATALOG_CHANGED, Some(200), listings, rijen) {
+        Outcome::Changed(_) => {}
+        other => return Err(format!("een verbouwde pagina werd {other:?}")),
+    }
+
+    // En de halve verbouwing: rijen die er wel staan maar niet te lezen zijn.
+    match classify(VINTED_CATALOG, Some(200), Vec::new(), 96) {
+        Outcome::Changed(_) => Ok(()),
+        other => Err(format!("96 onleesbare rijen werden {other:?}")),
+    }
+}
+
+/// Een lege zoekopdracht is geen storing. Deze tak is zeldzaam — Vinted valt bij een zoekterm die
+/// nergens op slaat terug op een willekeurige feed in plaats van op een lege pagina — maar hij moet
+/// blijven staan: zonder hem zou elke lege pagina als verbouwing gelden, en dan is die melding
+/// niets meer waard.
+fn check_empty_search_is_not_a_problem(_settings: &Settings) -> Result<(), String> {
+    use crate::sources::vinted::{classify, parse_catalog, Outcome};
+
+    let (listings, rijen) = parse_catalog(VINTED_CATALOG_EMPTY, "www.vinted.nl");
+    if rijen != 0 {
+        return Err(format!("{rijen} rijen op een lege pagina"));
+    }
+    match classify(VINTED_CATALOG_EMPTY, Some(200), listings, rijen) {
+        Outcome::NoResults => Ok(()),
+        other => Err(format!("een lege pagina werd {other:?}")),
+    }
+}
+
+/// Bedragen lezen. Vinted schrijft `€ 278,95` met een vaste spatie in de opmaak en `278.95 €` in de
+/// samenvatting op dezelfde pagina. Eén verkeerd gelezen scheidingsteken maakt van duizend euro één
+/// euro, en dat haalt élke drempel.
+fn check_price_parsing(_settings: &Settings) -> Result<(), String> {
+    use crate::sources::vinted::euros;
+
+    let gevallen: [(&str, Option<f64>); 9] = [
+        ("€\u{a0}265,00", Some(265.0)),
+        ("€\u{a0}3780,70", Some(3780.70)),
+        ("265.00 €", Some(265.0)),
+        ("€ 1.234,50", Some(1234.50)),
+        ("€ 1.250", Some(1250.0)),
+        ("$1,250.00", Some(1250.0)),
+        ("incl.", None),
+        ("", None),
+        ("€ 0,00", None),
+    ];
+    for (tekst, verwacht) in gevallen {
+        let gelezen = euros(tekst);
+        let klopt = match (gelezen, verwacht) {
+            (Some(a), Some(b)) => (a - b).abs() < 0.005,
+            (None, None) => true,
+            _ => false,
+        };
+        if !klopt {
+            return Err(format!("{tekst:?} werd {gelezen:?}, verwacht {verwacht:?}"));
+        }
+    }
+    Ok(())
+}
+
+/// Verkoper en fototelling komen sinds 2.0 van de artikelpagina. De cataloguspagina noemt geen
+/// verkoper, en toont één foto per rij wat over het werkelijke aantal niets zegt. Die pagina wordt
+/// voor de beschrijving toch al opgehaald, dus het kost geen extra verzoek -- maar het moet wel
+/// gelezen worden, anders staat er bij elke Vinted-vondst geen verkoper.
+fn check_vinted_page_names_the_seller(_settings: &Settings) -> Result<(), String> {
+    match crate::detail::extract_seller(VINTED_ITEM_PAGE) {
+        Some(naam) if naam == "hastangoora" => {}
+        other => return Err(format!("verkoper werd {other:?}")),
+    }
+    let fotos = crate::detail::count_photos(VINTED_ITEM_PAGE);
+    if fotos != 5 {
+        return Err(format!("fototelling werd {fotos}, vijf verwacht"));
+    }
+    // Een pagina zonder die stukken hoort niets terug te geven in plaats van iets te verzinnen.
+    if crate::detail::extract_seller(MARKTPLAATS_ITEM_PAGE).is_some() {
+        return Err("op een Marktplaats-pagina hoort geen Vinted-verkoper gevonden te worden".into());
+    }
+    if crate::detail::count_photos(MARKTPLAATS_ITEM_PAGE) != 0 {
+        return Err("op een Marktplaats-pagina horen geen Vinted-foto's geteld te worden".into());
+    }
+    Ok(())
+}
+
+/// Zonder browser hoort Vinted netjes af te haken en de rest van de ronde door te gaan.
+///
+/// Twee dingen moeten kloppen, en ze wijzen tegengesteld:
+///   1. Geen browser is géén bron die ons tegenhoudt. Er mag dus geen strike vallen en de
+///      terugvaltrap mag niet gaan lopen — anders staat er "Vinted wordt twee uur overgeslagen"
+///      terwijl het probleem is dat er geen Chromium geïnstalleerd is.
+///   2. Het moet wél als mislukte bron meetellen. Zonder dat ziet een wachter die alleen Vinted
+///      doet er bij een kapotte installatie kerngezond uit: exitcode nul, geen vondsten, niemand
+///      die iets merkt.
+///
+/// Draait zonder netwerk en zonder browser: `[browser] enabled = false` zorgt dat er niets start.
+fn check_round_survives_a_missing_browser(settings: &Settings) -> Result<(), String> {
+    let (database, directory) = scratch_database("zonder-browser")?;
+
+    let mut aangepast = settings.clone();
+    aangepast.sources = vec!["vinted".to_string()];
+    aangepast.browser.enabled = false;
+    database.seed_terms(&["rtx 3090".to_string()], &[], 1_789_000_000)?;
+
+    let uitkomst = crate::hunt::run_round(&aangepast, &database, 1_789_000_000, false, false)?;
+
+    if !uitkomst.every_source_failed {
+        let _ = std::fs::remove_dir_all(&directory);
+        return Err("een ronde zonder bruikbare bron hoort als mislukt te eindigen".into());
+    }
+    if !uitkomst
+        .problems
+        .iter()
+        .any(|regel| regel.contains("vinted") && regel.contains("overgeslagen"))
+    {
+        let _ = std::fs::remove_dir_all(&directory);
+        return Err(format!("geen bruikbare probleemregel: {:?}", uitkomst.problems));
+    }
+    if database.source_strikes("vinted") != 0 {
+        let _ = std::fs::remove_dir_all(&directory);
+        return Err("een ontbrekende browser hoort geen blokkade-strike op te leveren".into());
+    }
+    if database.source_blocked_until("vinted") != 0 {
+        let _ = std::fs::remove_dir_all(&directory);
+        return Err("een ontbrekende browser hoort de terugvaltrap niet te starten".into());
+    }
+
+    // De andere helft — dat Marktplaats gewoon oplevert terwijl Vinted afhaakt — staat hier niet.
+    // Dat is niet te toetsen zonder netwerk: het adres van Marktplaats staat vast in de adapter en
+    // is nergens naar een luisteraar op localhost om te buigen. Een test die dat nabootst zou
+    // alleen zijn eigen opzet bewijzen. Die kant wordt met de hand nagelopen met
+    // `kaartenjager run --dry-run --verbose`, en het resultaat staat in de uitgaveaantekening.
 
     let _ = std::fs::remove_dir_all(&directory);
     Ok(())

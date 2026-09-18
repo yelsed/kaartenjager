@@ -720,3 +720,10 @@ dagen" — niet een diagram. Bij drie prijspunten valt er niets te tekenen.
 tweedaagse cronjob voor de stapel vervalt, de wekelijkse prijsherziening blijft.
 
 **Geen bieden of kopen.** Nooit.
+
+---
+
+*Aangevuld 18 september 2026 (versie 2.0).* Paragraaf 12 ("Geen volledige configuratie in de app.
+Alleen zoektermen") is niet meer waar: het scherm /instellingen bewerkt sinds commit ff4470f de
+hele configuratie. Aan de app zelf verandert 2.0 niets — het databaseschema blijft 2 en de
+opdrachten die de app aanroept zijn ongewijzigd. Zie CHANGELOG.md.

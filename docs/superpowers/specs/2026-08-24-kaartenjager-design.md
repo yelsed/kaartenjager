@@ -561,3 +561,12 @@ plus nieuwe met bronvermelding.
 maanden heeft gedraaid en er iets blijkt te ontbreken.
 
 **Automatisch bieden of kopen.** Nooit.
+
+---
+
+*Aangevuld 18 september 2026 (versie 2.0).* Paragraaf 4 klopt niet meer voor Vinted: het
+eindpunt `/api/v2/catalog/items` geeft sinds september 2026 HTTP 403, en de zin dat Cloudflare ons
+niet tegenhoudt is achterhaald. Vinted wordt nu via de cataloguspagina in een echte Chromium
+gelezen; de artikelpagina gaat nog wel gewoon over HTTP. Marktplaats is ongewijzigd. Zie
+CHANGELOG.md. Paragraaf 12 ("geen volledige configuratie in de app") is al sinds commit ff4470f
+niet meer waar.

@@ -47,18 +47,27 @@ impl Report {
 /// Loopt alles na. Afdrukken doet de aanroeper, zodat de zelftest hem kan gebruiken zonder
 /// een half rapport door zijn eigen uitvoer te mengen.
 pub fn diagnose(explicit_config: Option<&Path>, now: i64) -> Report {
+    diagnose_parts(explicit_config, now).0
+}
+
+/// Dezelfde ronde, maar met de configuratie erbij. De browsercontrole heeft die nodig en hoort
+/// niet in `diagnose`: die wordt door de zelftest aangeroepen, en de zelftest mag geen browser
+/// starten en het netwerk niet aanraken -- hij is ook de installatiepoort in install.sh.
+fn diagnose_parts(explicit_config: Option<&Path>, now: i64) -> (Report, Option<config::Settings>) {
     let mut report = Report::new();
 
     report.note("versie", env!("CARGO_PKG_VERSION"));
     check_clock(&mut report, now);
     let settings = check_config(&mut report, explicit_config);
     check_database(&mut report, settings.as_ref(), now);
-    report
+    (report, settings)
 }
 
 /// Loopt alles na, drukt het af, en geeft true als er niets mis is.
 pub fn run(explicit_config: Option<&Path>, now: i64) -> bool {
-    let report = diagnose(explicit_config, now);
+    let (mut report, settings) = diagnose_parts(explicit_config, now);
+    check_browser(&mut report, settings.as_ref());
+    let report = report;
 
     for line in &report.lines {
         println!("{line}");
@@ -252,14 +261,17 @@ fn check_terms(report: &mut Report, database: &Database, settings: Option<&confi
             report.bad("zoektermen", "er staat er geen één aan, dus een ronde zoekt niets af")
         }
         Ok(terms) => {
-            let bronnen = settings.map(|s| s.sources.len()).unwrap_or(2).max(1);
-            let verzoeken = terms.len() * bronnen;
-            if verzoeken > config::MAX_REQUESTS_PER_ROUND {
+            // Dezelfde rekensom als `check` en de ronde zelf: Vinted telt per zoekterm mee voor
+            // meerdere pagina's sinds daar een browser voor staat.
+            let bezoeken = settings
+                .map(|instellingen| instellingen.searches_for(terms.len()))
+                .unwrap_or_else(|| terms.len() * 2);
+            if bezoeken > config::MAX_REQUESTS_PER_ROUND {
                 report.bad(
                     "zoektermen",
                     format!(
-                        "{} aan maal {bronnen} bronnen is {verzoeken} verzoeken, boven de grens \
-                         van {}. De ronde weigert te starten.",
+                        "{} aan geeft {bezoeken} paginabezoeken, boven de grens van {}. \
+                         De ronde weigert te starten.",
                         terms.len(),
                         config::MAX_REQUESTS_PER_ROUND
                     ),
@@ -267,7 +279,7 @@ fn check_terms(report: &mut Report, database: &Database, settings: Option<&confi
             } else {
                 report.ok(
                     "zoektermen",
-                    format!("{} aan, {verzoeken} zoekverzoeken per ronde", terms.len()),
+                    format!("{} aan, {bezoeken} paginabezoeken per ronde", terms.len()),
                 );
             }
         }
@@ -300,5 +312,92 @@ fn check_sources(
         } else {
             report.ok(bron, "geen blokkade");
         }
+    }
+}
+
+/// De browser waarmee Vinted wordt bezocht.
+///
+/// Dit is de enige controle in dit programma die het netwerk aanraakt, en dat is met opzet: de
+/// vraag "waarom levert Vinted niets op" valt niet te beantwoorden zonder één keer te kijken. Het
+/// kost een seconde of zes. `check` blijft er vanaf en kijkt alleen of er een browser staat.
+fn check_browser(report: &mut Report, settings: Option<&config::Settings>) {
+    let Some(settings) = settings else { return };
+    if !settings.sources.iter().any(|source| source == "vinted") {
+        return;
+    }
+    if !settings.browser.enabled {
+        report.note("browser", "uit in de configuratie; Vinted levert niets op");
+        return;
+    }
+
+    let executable = match crate::browser::find_executable(&settings.browser.executable) {
+        Ok(path) => {
+            report.ok("browser", path.display().to_string());
+            path
+        }
+        Err(reason) => {
+            report.bad("browser", format!("{reason}. Zonder browser blijft Vinted leeg."));
+            return;
+        }
+    };
+
+    let profile = if settings.browser.profile_dir.trim().is_empty() {
+        crate::browser::default_profile()
+    } else {
+        std::path::PathBuf::from(settings.browser.profile_dir.trim())
+    };
+
+    let mut browser =
+        match crate::browser::Browser::launch(&executable, &profile, settings.browser.no_sandbox) {
+            Ok(started) => {
+                report.ok("browser start", started.product().to_string());
+                started
+            }
+            Err(reason) => {
+                report.bad("browser start", reason);
+                return;
+            }
+        };
+
+    let url = format!(
+        "https://{}/catalog?search_text=rtx+3090",
+        settings.vinted_domain.trim_matches('/')
+    );
+    let timeout = std::time::Duration::from_millis(settings.browser.page_timeout_ms);
+    let began = std::time::Instant::now();
+    let page = match browser.load(&url, timeout) {
+        Ok(page) => page,
+        Err(reason) => {
+            report.bad("cataloguspagina", reason);
+            return;
+        }
+    };
+    let seconds = began.elapsed().as_secs_f64();
+
+    use crate::sources::vinted::{classify, parse_catalog, Outcome};
+    let (listings, rows) = parse_catalog(&page.html, &settings.vinted_domain);
+    // De soort staat in de melding, want dat is het hele verschil tussen "de installatie deugt
+    // niet" en "Vinted houdt ons tegen" -- en dat zijn twee heel andere dingen om aan te doen.
+    match classify(&page.html, page.status, listings, rows) {
+        Outcome::Items(found) => report.ok(
+            "cataloguspagina",
+            format!("{} advertenties in {seconds:.1} s", found.len()),
+        ),
+        Outcome::NoResults => report.note(
+            "cataloguspagina",
+            format!("geladen in {seconds:.1} s, maar geen resultaten op \"rtx 3090\""),
+        ),
+        Outcome::HttpBlocked(status) => report.bad(
+            "cataloguspagina",
+            format!("Vinted houdt ons tegen (HTTP {status}). Wachten, niet sleutelen."),
+        ),
+        Outcome::Challenge(what) => report.bad(
+            "cataloguspagina",
+            format!("Vinted houdt ons tegen: {what}. Wachten, niet sleutelen."),
+        ),
+        Outcome::Changed(what) => report.bad(
+            "cataloguspagina",
+            format!("de opmaak klopt niet meer: {what}. Hier moet iemand naar kijken."),
+        ),
     }
 }

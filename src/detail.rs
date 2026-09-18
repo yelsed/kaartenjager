@@ -49,7 +49,39 @@ pub fn enrich(listing: &mut Listing, client: &mut HttpClient) -> Result<(), Fail
     };
 
     listing.description = description;
+    // De cataloguspagina noemt geen verkoper en zegt niets over het aantal foto's. Deze pagina wel,
+    // en die is nu toch al opgehaald -- dit kost geen extra verzoek. Blijft iets leeg, dan blijft
+    // het leeg: een gok is hier erger dan een gat.
+    if listing.seller.is_empty() {
+        if let Some(seller) = extract_seller(&html) {
+            listing.seller = seller;
+        }
+    }
+    if listing.photo_count == 0 {
+        let photos = count_photos(&html);
+        if photos > 0 {
+            listing.photo_count = photos;
+        }
+    }
     Ok(())
+}
+
+/// De naam van de verkoper. Staat in het profielblok van de artikelpagina.
+pub(crate) fn extract_seller(html: &str) -> Option<String> {
+    let at = html.find("data-testid=\"profile-username\"")?;
+    let opens = html[at..].find('>')? + at + 1;
+    let closes = html[opens..].find('<')? + opens;
+    let name = html[opens..closes].trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// Hoeveel foto's er bij de advertentie staan. Vinted nummert ze: `item-photo-1`, `item-photo-2`,
+/// enzovoort. Tellen tot er een ontbreekt is genoeg en scheelt het uitpluizen van dubbelingen —
+/// elke foto staat er tweemaal in, als blok en als `--img`.
+pub(crate) fn count_photos(html: &str) -> usize {
+    (1..=40)
+        .take_while(|number| html.contains(&format!("data-testid=\"item-photo-{number}\"")))
+        .count()
 }
 
 /// Reads the listing's own page and reports whether it still exists and what it costs now.

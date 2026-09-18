@@ -36,7 +36,6 @@ const ACCEPT_LANGUAGE: &str = "nl-NL,nl;q=0.9,en;q=0.8";
 pub struct HttpClient {
     agent: ureq::Agent,
     delay: Duration,
-    timeout: Duration,
     max_attempts: u32,
     last_request_finished: Option<Instant>,
     pub requests_made: u32,
@@ -48,7 +47,6 @@ impl HttpClient {
         HttpClient {
             agent: build_agent(timeout),
             delay: Duration::from_millis(delay_ms),
-            timeout,
             max_attempts: 3,
             last_request_finished: None,
             requests_made: 0,
@@ -59,12 +57,6 @@ impl HttpClient {
     /// terugkomen op hetzelfde tempo is hoe een korte rem een lange blokkade wordt.
     pub fn set_delay(&mut self, delay_ms: u64) {
         self.delay = Duration::from_millis(delay_ms);
-    }
-
-    /// Rebuilding the agent is the surest way to drop every cookie, and it happens at most
-    /// once per run.
-    pub fn clear_cookies(&mut self) {
-        self.agent = build_agent(self.timeout);
     }
 
     /// Haalt een pagina op en houdt "bestaat niet meer" en "wordt tegengehouden" apart van
