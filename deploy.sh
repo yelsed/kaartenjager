@@ -98,6 +98,29 @@ TOML
   say "    [scan] onderaan toegevoegd"
 fi
 
+if grep -q '^\[browser\]' "$CONFIG"; then
+  say "    [browser] staat er al"
+else
+  # Sinds 2.0 gaat Vinted via een echte Chromium. Als root weigert die te starten zonder
+  # --no-sandbox -- de zandbak kán daar simpelweg niet werken -- dus die sleutel gaat mee
+  # zodra dit script als root draait. Als gewone gebruiker blijft de zandbak juist aan.
+  if [ "$(id -u)" = "0" ]; then
+    ZANDBAK="true    # als root kan de zandbak niet werken"
+  else
+    ZANDBAK="false"
+  fi
+  cat >> "$CONFIG" <<TOML
+
+# Vinted wordt sinds versie 2.0 via een echte Chromium bezocht: zijn zoek-API geeft
+# 403. Staat er geen browser, dan levert Vinted niets op en draait Marktplaats
+# gewoon door. Nalopen met: kaartenjager doctor
+[browser]
+enabled = true
+no_sandbox = $ZANDBAK
+TOML
+  say "    [browser] onderaan toegevoegd, no_sandbox = ${ZANDBAK%% *}"
+fi
+
 if grep -q '^postcode = ""' "$CONFIG"; then
   say "    LET OP: postcode is nog leeg. Zonder postcode geeft Marktplaats geen afstand terug"
   say "            en werkt het ophaal-filter niet."
