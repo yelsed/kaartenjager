@@ -146,7 +146,8 @@ DROP TABLE price_point;
 "#;
 
 /// Van schema 2 naar 3: producten. De markering `terms_from_legacy` zegt de eerste
-/// `sync_products` dat de zoektermen er al staan en alleen een product nodig hebben.
+/// `sync_products` dat de zoektermen er al staan, ook van producten die de eigenaar leeggemaakt
+/// heeft.
 const MIGRATION_2_TO_3: &str = r#"
 ALTER TABLE search_term ADD COLUMN product TEXT;
 ALTER TABLE finding ADD COLUMN product TEXT;
@@ -327,27 +328,6 @@ impl Database {
 
     // -------------------------------------------------------------- zoektermen
 
-    /// Vult de tabel één keer met de termen uit TOML. Alleen nog voor databases zonder
-    /// producten; `sync_products` doet dit per product.
-    pub fn seed_terms(&self, cards: &[String], parts: &[String], now: i64) -> Result<bool, String> {
-        if self.state("terms_seeded").is_some() {
-            return Ok(false);
-        }
-        for (terms, kind) in [(cards, "card"), (parts, "part")] {
-            for term in terms {
-                self.connection
-                    .execute(
-                        "INSERT OR IGNORE INTO search_term (term, kind, enabled, added_at, added_by)
-                         VALUES (?1, ?2, 1, ?3, 'config')",
-                        params![term.to_lowercase(), kind, now],
-                    )
-                    .map_err(|error| format!("Zoekterm \"{term}\" niet opslaan: {error}"))?;
-            }
-        }
-        self.set_state("terms_seeded", &now.to_string())?;
-        Ok(true)
-    }
-
     /// Zet de producten uit de configuratie in de database en geeft elke zoekterm en vondst
     /// een product. Draait bij elke start; twee keer achter elkaar verandert niets.
     ///
@@ -384,30 +364,64 @@ impl Database {
                 .map_err(|error| fail("weghalen", error))?;
         }
 
-        // Een database van voor de producten heeft zijn zoektermen al. Die krijgen hieronder
-        // een product; opnieuw zaaien zou weggehaalde termen terugzetten.
-        if self.state("terms_from_legacy").is_some() || self.state("terms_seeded").is_some() && !self.any_product_seeded()? {
+        // Termen van voor de producten krijgen er een. Termen van een product dat uit de
+        // configuratie verdween houden hun id: dan zoekt niemand ze, en komt het product terug
+        // (een tikfout hersteld), dan horen ze er meteen weer bij.
+        let mut statement = self
+            .connection
+            .prepare("SELECT term FROM search_term WHERE product IS NULL")
+            .map_err(|error| fail("zoekterm", error))?;
+        let orphan_terms: Vec<String> = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| fail("zoekterm", error))?
+            .collect::<Result<_, _>>()
+            .map_err(|error| fail("zoekterm", error))?;
+        drop(statement);
+        for term in orphan_terms {
+            self.connection
+                .execute(
+                    "UPDATE search_term SET product = ?2 WHERE term = ?1",
+                    params![term, settings.product_for_term(&term)],
+                )
+                .map_err(|error| fail("zoekterm", error))?;
+        }
+
+        // Een database van voor de producten, met producten die uit de oude lijsten gemaakt zijn:
+        // geen van die producten is nieuw, ook niet een die de eigenaar leeggemaakt heeft.
+        // Opnieuw zaaien zou weggehaalde termen terugzetten.
+        let legacy_database = self.state("terms_from_legacy").is_some()
+            || self.state("terms_seeded").is_some() && !self.any_product_seeded()?;
+        if legacy_database && settings.products_from_legacy_lists {
             self.connection
                 .execute(
                     "UPDATE product SET seeded_at = ?1 WHERE seeded_at IS NULL",
                     params![now],
                 )
                 .map_err(|error| fail("zaaimarkering", error))?;
-            self.connection
-                .execute("DELETE FROM app_state WHERE name = 'terms_from_legacy'", [])
-                .map_err(|error| fail("zaaimarkering", error))?;
         }
+        self.connection
+            .execute("DELETE FROM app_state WHERE name = 'terms_from_legacy'", [])
+            .map_err(|error| fail("zaaimarkering", error))?;
 
         for product in &settings.products {
+            // Een product dat al termen heeft is gezaaid, ook als de rij net (opnieuw) gemaakt is.
             let unseeded: bool = self
                 .connection
                 .query_row(
-                    "SELECT seeded_at IS NULL FROM product WHERE id = ?1",
+                    "SELECT seeded_at IS NULL
+                       AND NOT EXISTS (SELECT 1 FROM search_term WHERE product = ?1)
+                     FROM product WHERE id = ?1",
                     params![product.id],
                     |row| row.get(0),
                 )
                 .map_err(|error| fail("zaaien", error))?;
             if !unseeded {
+                self.connection
+                    .execute(
+                        "UPDATE product SET seeded_at = COALESCE(seeded_at, ?2) WHERE id = ?1",
+                        params![product.id, now],
+                    )
+                    .map_err(|error| fail("zaaien", error))?;
                 continue;
             }
             for term in &product.search_terms {
@@ -428,35 +442,11 @@ impl Database {
         }
         self.set_state("terms_seeded", &now.to_string())?;
 
-        // Termen en vondsten zonder product, of met een product dat niet meer bestaat.
-        let orphans = |table: &str, column: &str| -> Result<Vec<String>, String> {
-            let mut statement = self
-                .connection
-                .prepare(&format!(
-                    "SELECT {column} FROM {table}
-                     WHERE product IS NULL OR product NOT IN (SELECT id FROM product)"
-                ))
-                .map_err(|error| fail(table, error))?;
-            let rows = statement
-                .query_map([], |row| row.get::<_, String>(0))
-                .map_err(|error| fail(table, error))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| fail(table, error));
-            rows
-        };
-        for term in orphans("search_term", "term")? {
-            self.connection
-                .execute(
-                    "UPDATE search_term SET product = ?2 WHERE term = ?1",
-                    params![term, settings.product_for_term(&term)],
-                )
-                .map_err(|error| fail("zoekterm", error))?;
-        }
+        // Vondsten van voor de producten. Vondsten van een verdwenen product houden hun id.
         let mut statement = self
             .connection
             .prepare(
-                "SELECT key, matched_as FROM finding
-                 WHERE product IS NULL OR product NOT IN (SELECT id FROM product)",
+                "SELECT key, matched_as FROM finding WHERE product IS NULL",
             )
             .map_err(|error| fail("vondst", error))?;
         let findings: Vec<(String, String)> = statement
@@ -506,7 +496,8 @@ impl Database {
             .prepare(
                 "SELECT t.term FROM search_term t
                  LEFT JOIN product p ON p.id = t.product
-                 WHERE t.enabled = 1 AND COALESCE(p.enabled, 1) = 1
+                 WHERE t.enabled = 1
+                   AND (t.product IS NULL OR p.enabled = 1)
                  ORDER BY COALESCE(p.position, 0), t.term",
             )
             .map_err(|error| format!("Zoektermen niet op te vragen: {error}"))?;

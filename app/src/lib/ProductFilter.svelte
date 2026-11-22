@@ -1,12 +1,13 @@
 <script lang="ts">
 	import type { Product } from '$lib/server/db';
 
-	let { products, selected }: { products: Product[]; selected: string | null } = $props();
+	let {
+		products,
+		selected,
+		totalCount
+	}: { products: Product[]; selected: string | null; totalCount: number } = $props();
 
 	const enabledProducts = $derived(products.filter((product) => product.enabled));
-	const totalCount = $derived(
-		enabledProducts.reduce((sum, product) => sum + product.inboxCount, 0)
-	);
 </script>
 
 {#if enabledProducts.length > 1}

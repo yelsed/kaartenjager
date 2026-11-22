@@ -427,10 +427,10 @@ function query(
  *
  * Een uitgezet product staat er niet in; zijn vondsten blijven bewaard voor als hij terugkomt.
  */
-const INBOX_WHERE = `
+const INBOX_STATE_WHERE = `
 	f.still_a_find = 1
 	AND l.gone_since IS NULL
-	AND COALESCE(pr.enabled, 1) = 1
+	AND (f.product IS NULL OR pr.id IS NOT NULL)
 	AND (
 	  COALESCE(d.state, 'inbox') = 'inbox'
 	  OR (d.state = 'archived'
@@ -439,6 +439,8 @@ const INBOX_WHERE = `
 	           ORDER BY p.seen_at DESC LIMIT 1) < d.price_when_archived * ${RETURN_FROM_ARCHIVE_AT})
 	)
 `;
+
+const INBOX_WHERE = `${INBOX_STATE_WHERE} AND COALESCE(pr.enabled, 1) = 1`;
 
 export function inbox(limit: number, offset: number, productId: string | null = null): Finding[] {
 	if (productId === null) {
@@ -468,6 +470,7 @@ export function countInbox(): number {
 		.prepare(
 			`SELECT COUNT(*) AS n FROM ${FINDING_TABLES}
 			 WHERE f.still_a_find = 1 AND l.gone_since IS NULL
+			   AND (f.product IS NULL OR pr.id IS NOT NULL)
 			   AND COALESCE(pr.enabled, 1) = 1
 			   AND COALESCE(d.state, 'inbox') = 'inbox'
 			   AND f.became_a_find_at > ?`
@@ -535,19 +538,36 @@ export function products(): Product[] {
 		.prepare(
 			`SELECT p.id, p.name, p.enabled,
 			   (SELECT COUNT(*) FROM search_term t WHERE t.product = p.id AND t.enabled = 1)
-			     AS enabled_term_count,
-			   (SELECT COUNT(*) FROM ${FINDING_TABLES} WHERE f.product = p.id AND ${INBOX_WHERE})
-			     AS inbox_count
+			     AS enabled_term_count
 			 FROM product p ORDER BY p.position, p.id`
 		)
 		.all() as Row[];
+	// Ook bij een uitgezet product: dan zegt het hoeveel er terugkomt als hij weer aan gaat.
+	const counts = new Map(
+		(
+			db()
+				.prepare(
+					`SELECT f.product AS product, COUNT(*) AS n FROM ${FINDING_TABLES}
+					 WHERE ${INBOX_STATE_WHERE} GROUP BY f.product`
+				)
+				.all() as Row[]
+		).map((row) => [String(row.product), Number(row.n)])
+	);
 	return rows.map((row) => ({
 		id: String(row.id),
 		name: String(row.name),
 		enabled: Number(row.enabled) === 1,
 		enabledTermCount: Number(row.enabled_term_count),
-		inboxCount: Number(row.inbox_count)
+		inboxCount: counts.get(String(row.id)) ?? 0
 	}));
+}
+
+/** Alles wat de inbox zonder keuze toont, ook vondsten die nog geen product hebben. */
+export function inboxTotal(): number {
+	const row = db()
+		.prepare(`SELECT COUNT(*) AS n FROM ${FINDING_TABLES} WHERE ${INBOX_WHERE}`)
+		.get() as { n: number };
+	return Number(row.n);
 }
 
 /**
@@ -555,10 +575,16 @@ export function products(): Product[] {
  * net zo goed als bij een losse zoekterm.
  */
 export function setProductEnabled(id: string, enabled: boolean): string | null {
-	const product = products().find((candidate) => candidate.id === id);
+	const product = db()
+		.prepare(
+			`SELECT p.enabled,
+			   (SELECT COUNT(*) FROM search_term t WHERE t.product = p.id AND t.enabled = 1) AS terms
+			 FROM product p WHERE p.id = ?`
+		)
+		.get(id) as { enabled: number; terms: number } | undefined;
 	if (!product) return 'Dat product bestaat niet (meer).';
-	if (enabled && !product.enabled) {
-		const overTheLimit = tooManyTerms(product.enabledTermCount);
+	if (enabled && Number(product.enabled) === 0) {
+		const overTheLimit = tooManyTerms(Number(product.terms));
 		if (overTheLimit) return overTheLimit;
 	}
 	db().prepare('UPDATE product SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
@@ -596,7 +622,7 @@ export function enabledTermCount(): number {
 	const row = db()
 		.prepare(
 			`SELECT COUNT(*) AS n FROM search_term t LEFT JOIN product p ON p.id = t.product
-			 WHERE t.enabled = 1 AND COALESCE(p.enabled, 1) = 1`
+			 WHERE t.enabled = 1 AND (t.product IS NULL OR p.enabled = 1)`
 		)
 		.get() as { n: number };
 	return Number(row.n);
@@ -632,7 +658,14 @@ export function addTerm(term: string, productId: string): string | null {
 }
 
 export function toggleTerm(term: string, enabled: boolean): string | null {
-	if (enabled) {
+	// Een term van een uitgezet of verdwenen product kost geen verzoeken; die telt niet mee.
+	const counts = db()
+		.prepare(
+			`SELECT t.product IS NULL OR p.enabled = 1 AS counts FROM search_term t
+			 LEFT JOIN product p ON p.id = t.product WHERE t.term = ?`
+		)
+		.get(term) as { counts: number } | undefined;
+	if (enabled && Number(counts?.counts ?? 1) === 1) {
 		const overTheLimit = tooManyTerms(1);
 		if (overTheLimit) return overTheLimit;
 	}

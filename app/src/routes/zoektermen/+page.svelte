@@ -10,7 +10,7 @@
 	);
 	const productLabel = (id: string) => {
 		const product = productsById.get(id);
-		if (!product) return id || 'zonder product';
+		if (!product) return id ? `${id} (niet meer in de configuratie, wordt niet gezocht)` : 'zonder product';
 		return product.enabled ? product.name : `${product.name} (uit)`;
 	};
 

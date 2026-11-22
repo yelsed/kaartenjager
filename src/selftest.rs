@@ -2319,7 +2319,7 @@ fn check_round_survives_a_missing_browser(settings: &Settings) -> Result<(), Str
     let mut aangepast = settings.clone();
     aangepast.sources = vec!["vinted".to_string()];
     aangepast.browser.enabled = false;
-    database.seed_terms(&["rtx 3090".to_string()], &[], 1_789_000_000)?;
+    database.sync_products(&aangepast, 1_789_000_000)?;
 
     let uitkomst = crate::hunt::run_round(&aangepast, &database, 1_789_000_000, false, false)?;
 
@@ -2494,6 +2494,11 @@ fn check_crt_levels(_settings: &Settings) -> Result<(), String> {
     if table.judge(&crt_listing("4", "marktplaats", Some(20.0), 180.0)).is_some() {
         return Err("een beeldbuis boven de € 150 werd toch een vondst".into());
     }
+    // Zonder postcode geeft ook Marktplaats geen afstand. Het label is voor Vinted, dat er nooit
+    // een geeft; een Marktplaats-advertentie die niet te plaatsen is valt af zoals voorheen.
+    if table.judge(&crt_listing("5", "marktplaats", None, 80.0)).is_some() {
+        return Err("een beeldbuis van Marktplaats zonder afstand werd toch een vondst".into());
+    }
     Ok(())
 }
 
@@ -2621,14 +2626,34 @@ fn check_new_product_seeds_once(_settings: &Settings) -> Result<(), String> {
     if !terms.contains(&("m720q".to_string(), "mini-pcs".to_string())) {
         return Err(format!("het nieuwe product kreeg zijn zoekterm niet: {terms:?}"));
     }
+
+    // Uit de configuratie gehaald: zijn termen worden niet meer gezocht, en komt hij terug,
+    // dan horen ze er weer bij zonder dat de weggehaalde terugkomt.
+    database.sync_products(&settings, now + 180)?;
+    if database.enabled_terms()?.iter().any(|term| term == "m720q") {
+        return Err("de term van een verwijderd product werd nog gezocht".into());
+    }
+    connection
+        .execute("DELETE FROM search_term WHERE term = 'm720q'", [])
+        .map_err(|error| error.to_string())?;
+    connection
+        .execute(
+            "INSERT INTO search_term (term, kind, added_at, product) VALUES ('thinkcentre', 'product', 1, 'mini-pcs')",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+    database.sync_products(&later, now + 240)?;
+    let terms = database.enabled_terms()?;
+    if !terms.contains(&"thinkcentre".to_string()) || terms.contains(&"m720q".to_string()) {
+        return Err(format!("een teruggekeerd product werd opnieuw gezaaid: {terms:?}"));
+    }
     Ok(())
 }
 
-fn check_old_database_gets_products(_settings: &Settings) -> Result<(), String> {
-    let settings = product_settings()?;
-    let directory = scratch_directory("migratie-3")?;
+/// Een database van schema 2, met de zoektermen die de eigenaar overhield.
+fn old_database(name: &str) -> Result<(PathBuf, PathBuf), String> {
+    let directory = scratch_directory(name)?;
     let path = directory.join("kaartenjager.db");
-
     let oud = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;
     oud.execute_batch(&format!(
         "{SCHEMA_ONE}{}",
@@ -2644,8 +2669,22 @@ fn check_old_database_gets_products(_settings: &Settings) -> Result<(), String> 
         "#
     ))
     .map_err(|error| error.to_string())?;
-    drop(oud);
+    Ok((directory, path))
+}
 
+fn check_old_database_gets_products(legacy_settings: &Settings) -> Result<(), String> {
+    // Producten uit de oude lijsten: geen enkele is nieuw, dus er komt geen term bij, ook niet
+    // voor een onderdeel waarvan de eigenaar alle termen weghaalde.
+    let (_, path) = old_database("migratie-3-oud")?;
+    Database::open(&path)?.sync_products(legacy_settings, 1_790_000_000)?;
+    let terms: Vec<String> = search_terms_of(&path)?.into_iter().map(|(term, _)| term).collect();
+    if terms != ["crt televisie", "rtx 3090"] {
+        return Err(format!("een configuratie zonder [[product]] zette termen terug: {terms:?}"));
+    }
+
+    // Met [[product]]: een product zonder een enkele bestaande term is nieuw en krijgt de zijne.
+    let settings = product_settings()?;
+    let (_, path) = old_database("migratie-3")?;
     let database = Database::open(&path)?;
     database.sync_products(&settings, 1_790_000_000)?;
 
@@ -2653,11 +2692,12 @@ fn check_old_database_gets_products(_settings: &Settings) -> Result<(), String> 
     let expected = vec![
         ("crt televisie".to_string(), "beeldbuistelevisies".to_string()),
         ("rtx 3090".to_string(), "videokaarten".to_string()),
+        ("voeding 1000w".to_string(), "voedingen".to_string()),
     ];
     if terms != expected {
         return Err(format!(
-            "de bestaande zoektermen hoorden hun product te krijgen, en de termen uit de \
-             configuratie hoorden niet bij te komen. Kreeg {terms:?}"
+            "de bestaande zoektermen hoorden hun product te krijgen, alleen het nieuwe product \
+             Voedingen zijn termen, en de rest niets. Kreeg {terms:?}"
         ));
     }
     let connection = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;

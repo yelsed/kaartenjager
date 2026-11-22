@@ -229,7 +229,7 @@ impl<'settings> PriceTable<'settings> {
                 Some(distance) => reasons.push(format!("{distance:.0} km hiervandaan")),
                 // Vinted geeft nooit een afstand. Wil de regel die toch zien, dan als goede deal
                 // en nooit als topvondst: hij kan net zo goed in Groningen staan.
-                None if part.show_without_distance => {
+                None if part.show_without_distance && listing.source == "vinted" => {
                     level = Level::Deal;
                     warnings.push(
                         "afstand onbekend: kijk waar hij staat voordat je gaat rijden".to_string(),

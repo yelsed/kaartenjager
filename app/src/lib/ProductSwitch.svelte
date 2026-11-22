@@ -13,7 +13,8 @@
 		<strong>{product.name}</strong>
 		<span class="gedempt">
 			{product.enabledTermCount === 1 ? '1 zoekterm' : `${product.enabledTermCount} zoektermen`}
-			· {product.inboxCount} in de inbox
+			· {product.inboxCount}
+			{product.enabled ? 'in de inbox' : 'bewaard voor als hij weer aan gaat'}
 		</span>
 		{#if error}<span class="fout">{error}</span>{/if}
 	</div>

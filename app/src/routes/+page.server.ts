@@ -1,5 +1,5 @@
 import type { PageServerLoad } from './$types';
-import { inbox, products } from '$lib/server/db';
+import { inbox, inboxTotal, products } from '$lib/server/db';
 import { findingActions } from '$lib/server/actions';
 
 const PER_PAGE = 50;
@@ -16,6 +16,7 @@ export const load: PageServerLoad = async ({ url }) => {
 	const findings = inbox(shown + 1, 0, selected);
 	return {
 		producten: allProducts,
+		totaal: inboxTotal(),
 		gekozenProduct: selected,
 		vondsten: findings.slice(0, shown),
 		erIsMeer: findings.length > shown,

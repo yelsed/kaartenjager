@@ -482,6 +482,10 @@ pub struct Settings {
     pub parts: Vec<PartRule>,
     #[serde(default, rename = "product")]
     pub products: Vec<Product>,
+    /// The products were made from `card_search_terms` and `part_search_terms`, not written
+    /// as `[[product]]`. Then none of them is new to a database that already has terms.
+    #[serde(skip)]
+    pub products_from_legacy_lists: bool,
     /// Names that came from the hand-written file. The weekly review may not change these,
     /// and has to say so rather than reporting a change that never happened.
     #[serde(skip)]
@@ -594,9 +598,11 @@ impl Settings {
     pub fn resolve_products(&mut self) {
         if self.products.is_empty() {
             self.products = self.products_from_legacy_lists();
+            self.products_from_legacy_lists = true;
         }
+        let card_product = self.card_product_id();
         for card in &mut self.cards {
-            card.product.get_or_insert_with(|| CARD_PRODUCT_ID.to_string());
+            card.product.get_or_insert_with(|| card_product.clone());
         }
         for part in &mut self.parts {
             part.product
@@ -700,9 +706,15 @@ impl Settings {
     /// Where cards without a rule of their own go: the product of the first card rule.
     pub fn card_product_id(&self) -> String {
         self.cards
-            .first()
-            .and_then(|card| card.product.clone())
-            .or_else(|| self.products.first().map(|product| product.id.clone()))
+            .iter()
+            .find_map(|card| card.product.clone())
+            .or_else(|| {
+                self.products
+                    .iter()
+                    .find(|product| product.id == CARD_PRODUCT_ID)
+                    .or(self.products.first())
+                    .map(|product| product.id.clone())
+            })
             .unwrap_or_else(|| CARD_PRODUCT_ID.to_string())
     }
 

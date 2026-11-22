@@ -14,9 +14,11 @@ wachtrij af, en de app leest en schrijft wat je aanklikt. Het schema hoort bij h
 | 3 | Producten: tabel `product`, `finding.product`, `finding.level`, `search_term.product`. |
 
 Het programma migreert bij het openen, alle stappen samen in één transactie. Bij de stap naar 3
-zet het `app_state.terms_from_legacy`; de eerste `sync_products` ziet daaraan dat de bestaande
-zoektermen van de eigenaar zijn, markeert alle producten als gezaaid in plaats van hun
-`search_terms` opnieuw neer te zetten, en geeft bestaande zoektermen en vondsten hun product.
+zet het `app_state.terms_from_legacy`. De eerste `sync_products` geeft bestaande zoektermen en
+vondsten hun product. Een product dat al termen heeft telt als gezaaid. Komen de producten uit
+de oude lijsten (geen `[[product]]` in de configuratie), dan telt elk product als gezaaid, ook
+een dat de eigenaar leeggemaakt heeft; met `[[product]]` krijgt een product zonder een enkele
+bestaande term zijn `search_terms`, want dan is hij nieuw.
 
 ## Tabellen
 
@@ -49,7 +51,9 @@ advertentie.
 **product**: wat er bestaat komt uit de configuratie, of het aan staat is van de app
 (`docs/decisions/0003`).
 - `id`, `name`, `position`: elke start opnieuw uit de configuratie geschreven; een product dat
-  uit de configuratie verdwijnt, verdwijnt hier ook.
+  uit de configuratie verdwijnt, verdwijnt hier ook. Zijn zoektermen en vondsten houden hun
+  `product`, worden niet meer gezocht en staan niet in de inbox; komt het product terug, dan
+  horen ze er weer bij zonder dat het opnieuw gezaaid wordt.
 - `enabled`: alleen de app schrijft dit. Uit: zijn zoektermen gaan niet mee in de ronde, hij
   meldt niets en staat niet in de inbox.
 - `seeded_at`: wanneer zijn `search_terms` in `search_term` gezet zijn. Dat gebeurt één keer.

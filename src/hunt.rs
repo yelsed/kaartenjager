@@ -629,12 +629,10 @@ pub(crate) fn decide_pushes(
                 && settings.product_notifies(&candidate.product)
                 && database.product_enabled(&candidate.product)
         });
-    let too_good_to_be_true = stays_quiet;
-
     // Ook de gefilterde vondsten krijgen hun stempel. Zonder dat blijven ze elke ronde
     // opnieuw langskomen, en zodra de prijs een keer stijgt zou de eerstvolgende ronde ze
     // alsnog melden.
-    for candidate in too_good_to_be_true.iter().chain(worth_telling.iter()) {
+    for candidate in stays_quiet.iter().chain(worth_telling.iter()) {
         database.mark_pushed(&candidate.key, candidate.price_euros, now)?;
     }
     Ok(worth_telling)

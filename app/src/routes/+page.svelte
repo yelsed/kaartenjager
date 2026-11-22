@@ -13,7 +13,7 @@
 	<p class="melding">{form.message}</p>
 {/if}
 
-<ProductFilter products={data.producten} selected={data.gekozenProduct} />
+<ProductFilter products={data.producten} selected={data.gekozenProduct} totalCount={data.totaal} />
 
 {#if nieuwe.length > 0}
 	<div class="blokkop">
