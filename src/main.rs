@@ -226,13 +226,9 @@ fn today() -> String {
 fn open_database(settings: &Settings, now: i64, allow_migration: bool) -> Result<db::Database, String> {
     let database = db::Database::open_default()?;
 
-    // Bij de allereerste start komen de termen uit TOML. De markering zorgt dat het weghalen
-    // van je laatste zoekterm de lijst daarna niet opnieuw terugzet.
-    database.seed_terms(
-        &settings.card_search_terms,
-        &settings.part_search_terms,
-        now,
-    )?;
+    // De producten uit TOML, en bij een nieuw product één keer zijn zoektermen. De markering per
+    // product zorgt dat het weghalen van je laatste zoekterm de lijst niet opnieuw terugzet.
+    database.sync_products(settings, now)?;
 
     // Niet aan "de database is net aangemaakt" ophangen: `check` en `run --dry-run` maken hem
     // ook aan, en dan zou de overgang uit de oude bestanden er nooit meer van komen. De
@@ -448,11 +444,15 @@ fn command_check(arguments: &Arguments) -> ExitCode {
 
     println!("Configuratie in orde: {}", path.display());
     println!("  bronnen            {}", settings.sources.join(", "));
-    println!(
-        "  zoektermen         {} voor kaarten, {} voor onderdelen",
-        settings.card_search_terms.len(),
-        settings.part_search_terms.len()
-    );
+    for product in &settings.products {
+        println!(
+            "  product            {} ({}): {} zoektermen{}",
+            product.name,
+            product.id,
+            product.search_terms.len(),
+            if product.notify { ", meldt topvondsten" } else { "" }
+        );
+    }
     println!(
         "  regels             {} kaarten, {} onderdelen",
         settings.cards.len(),

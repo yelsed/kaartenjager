@@ -21,16 +21,27 @@ delay_between_requests_ms = 2500
 
 
 # ---------------------------------------------------------------------------
-# Zoektermen. Ook de verkeerd gespelde, want daar zit het koopje.
+# Producten. Elk product heeft zijn eigen zoektermen, zijn eigen regels
+# hieronder (met product = "<id>") en in de app zijn eigen overzicht.
 #
-# Deze lijst wordt bij de allereerste start één keer in de database gezet;
-# daarna beheer je hem in de app en kijkt het programma hier niet meer naar.
-# Zo zet het weghalen van je laatste zoekterm de hele lijst niet terug.
+# De zoektermen van een product komen één keer in de database, de eerste keer
+# dat het programma het product ziet. Daarna beheer je ze in de app, onder
+# Zoektermen, en zet je een product aan of uit onder Producten. Een nieuw
+# product toevoegen is dus: een [[product]]-blok, en regels die ernaar wijzen.
 #
-# Let op de grens: (kaarten + onderdelen) x bronnen mag niet boven de 60.
+# notify = true: topvondsten van dit product gaan naar Discord. Voor kaarten is
+# een topvondst een kaart die ver genoeg onder de markt zit (zie [notify]); voor
+# een onderdeel is het een advertentie onder alert_below, binnen bereik als de
+# regel op afstand zeeft. Al het andere staat alleen in de app.
+#
+# Let op de grens: alle zoektermen samen x bronnen mag niet boven de 60.
+# Zoektermen: ook de verkeerd gespelde, want daar zit het koopje.
 # ---------------------------------------------------------------------------
 
-card_search_terms = [
+[[product]]
+id = "videokaarten"
+name = "Videokaarten"
+search_terms = [
   "rtx 3090",
   "3090 ti",
   "rtx 4090",
@@ -42,17 +53,23 @@ card_search_terms = [
   "grafische kaart",
 ]
 
-part_search_terms = [
-  "voeding 1000w",
-  "voeding 1200w",
-  "corsair voeding",
-  "seasonic voeding",
-  "pcie riser",
-  "riser kabel",
-  "crt tv",
-  "crt televisie",
-  "trinitron",
-]
+[[product]]
+id = "voedingen"
+name = "Voedingen"
+search_terms = ["voeding 1000w", "voeding 1200w", "corsair voeding", "seasonic voeding"]
+notify = false
+
+[[product]]
+id = "risers"
+name = "Risers"
+search_terms = ["pcie riser", "riser kabel"]
+notify = false
+
+[[product]]
+id = "beeldbuistelevisies"
+name = "Beeldbuistelevisies"
+search_terms = ["crt tv", "crt televisie", "trinitron"]
+notify = true
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +79,8 @@ part_search_terms = [
 # uitschieters gaan óók naar Discord, en dit is waar die grens ligt: hoeveel
 # procent onder de onderkant van het marktbereik.
 #
-# Alleen [[card]]-regels halen deze drempel; onderdelen hebben geen
-# marktbereik om tegen af te zetten.
+# Dit is de drempel voor kaarten. Onderdelen hebben geen marktbereik; daar is
+# alert_below de topvondstprijs, en hun product zegt of ze melden.
 #
 # Let op de samenhang met suspicious_below: die bodem filtert oplichting weg.
 # Zet je deze drempel te hoog, dan ligt hij ónder die bodem en is elke melding
@@ -200,6 +217,7 @@ card_categories = ["graphic_cards"]
 # ---------------------------------------------------------------------------
 
 [[card]]
+product = "videokaarten"
 name = "RTX 5090"
 patterns = ["5090"]
 vram_gb = 32
@@ -214,6 +232,7 @@ length_mm_max = 360
 slots_max = 4
 
 [[card]]
+product = "videokaarten"
 name = "RTX 4090"
 patterns = ["4090"]
 vram_gb = 24
@@ -232,6 +251,7 @@ length_mm_max = 359
 slots_max = 4
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3090 Ti"
 patterns = ["3090 ti", "3090ti"]
 vram_gb = 24
@@ -256,6 +276,7 @@ length_mm_max = 340
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3090"
 patterns = ["3090"]
 exclude_patterns = ["3090 ti", "3090ti"]
@@ -275,6 +296,7 @@ length_mm_max = 336
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "RTX 4080"
 patterns = ["4080"]
 vram_gb = 16
@@ -289,6 +311,7 @@ length_mm_max = 348
 slots_max = 4
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3080 12GB"
 patterns = ["3080 12gb", "3080 12 gb"]
 vram_gb = 12
@@ -303,6 +326,7 @@ length_mm_max = 320
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3080"
 patterns = ["3080"]
 exclude_patterns = ["3080 12gb", "3080 12 gb", "3080 ti"]
@@ -318,6 +342,7 @@ length_mm_max = 320
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "RTX 4060 Ti 16GB"
 patterns = ["4060 ti"]
 vram_gb = 16
@@ -333,6 +358,7 @@ length_mm_max = 280
 slots_max = 2
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3060 12GB"
 patterns = ["3060"]
 exclude_patterns = ["3060 ti"]
@@ -352,6 +378,7 @@ length_mm_max = 250
 slots_max = 2
 
 [[card]]
+product = "videokaarten"
 name = "RX 7900 XTX"
 patterns = ["7900 xtx"]
 vram_gb = 24
@@ -366,6 +393,7 @@ length_mm_max = 340
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "Tesla P40"
 patterns = ["tesla p40", "p40 24gb"]
 vram_gb = 24
@@ -389,13 +417,13 @@ slots_max = 2
 # van de regel, niet van een zoekterm. De zoektermen hierboven bepalen waar
 # gezocht wordt; deze regel bepaalt wat er van de vangst overblijft.
 #
-# Onderdelen komen alleen in de app terecht, nooit in Discord: dat kanaal
-# vraagt om een percentage onder de markt, en een voeding heeft geen
-# marktbereik om tegen af te zetten.
+# Of een onderdeel meldt, zegt zijn product (notify). Een voeding heeft geen
+# marktbereik; zijn topvondst is alles onder alert_below.
 #
 # Onderdeelregels worden op volgorde afgelopen en de eerste die past wint, dus
 # een tweede voedingsregel hieronder komt nooit meer aan bod.
 [[part]]
+product = "voedingen"
 name = "Voeding 1000 W of meer"
 patterns = ["voeding", "psu", "power supply", "netzteil"]
 # Bronze eruit: onder 80 PLUS Gold is het rendement bij een kaart van 450 W
@@ -417,11 +445,14 @@ note = "Wil zien: 80 PLUS Gold of beter, volledig modulair, ATX 3.1 met een loss
 # max_pickup_km rekent vanaf de postcode in [filters]. Vanaf Alkmaar dekt 45 km ongeveer
 # heel Noord-Holland: Amsterdam ligt op 35, Haarlem op 30, Den Helder op 40.
 #
-# Twee dingen die deze regel niet ziet. Advertenties zonder prijs — "gratis af te halen" —
-# vallen al eerder af, en dat is bij beeldbuizen een deel van de markt. En op Vinted staat
-# nooit een afstand, dus daar levert deze regel per definitie niets op; de zoektermen gaan
-# er wel heen, wat drie verzoeken per ronde kost.
+# Binnen 45 km en onder de 150 is een topvondst, en die meldt (zie het product).
+#
+# Op Vinted staat nooit een afstand. Met show_without_distance verschijnt een beeldbuis van
+# Vinted toch in de app, als goede deal met de waarschuwing dat de afstand onbekend is; nooit
+# als topvondst, want hij kan net zo goed in Groningen staan. Op Marktplaats verder dan 45 km
+# blijft hij weg. Advertenties zonder prijs ("gratis af te halen") vallen al eerder af.
 [[part]]
+product = "beeldbuistelevisies"
 name = "Beeldbuistelevisie"
 patterns = ["crt", "beeldbuis", "trinitron"]
 exclude_patterns = [
@@ -429,11 +460,13 @@ exclude_patterns = [
   "afstandsbediening", "kabel", "beugel", "onderdelen",
 ]
 max_pickup_km = 45
+show_without_distance = true
 alert_below = 150
 suspicious_below = 1
 note = "Vraag om een foto van een aan staand scherm: inbranden en een scheve geometrie zie je niet op een foto van een uit toestel. Let op de aansluitingen — SCART of component is bruikbaar, alleen coax niet. En vraag hoe zwaar hij is voordat je de auto pakt."
 
 [[part]]
+product = "risers"
 name = "PCIe riser"
 patterns = ["pcie riser", "riser kabel", "riser cable", "pci-e verleng"]
 exclude_patterns = ["usb", "riser board", "riser card", "proliant", "poweredge"]

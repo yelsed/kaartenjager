@@ -101,6 +101,9 @@ pub struct CardRule {
     /// Where a price came from. Required on rules the weekly review adds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// The product this rule belongs to. Filled in by `resolve_products` when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product: Option<String>,
 }
 
 /// Anything that is not a graphics card: power supplies, risers, adapters. No per-gigabyte
@@ -125,6 +128,49 @@ pub struct PartRule {
     pub suspicious_below: f64,
     #[serde(default)]
     pub note: String,
+    /// Vinted geeft nooit een afstand. Staat dit aan, dan valt een advertentie zonder afstand
+    /// niet weg maar verschijnt hij als goede deal, met de waarschuwing dat de afstand onbekend is.
+    #[serde(default)]
+    pub show_without_distance: bool,
+    /// The product this rule belongs to. Filled in by `resolve_products` when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product: Option<String>,
+}
+
+/// Iets waar je naar zoekt: videokaarten, beeldbuistelevisies, mini-pc's. Een product heeft zijn
+/// eigen zoektermen en regels, en in de app zijn eigen overzicht.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct Product {
+    pub id: String,
+    pub name: String,
+    /// Waar hij mee begint. Komt één keer in de database; daarna beheert de app de zoektermen.
+    #[serde(default)]
+    pub search_terms: Vec<String>,
+    /// Of topvondsten van dit product een melding opleveren.
+    #[serde(default = "default_notify")]
+    pub notify: bool,
+}
+
+fn default_notify() -> bool {
+    true
+}
+
+/// The product cards belong to when the configuration does not name one.
+pub const CARD_PRODUCT_ID: &str = "videokaarten";
+const CARD_PRODUCT_NAME: &str = "Videokaarten";
+
+/// Turns a rule name into a product id: "Voeding 1000 W of meer" becomes
+/// "voeding-1000-w-of-meer".
+pub fn product_id_from_name(name: &str) -> String {
+    let mut id = String::new();
+    for character in name.to_lowercase().chars() {
+        if character.is_alphanumeric() {
+            id.push(character);
+        } else if !id.ends_with('-') {
+            id.push('-');
+        }
+    }
+    id.trim_matches('-').to_string()
 }
 
 /// The case the card has to physically go into. Without it the fit lines are left out.
@@ -406,6 +452,7 @@ pub struct Settings {
     pub sources: Vec<String>,
     #[serde(default = "default_vinted_domain")]
     pub vinted_domain: String,
+    #[serde(default)]
     pub card_search_terms: Vec<String>,
     #[serde(default)]
     pub part_search_terms: Vec<String>,
@@ -433,6 +480,8 @@ pub struct Settings {
     pub cards: Vec<CardRule>,
     #[serde(default, rename = "part")]
     pub parts: Vec<PartRule>,
+    #[serde(default, rename = "product")]
+    pub products: Vec<Product>,
     /// Names that came from the hand-written file. The weekly review may not change these,
     /// and has to say so rather than reporting a change that never happened.
     #[serde(skip)]
@@ -535,7 +584,134 @@ pub const MAX_REQUESTS_PER_ROUND: usize = 60;
 
 impl Settings {
     pub fn requests_per_round(&self) -> usize {
-        self.searches_for(self.card_search_terms.len() + self.part_search_terms.len())
+        let terms: usize = self.products.iter().map(|product| product.search_terms.len()).sum();
+        self.searches_for(terms)
+    }
+
+    /// Gives every rule a product. A configuration without `[[product]]` keeps working: the
+    /// cards together become "Videokaarten" and every part becomes a product of its own, with
+    /// the part search terms that fit its patterns. Running it twice changes nothing.
+    pub fn resolve_products(&mut self) {
+        if self.products.is_empty() {
+            self.products = self.products_from_legacy_lists();
+        }
+        for card in &mut self.cards {
+            card.product.get_or_insert_with(|| CARD_PRODUCT_ID.to_string());
+        }
+        for part in &mut self.parts {
+            part.product
+                .get_or_insert_with(|| product_id_from_name(&part.name));
+        }
+    }
+
+    fn products_from_legacy_lists(&self) -> Vec<Product> {
+        let mut products = Vec::new();
+        if !self.cards.is_empty() || !self.card_search_terms.is_empty() {
+            products.push(Product {
+                id: CARD_PRODUCT_ID.to_string(),
+                name: CARD_PRODUCT_NAME.to_string(),
+                search_terms: self.card_search_terms.clone(),
+                notify: true,
+            });
+        }
+        for part in &self.parts {
+            let id = part
+                .product
+                .clone()
+                .unwrap_or_else(|| product_id_from_name(&part.name));
+            if products.iter().any(|product: &Product| product.id == id) {
+                continue;
+            }
+            // Onderdelen meldden nooit; zo blijft het tot de configuratie anders zegt.
+            products.push(Product {
+                id,
+                name: part.name.clone(),
+                search_terms: Vec::new(),
+                notify: false,
+            });
+        }
+        for term in &self.part_search_terms {
+            let owner = self
+                .part_owning_term(term)
+                .and_then(|part| part.product.clone().or_else(|| Some(product_id_from_name(&part.name))));
+            let index = owner
+                .and_then(|id| products.iter().position(|product| product.id == id))
+                .unwrap_or(0);
+            if let Some(product) = products.get_mut(index) {
+                product.search_terms.push(term.clone());
+            }
+        }
+        products
+    }
+
+    fn part_owning_term(&self, term: &str) -> Option<&PartRule> {
+        let lowered = term.to_lowercase();
+        self.parts.iter().find(|part| {
+            part.patterns
+                .iter()
+                .any(|pattern| crate::pricing::pattern_occurs(&lowered, pattern))
+        })
+    }
+
+    /// The product a search term most likely belongs to, for terms that came from before
+    /// products existed or were added without one.
+    pub fn product_for_term(&self, term: &str) -> String {
+        let lowered = term.to_lowercase();
+        if let Some(product) = self
+            .products
+            .iter()
+            .find(|product| product.search_terms.iter().any(|known| known.to_lowercase() == lowered))
+        {
+            return product.id.clone();
+        }
+        if let Some(part) = self.part_owning_term(term) {
+            if let Some(id) = &part.product {
+                return id.clone();
+            }
+        }
+        if let Some(card) = self.cards.iter().find(|card| {
+            card.patterns
+                .iter()
+                .any(|pattern| crate::pricing::pattern_occurs(&lowered, pattern))
+        }) {
+            if let Some(id) = &card.product {
+                return id.clone();
+            }
+        }
+        self.card_product_id()
+    }
+
+    /// The product of a rule by its name, as a finding stores it in `matched_as`. Findings
+    /// without a rule of their own (an unknown card) belong to the card product.
+    pub fn product_for_rule_name(&self, name: &str) -> String {
+        self.cards
+            .iter()
+            .find(|card| card.name == name)
+            .and_then(|card| card.product.clone())
+            .or_else(|| {
+                self.parts
+                    .iter()
+                    .find(|part| part.name == name)
+                    .and_then(|part| part.product.clone())
+            })
+            .unwrap_or_else(|| self.card_product_id())
+    }
+
+    /// Where cards without a rule of their own go: the product of the first card rule.
+    pub fn card_product_id(&self) -> String {
+        self.cards
+            .first()
+            .and_then(|card| card.product.clone())
+            .or_else(|| self.products.first().map(|product| product.id.clone()))
+            .unwrap_or_else(|| CARD_PRODUCT_ID.to_string())
+    }
+
+    pub fn product_notifies(&self, id: &str) -> bool {
+        let id = if id.is_empty() { self.card_product_id() } else { id.to_string() };
+        self.products
+            .iter()
+            .find(|product| product.id == id)
+            .is_some_and(|product| product.notify)
     }
 
     /// Hoeveel paginabezoeken een ronde kost bij dit aantal zoektermen.
@@ -558,9 +734,11 @@ impl Settings {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.card_search_terms.is_empty() && self.part_search_terms.is_empty() {
+        if self.products.iter().all(|product| product.search_terms.is_empty()) {
             return Err(ConfigError::Rejected(
-                "Geen zoektermen ingesteld: vul card_search_terms of part_search_terms.".into(),
+                "Geen zoektermen ingesteld: geef een [[product]] search_terms, of vul \
+                 card_search_terms of part_search_terms."
+                    .into(),
             ));
         }
 
@@ -592,6 +770,38 @@ impl Settings {
                 if !gezien.insert(naam) {
                     return Err(ConfigError::Rejected(format!(
                         "{soort} \"{naam}\" staat er twee keer in. Haal er één weg."
+                    )));
+                }
+            }
+        }
+
+        let mut product_ids = std::collections::BTreeSet::new();
+        for product in &self.products {
+            if product.id.trim().is_empty() || product.name.trim().is_empty() {
+                return Err(ConfigError::Rejected(
+                    "Elk [[product]] heeft een id en een name nodig.".into(),
+                ));
+            }
+            if !product_ids.insert(product.id.as_str()) {
+                return Err(ConfigError::Rejected(format!(
+                    "Product \"{}\" staat er twee keer in. Haal er één weg.",
+                    product.id
+                )));
+            }
+        }
+        // Een regel die naar een product wijst dat niet bestaat, verdwijnt stil uit elk
+        // overzicht in de app. Dat hoort `check` te zeggen.
+        let rules = self
+            .cards
+            .iter()
+            .map(|card| (&card.name, &card.product))
+            .chain(self.parts.iter().map(|part| (&part.name, &part.product)));
+        for (name, product) in rules {
+            if let Some(id) = product {
+                if !product_ids.contains(id.as_str()) {
+                    return Err(ConfigError::Rejected(format!(
+                        "Regel \"{name}\" hoort bij product \"{id}\", maar dat product staat \
+                         niet in de [[product]]-lijst."
                     )));
                 }
             }
@@ -720,10 +930,12 @@ pub fn find_config(explicit: Option<&Path>) -> Result<PathBuf, ConfigError> {
 }
 
 pub fn parse_settings(text: &str, path: &Path) -> Result<Settings, ConfigError> {
-    toml::from_str::<Settings>(text).map_err(|error| ConfigError::Invalid {
+    let mut settings = toml::from_str::<Settings>(text).map_err(|error| ConfigError::Invalid {
         path: path.to_path_buf(),
         cause: error.to_string(),
-    })
+    })?;
+    settings.resolve_products();
+    Ok(settings)
 }
 
 /// Loads the hand-written file, then folds in the reviewed automatic rules. A card the user
@@ -751,6 +963,7 @@ pub fn load(explicit: Option<&Path>) -> Result<(Settings, PathBuf), ConfigError>
                 cause: error.to_string(),
             })?;
         merge_auto_cards(&mut settings, auto.cards);
+        settings.resolve_products();
     }
 
     settings.validate()?;

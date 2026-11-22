@@ -102,12 +102,13 @@ fn check_config(report: &mut Report, explicit: Option<&Path>) -> Option<config::
         Ok((settings, path)) => {
             report.ok("configuratie", path.display().to_string());
             report.note(
-                "zoektermen in TOML",
-                format!(
-                    "{} kaarten, {} onderdelen",
-                    settings.card_search_terms.len(),
-                    settings.part_search_terms.len()
-                ),
+                "producten",
+                settings
+                    .products
+                    .iter()
+                    .map(|product| format!("{} ({} zoektermen)", product.name, product.search_terms.len()))
+                    .collect::<Vec<_>>()
+                    .join(", "),
             );
             report.note(
                 "regels",

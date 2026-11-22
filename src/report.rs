@@ -18,22 +18,33 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings) -> String {
         money::euros_precise(candidate.price_euros)
     );
 
-    let market = settings
-        .cards
-        .iter()
-        .find(|card| card.name == candidate.matched_as)
-        .map(|card| {
-            format!(
-                " ({}–{})",
-                money::euros(card.used_price_low),
-                money::euros(card.used_price_high)
-            )
-        })
-        .unwrap_or_default();
-    out.push_str(&format!(
-        "{:.0}% onder de markt{market}\n",
-        candidate.percent_under_market
-    ));
+    if candidate.is_part {
+        // Een onderdeel heeft geen marktbereik; het meldt omdat het onder zijn topvondstprijs zit.
+        let limit = settings
+            .parts
+            .iter()
+            .find(|part| part.name == candidate.matched_as)
+            .map(|part| format!(" onder {}", money::euros(part.alert_below)))
+            .unwrap_or_default();
+        out.push_str(&format!("topvondst{limit}\n"));
+    } else {
+        let market = settings
+            .cards
+            .iter()
+            .find(|card| card.name == candidate.matched_as)
+            .map(|card| {
+                format!(
+                    " ({}–{})",
+                    money::euros(card.used_price_low),
+                    money::euros(card.used_price_high)
+                )
+            })
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "{:.0}% onder de markt{market}\n",
+            candidate.percent_under_market
+        ));
+    }
 
     let mut parts = vec![candidate.title.clone()];
     if matches!(candidate.delivery, Delivery::PickupOnly) {

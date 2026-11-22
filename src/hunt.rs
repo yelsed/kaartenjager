@@ -621,9 +621,15 @@ pub(crate) fn decide_pushes(
 ) -> Result<Vec<PushCandidate>, String> {
     let candidates = database.findings_to_push(settings.notify.push_below_market_percent)?;
 
-    let (worth_telling, too_good_to_be_true): (Vec<_>, Vec<_>) = candidates
-        .into_iter()
-        .partition(|candidate| !below_the_floor(settings, candidate));
+    // Een product dat niet meldt of uit staat, blijft stil. Ook die krijgen hieronder hun
+    // stempel, anders meldt de eerste ronde nadat je het product aanzet de hele achterstand.
+    let (worth_telling, stays_quiet): (Vec<_>, Vec<_>) =
+        candidates.into_iter().partition(|candidate| {
+            !below_the_floor(settings, candidate)
+                && settings.product_notifies(&candidate.product)
+                && database.product_enabled(&candidate.product)
+        });
+    let too_good_to_be_true = stays_quiet;
 
     // Ook de gefilterde vondsten krijgen hun stempel. Zonder dat blijven ze elke ronde
     // opnieuw langskomen, en zodra de prijs een keer stijgt zou de eerstvolgende ronde ze

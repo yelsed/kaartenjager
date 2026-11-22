@@ -25,6 +25,48 @@ const VINTED_ITEM_PAGE: &str = include_str!("../tests/fixtures/vinted_item.html"
 const MARKTPLAATS_ITEM_PAGE: &str = include_str!("../tests/fixtures/marktplaats_item.html");
 const VINTED_ITEM_SOLD: &str = include_str!("../tests/fixtures/vinted_item_sold.html");
 
+/// Een database zoals versie 1 hem achterliet, zonder gegevens. Migratiecontroles zetten er hun
+/// eigen regels in.
+const SCHEMA_ONE: &str = r#"
+        PRAGMA user_version = 1;
+        CREATE TABLE listing (
+          key TEXT PRIMARY KEY, source TEXT NOT NULL, listing_id TEXT NOT NULL,
+          title TEXT NOT NULL, url TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+          location TEXT NOT NULL DEFAULT '', seller TEXT NOT NULL DEFAULT '',
+          condition TEXT NOT NULL DEFAULT '', delivery TEXT NOT NULL DEFAULT 'unknown',
+          photo_count INTEGER NOT NULL DEFAULT 0, first_seen INTEGER NOT NULL,
+          last_seen INTEGER NOT NULL, found_by_terms TEXT NOT NULL DEFAULT '[]',
+          last_checked INTEGER, gone_checks INTEGER NOT NULL DEFAULT 0, gone_since INTEGER
+        );
+        CREATE TABLE price_point (
+          key TEXT NOT NULL, seen_at INTEGER NOT NULL, price_cents INTEGER NOT NULL,
+          asking_cents INTEGER NOT NULL, PRIMARY KEY (key, seen_at)
+        );
+        CREATE TABLE finding (
+          key TEXT PRIMARY KEY, matched_as TEXT NOT NULL, kind TEXT NOT NULL,
+          confidence TEXT NOT NULL, percent_under_market REAL, euros_under_market REAL,
+          reasons TEXT NOT NULL, warnings TEXT NOT NULL, queue_note TEXT,
+          became_a_find_at INTEGER NOT NULL, judged_at INTEGER NOT NULL,
+          still_a_find INTEGER NOT NULL DEFAULT 1, left_find_at_price INTEGER,
+          pushed_at INTEGER, pushed_at_price INTEGER
+        );
+        CREATE TABLE decision (
+          key TEXT PRIMARY KEY, state TEXT NOT NULL, changed_at INTEGER NOT NULL,
+          price_when_archived INTEGER, note TEXT
+        );
+        CREATE TABLE review_request (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL,
+          requested_at INTEGER NOT NULL, taken_at INTEGER, answered_at INTEGER,
+          attempts INTEGER NOT NULL DEFAULT 0, verdict TEXT, recommendation TEXT,
+          failed_reason TEXT
+        );
+        CREATE TABLE search_term (
+          term TEXT PRIMARY KEY, kind TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+          added_at INTEGER NOT NULL, added_by TEXT NOT NULL DEFAULT 'app'
+        );
+        CREATE TABLE app_state (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+"#;
+
 const TEST_CONFIG: &str = r#"
 card_search_terms = ["rtx 3090"]
 part_search_terms = ["voeding"]
@@ -173,6 +215,13 @@ pub fn run() -> bool {
         ("uitschieterdrempel laat 30% stil en 40% door", check_push_threshold),
         ("een regel die nooit kan melden wordt gemeld", check_silent_rule_is_reported),
         ("doctor stopt niet bij de eerste fout", check_doctor_keeps_going),
+        ("een oude configuratie wordt producten", check_legacy_config_becomes_products),
+        ("een regel naar een onbekend product wordt geweigerd", check_unknown_product_is_refused),
+        ("een beeldbuis: topvondst, goede deal of weg", check_crt_levels),
+        ("een topvondst meldt alleen als zijn product dat zegt", check_part_top_find_notifies_per_product),
+        ("een uitgezet product zoekt en meldt niets", check_disabled_product_is_quiet),
+        ("een nieuw product krijgt zijn zoektermen één keer", check_new_product_seeds_once),
+        ("een oude database krijgt producten", check_old_database_gets_products),
         ("het Discord-bericht is vier regels", check_push_message),
         ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
         ("één melding per advertentie, tien procent lager een tweede", check_push_once),
@@ -701,6 +750,8 @@ fn check_part_pickup_distance(settings: &Settings) -> Result<(), String> {
         alert_below: 150.0,
         suspicious_below: 1.0,
         note: String::new(),
+        show_without_distance: false,
+        product: Some("beeldbuistelevisie".to_string()),
     }];
     let table = PriceTable::new(&aangepast);
 
@@ -856,6 +907,7 @@ fn sample_card() -> CardRule {
         length_mm_max: 0,
         slots_max: 0,
         source: None,
+        product: None,
     }
 }
 
@@ -1058,6 +1110,8 @@ fn sample_finding(id: &str, price: f64, percent_under_market: f64) -> Finding {
         listing: sample_listing(id, price),
         matched_as: "RTX 4090".to_string(),
         kind: FindingKind::Card,
+        product: "videokaarten".to_string(),
+        level: crate::listing::Level::Top,
         confidence: Confidence::Clear,
         percent_under_market: Some(percent_under_market),
         euros_under_market: Some(1800.0 - price),
@@ -1688,52 +1742,15 @@ fn check_migration_to_schema_two(_settings: &Settings) -> Result<(), String> {
 
     // Een database zoals versie 1 hem achterliet: prijzen in price_point, geen sighting.
     let oud = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;
-    oud.execute_batch(
+    oud.execute_batch(&format!(
+        "{SCHEMA_ONE}{}",
         r#"
-        PRAGMA user_version = 1;
-        CREATE TABLE listing (
-          key TEXT PRIMARY KEY, source TEXT NOT NULL, listing_id TEXT NOT NULL,
-          title TEXT NOT NULL, url TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
-          location TEXT NOT NULL DEFAULT '', seller TEXT NOT NULL DEFAULT '',
-          condition TEXT NOT NULL DEFAULT '', delivery TEXT NOT NULL DEFAULT 'unknown',
-          photo_count INTEGER NOT NULL DEFAULT 0, first_seen INTEGER NOT NULL,
-          last_seen INTEGER NOT NULL, found_by_terms TEXT NOT NULL DEFAULT '[]',
-          last_checked INTEGER, gone_checks INTEGER NOT NULL DEFAULT 0, gone_since INTEGER
-        );
-        CREATE TABLE price_point (
-          key TEXT NOT NULL, seen_at INTEGER NOT NULL, price_cents INTEGER NOT NULL,
-          asking_cents INTEGER NOT NULL, PRIMARY KEY (key, seen_at)
-        );
-        CREATE TABLE finding (
-          key TEXT PRIMARY KEY, matched_as TEXT NOT NULL, kind TEXT NOT NULL,
-          confidence TEXT NOT NULL, percent_under_market REAL, euros_under_market REAL,
-          reasons TEXT NOT NULL, warnings TEXT NOT NULL, queue_note TEXT,
-          became_a_find_at INTEGER NOT NULL, judged_at INTEGER NOT NULL,
-          still_a_find INTEGER NOT NULL DEFAULT 1, left_find_at_price INTEGER,
-          pushed_at INTEGER, pushed_at_price INTEGER
-        );
-        CREATE TABLE decision (
-          key TEXT PRIMARY KEY, state TEXT NOT NULL, changed_at INTEGER NOT NULL,
-          price_when_archived INTEGER, note TEXT
-        );
-        CREATE TABLE review_request (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL,
-          requested_at INTEGER NOT NULL, taken_at INTEGER, answered_at INTEGER,
-          attempts INTEGER NOT NULL DEFAULT 0, verdict TEXT, recommendation TEXT,
-          failed_reason TEXT
-        );
-        CREATE TABLE search_term (
-          term TEXT PRIMARY KEY, kind TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
-          added_at INTEGER NOT NULL, added_by TEXT NOT NULL DEFAULT 'app'
-        );
-        CREATE TABLE app_state (name TEXT PRIMARY KEY, value TEXT NOT NULL);
-
         INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen)
           VALUES ('vinted:20', 'vinted', '20', 'oude kaart', 'https://x', 100, 200);
         INSERT INTO price_point (key, seen_at, price_cents, asking_cents)
           VALUES ('vinted:20', 100, 50000, 50000), ('vinted:20', 200, 45000, 45000);
-        "#,
-    )
+        "#
+    ))
     .map_err(|error| error.to_string())?;
     drop(oud);
 
@@ -2334,5 +2351,321 @@ fn check_round_survives_a_missing_browser(settings: &Settings) -> Result<(), Str
     // `kaartenjager run --dry-run --verbose`, en het resultaat staat in de uitgaveaantekening.
 
     let _ = std::fs::remove_dir_all(&directory);
+    Ok(())
+}
+
+
+// ------------------------------------------------------------------ producten
+
+const PRODUCT_CONFIG: &str = r#"
+[filters]
+postcode = "1816EE"
+
+[[product]]
+id = "videokaarten"
+name = "Videokaarten"
+search_terms = ["rtx 3090"]
+
+[[product]]
+id = "voedingen"
+name = "Voedingen"
+search_terms = ["voeding 1000w"]
+notify = false
+
+[[product]]
+id = "beeldbuistelevisies"
+name = "Beeldbuistelevisies"
+search_terms = ["crt tv", "trinitron"]
+
+[[card]]
+name = "RTX 3090"
+product = "videokaarten"
+patterns = ["3090"]
+vram_gb = 24
+used_price_low = 750
+used_price_high = 925
+alert_below = 700
+suspicious_below = 450
+
+[[part]]
+name = "Voeding 1000 W of meer"
+product = "voedingen"
+patterns = ["voeding"]
+min_watts = 1000
+alert_below = 150
+suspicious_below = 45
+
+[[part]]
+name = "Beeldbuistelevisie"
+product = "beeldbuistelevisies"
+patterns = ["crt", "trinitron"]
+max_pickup_km = 45
+show_without_distance = true
+alert_below = 150
+suspicious_below = 1
+"#;
+
+fn product_settings() -> Result<Settings, String> {
+    let settings =
+        parse_settings(PRODUCT_CONFIG, Path::new("<producten>")).map_err(|error| error.to_string())?;
+    settings.validate().map_err(|error| error.to_string())?;
+    Ok(settings)
+}
+
+fn crt_listing(id: &str, source: &str, distance_km: Option<f64>, price: f64) -> Listing {
+    Listing {
+        source: source.to_string(),
+        listing_id: id.to_string(),
+        title: "Sony Trinitron crt tv 14 inch".to_string(),
+        url: format!("https://example.invalid/{id}"),
+        price_euros: price,
+        asking_price_euros: price,
+        distance_km,
+        ..Listing::default()
+    }
+}
+
+fn check_legacy_config_becomes_products(settings: &Settings) -> Result<(), String> {
+    let cards = settings
+        .products
+        .first()
+        .ok_or("geen enkel product gemaakt uit een configuratie zonder [[product]]")?;
+    if cards.id != "videokaarten" || !cards.notify || cards.search_terms != ["rtx 3090"] {
+        return Err(format!("het eerste product had Videokaarten moeten zijn, was {cards:?}"));
+    }
+    let power = settings
+        .products
+        .iter()
+        .find(|product| product.search_terms.iter().any(|term| term == "voeding"))
+        .ok_or("de zoekterm \"voeding\" kwam bij geen enkel product terecht")?;
+    if power.notify || power.name != "Voeding 750W+" {
+        return Err(format!("de voeding hoort een eigen, stil product te zijn, was {power:?}"));
+    }
+    if settings.parts.iter().any(|part| part.product.is_none())
+        || settings.cards.iter().any(|card| card.product.is_none())
+    {
+        return Err("niet elke regel kreeg een product".into());
+    }
+    if settings.products.len() != 1 + settings.parts.len() {
+        return Err(format!(
+            "verwacht Videokaarten plus één product per onderdeel, kreeg {}",
+            settings.products.len()
+        ));
+    }
+    Ok(())
+}
+
+fn check_unknown_product_is_refused(_settings: &Settings) -> Result<(), String> {
+    let wrong = PRODUCT_CONFIG.replace("product = \"voedingen\"", "product = \"bestaat-niet\"");
+    let settings =
+        parse_settings(&wrong, Path::new("<producten>")).map_err(|error| error.to_string())?;
+    match settings.validate() {
+        Err(error) if error.to_string().contains("bestaat-niet") => Ok(()),
+        Err(error) => Err(format!("geweigerd, maar om de verkeerde reden: {error}")),
+        Ok(()) => Err("een regel naar een onbekend product werd goedgekeurd".into()),
+    }
+}
+
+fn check_crt_levels(_settings: &Settings) -> Result<(), String> {
+    use crate::listing::Level;
+    let settings = product_settings()?;
+    let table = PriceTable::new(&settings);
+
+    let near = table
+        .judge(&crt_listing("1", "marktplaats", Some(20.0), 80.0))
+        .ok_or("een beeldbuis binnen bereik werd geen vondst")?;
+    if near.level != Level::Top || near.product != "beeldbuistelevisies" {
+        return Err(format!("binnen bereik: verwacht topvondst, kreeg {:?} in {}", near.level, near.product));
+    }
+
+    let unknown = table
+        .judge(&crt_listing("2", "vinted", None, 80.0))
+        .ok_or("een beeldbuis van Vinted zonder afstand viel weg")?;
+    if unknown.level != Level::Deal {
+        return Err("zonder afstand hoort een beeldbuis een goede deal te zijn, geen topvondst".into());
+    }
+    if !unknown.warnings.iter().any(|warning| warning.contains("afstand onbekend")) {
+        return Err(format!("de waarschuwing over de afstand ontbreekt: {:?}", unknown.warnings));
+    }
+
+    if table.judge(&crt_listing("3", "marktplaats", Some(80.0), 80.0)).is_some() {
+        return Err("een beeldbuis op 80 km werd toch een vondst".into());
+    }
+    if table.judge(&crt_listing("4", "marktplaats", Some(20.0), 180.0)).is_some() {
+        return Err("een beeldbuis boven de € 150 werd toch een vondst".into());
+    }
+    Ok(())
+}
+
+fn psu_listing(id: &str) -> Listing {
+    Listing {
+        source: "marktplaats".to_string(),
+        listing_id: id.to_string(),
+        title: "Corsair voeding 1200W".to_string(),
+        url: format!("https://example.invalid/{id}"),
+        price_euros: 90.0,
+        asking_price_euros: 90.0,
+        ..Listing::default()
+    }
+}
+
+fn store_judged(database: &Database, table: &PriceTable, listing: &Listing, now: i64) -> Result<(), String> {
+    let finding = table.judge(listing).ok_or(format!("{} werd geen vondst", listing.title))?;
+    store(database, &finding, now)
+}
+
+fn check_part_top_find_notifies_per_product(_settings: &Settings) -> Result<(), String> {
+    let settings = product_settings()?;
+    let table = PriceTable::new(&settings);
+    let (database, _path) = scratch_database("producten-melden")?;
+    let now = 1_790_000_000;
+    database.sync_products(&settings, now)?;
+
+    store_judged(&database, &table, &crt_listing("10", "marktplaats", Some(20.0), 80.0), now)?;
+    store_judged(&database, &table, &crt_listing("11", "vinted", None, 80.0), now)?;
+    store_judged(&database, &table, &psu_listing("12"), now)?;
+
+    let pushes = crate::hunt::decide_pushes(&database, &settings, now)?;
+    let keys: Vec<&str> = pushes.iter().map(|push| push.key.as_str()).collect();
+    if keys != ["marktplaats:10"] {
+        return Err(format!(
+            "alleen de beeldbuis binnen bereik hoort te melden; de goede deal en de voeding van \
+             een stil product niet. Meldde: {keys:?}"
+        ));
+    }
+    let message = crate::report::render_round(&pushes, 0, &settings);
+    if !message.contains("topvondst onder €150") && !message.contains("topvondst onder € 150") {
+        return Err(format!("het bericht noemt de topvondstprijs niet:\n{message}"));
+    }
+    Ok(())
+}
+
+fn set_product_enabled(path: &Path, id: &str, enabled: bool) -> Result<(), String> {
+    let connection = rusqlite::Connection::open(path).map_err(|error| error.to_string())?;
+    connection
+        .execute(
+            "UPDATE product SET enabled = ?2 WHERE id = ?1",
+            rusqlite::params![id, enabled as i64],
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn check_disabled_product_is_quiet(_settings: &Settings) -> Result<(), String> {
+    let settings = product_settings()?;
+    let table = PriceTable::new(&settings);
+    let (database, directory) = scratch_database("product-uit")?;
+    let path = directory.join("kaartenjager.db");
+    let now = 1_790_000_000;
+    database.sync_products(&settings, now)?;
+    set_product_enabled(&path, "beeldbuistelevisies", false)?;
+
+    let terms = database.enabled_terms()?;
+    if terms.iter().any(|term| term == "crt tv" || term == "trinitron") {
+        return Err(format!("een uitgezet product wordt nog afgezocht: {terms:?}"));
+    }
+    if !terms.iter().any(|term| term == "rtx 3090") {
+        return Err("de andere producten verdwenen mee".into());
+    }
+
+    store_judged(&database, &table, &crt_listing("20", "marktplaats", Some(20.0), 80.0), now)?;
+    if !crate::hunt::decide_pushes(&database, &settings, now)?.is_empty() {
+        return Err("een uitgezet product meldde toch".into());
+    }
+    // Opnieuw synchroniseren zet hem niet stilletjes weer aan: die stand is van de app.
+    database.sync_products(&settings, now + 60)?;
+    if database.product_enabled("beeldbuistelevisies") {
+        return Err("bij een nieuwe start stond het product weer aan".into());
+    }
+    Ok(())
+}
+
+fn search_terms_of(path: &Path) -> Result<Vec<(String, String)>, String> {
+    let connection = rusqlite::Connection::open(path).map_err(|error| error.to_string())?;
+    let mut statement = connection
+        .prepare("SELECT term, COALESCE(product, '') FROM search_term ORDER BY term")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string());
+    rows
+}
+
+fn check_new_product_seeds_once(_settings: &Settings) -> Result<(), String> {
+    let settings = product_settings()?;
+    let (database, directory) = scratch_database("product-zaaien")?;
+    let path = directory.join("kaartenjager.db");
+    let now = 1_790_000_000;
+    database.sync_products(&settings, now)?;
+
+    let connection = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;
+    connection
+        .execute("DELETE FROM search_term WHERE term = 'trinitron'", [])
+        .map_err(|error| error.to_string())?;
+    database.sync_products(&settings, now + 60)?;
+    if search_terms_of(&path)?.iter().any(|(term, _)| term == "trinitron") {
+        return Err("een weggehaalde zoekterm kwam bij de volgende start terug".into());
+    }
+
+    let mut later = settings.clone();
+    later.products.push(crate::config::Product {
+        id: "mini-pcs".to_string(),
+        name: "Mini-pc's".to_string(),
+        search_terms: vec!["m720q".to_string()],
+        notify: true,
+    });
+    database.sync_products(&later, now + 120)?;
+    let terms = search_terms_of(&path)?;
+    if !terms.contains(&("m720q".to_string(), "mini-pcs".to_string())) {
+        return Err(format!("het nieuwe product kreeg zijn zoekterm niet: {terms:?}"));
+    }
+    Ok(())
+}
+
+fn check_old_database_gets_products(_settings: &Settings) -> Result<(), String> {
+    let settings = product_settings()?;
+    let directory = scratch_directory("migratie-3")?;
+    let path = directory.join("kaartenjager.db");
+
+    let oud = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;
+    oud.execute_batch(&format!(
+        "{SCHEMA_ONE}{}",
+        r#"
+        INSERT INTO search_term (term, kind, added_at) VALUES
+          ('rtx 3090', 'card', 100), ('crt televisie', 'part', 100);
+        INSERT INTO app_state (name, value) VALUES ('terms_seeded', '100');
+        INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen)
+          VALUES ('marktplaats:30', 'marktplaats', '30', 'Trinitron', 'https://x', 100, 200);
+        INSERT INTO finding (key, matched_as, kind, confidence, reasons, warnings,
+                             became_a_find_at, judged_at)
+          VALUES ('marktplaats:30', 'Beeldbuistelevisie', 'part', 'clear', '[]', '[]', 100, 100);
+        "#
+    ))
+    .map_err(|error| error.to_string())?;
+    drop(oud);
+
+    let database = Database::open(&path)?;
+    database.sync_products(&settings, 1_790_000_000)?;
+
+    let terms = search_terms_of(&path)?;
+    let expected = vec![
+        ("crt televisie".to_string(), "beeldbuistelevisies".to_string()),
+        ("rtx 3090".to_string(), "videokaarten".to_string()),
+    ];
+    if terms != expected {
+        return Err(format!(
+            "de bestaande zoektermen hoorden hun product te krijgen, en de termen uit de \
+             configuratie hoorden niet bij te komen. Kreeg {terms:?}"
+        ));
+    }
+    let connection = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;
+    let product: String = connection
+        .query_row("SELECT product FROM finding WHERE key = 'marktplaats:30'", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if product != "beeldbuistelevisies" {
+        return Err(format!("de oude vondst kreeg product {product}"));
+    }
     Ok(())
 }

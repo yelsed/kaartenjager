@@ -2,7 +2,7 @@
 //! the plain-language reasons that go with it.
 
 use crate::config::{CardRule, CaseProfile, PartRule, Settings, SystemProfile};
-use crate::listing::{Confidence, Finding, FindingKind, Listing};
+use crate::listing::{Confidence, Finding, FindingKind, Level, Listing};
 use crate::money;
 
 /// Memory sizes that actually ship on consumer cards. Anything else in a title is a model
@@ -183,11 +183,20 @@ impl<'settings> PriceTable<'settings> {
         } else {
             None
         };
+        let far_enough_under = percent_under_market
+            .is_some_and(|percent| percent >= self.settings.notify.push_below_market_percent);
+        let level = if far_enough_under && listing.price_euros >= card.suspicious_below {
+            Level::Top
+        } else {
+            Level::Deal
+        };
 
         Some(Finding {
             listing: listing.clone(),
             matched_as: card.name.clone(),
             kind: FindingKind::Card,
+            product: card.product.clone().unwrap_or_else(|| self.settings.card_product_id()),
+            level,
             confidence,
             percent_under_market,
             euros_under_market: Some(euros_under_market),
@@ -204,6 +213,8 @@ impl<'settings> PriceTable<'settings> {
 
         let mut confidence = Confidence::Clear;
         let mut queue_note = None;
+        let mut level = Level::Top;
+        let mut warnings = Vec::new();
         let mut reasons = vec![format!(
             "onder de drempel van {}",
             money::euros(part.alert_below)
@@ -216,9 +227,17 @@ impl<'settings> PriceTable<'settings> {
             match listing.distance_km {
                 Some(distance) if distance > limit => return None,
                 Some(distance) => reasons.push(format!("{distance:.0} km hiervandaan")),
-                // Vinted geeft nooit een afstand, en Marktplaats alleen met een postcode in
-                // [filters]. Iets wat je zelf moet ophalen en niet te plaatsen is, is geen
-                // vondst — dan sta je zo in Groningen voor een televisie.
+                // Vinted geeft nooit een afstand. Wil de regel die toch zien, dan als goede deal
+                // en nooit als topvondst: hij kan net zo goed in Groningen staan.
+                None if part.show_without_distance => {
+                    level = Level::Deal;
+                    warnings.push(
+                        "afstand onbekend: kijk waar hij staat voordat je gaat rijden".to_string(),
+                    );
+                }
+                // Marktplaats geeft alleen een afstand met een postcode in [filters]. Iets wat je
+                // zelf moet ophalen en niet te plaatsen is, is geen vondst: dan sta je zo in
+                // Groningen voor een televisie.
                 None => return None,
             }
         }
@@ -242,13 +261,13 @@ impl<'settings> PriceTable<'settings> {
             reasons.push(part.note.clone());
         }
 
-        let mut warnings = Vec::new();
         if listing.price_euros < part.suspicious_below {
             warnings.push(format!(
                 "ver onder de bodem van {}",
                 money::euros(part.suspicious_below)
             ));
             confidence = Confidence::NeedsReview;
+            level = Level::Deal;
         }
         warnings.extend(listing_warnings(listing));
 
@@ -256,6 +275,11 @@ impl<'settings> PriceTable<'settings> {
             listing: listing.clone(),
             matched_as: part.name.clone(),
             kind: FindingKind::Part,
+            product: part
+                .product
+                .clone()
+                .unwrap_or_else(|| crate::config::product_id_from_name(&part.name)),
+            level,
             confidence,
             // Onderdelen hebben geen marktbereik, dus er valt niets tegen af te zetten.
             percent_under_market: None,
@@ -294,6 +318,8 @@ impl<'settings> PriceTable<'settings> {
             listing: listing.clone(),
             matched_as: "Onbekend model".to_string(),
             kind: FindingKind::Unknown,
+            product: self.settings.card_product_id(),
+            level: Level::Deal,
             confidence: Confidence::NeedsReview,
             percent_under_market: None,
             euros_under_market: None,

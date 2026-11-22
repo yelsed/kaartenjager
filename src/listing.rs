@@ -129,6 +129,24 @@ pub enum FindingKind {
     Unknown,
 }
 
+/// Of een vondst het waard is om je voor te storen. Een topvondst van een product dat meldt gaat
+/// naar Discord; een goede deal staat alleen in de app.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub enum Level {
+    Top,
+    #[default]
+    Deal,
+}
+
+impl Level {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Level::Top => "top",
+            Level::Deal => "deal",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
     pub listing: Listing,
@@ -137,6 +155,11 @@ pub struct Finding {
     /// Defaulted so the one-off migration can read findings written before this field existed.
     #[serde(default)]
     pub kind: FindingKind,
+    /// The product of the rule that matched. Empty only in findings written before products.
+    #[serde(default)]
+    pub product: String,
+    #[serde(default)]
+    pub level: Level,
     pub confidence: Confidence,
     /// How far below the bottom of the market range this sits, as a percentage. None for
     /// parts, which have no market range to measure against.
