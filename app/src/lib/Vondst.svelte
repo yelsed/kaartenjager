@@ -41,6 +41,12 @@
 	const kijkers = $derived(vondst.sightings.filter((s) => (s.viewCount ?? 0) > 0));
 	const favorieten = $derived(vondst.sightings.filter((s) => s.favouriteCount !== null));
 
+	// Het programma schrijft deze waarschuwing bij een onderdeel zonder afstand (Vinted). Hij
+	// moet zichtbaar zijn zonder uitklappen: de beeldbuis kan net zo goed in Groningen staan.
+	const distanceUnknown = $derived(
+		vondst.warnings.some((warning) => warning.startsWith('afstand onbekend'))
+	);
+
 	const terugUitArchief = $derived(
 		vondst.state === 'archived' &&
 			vondst.priceWhenArchived !== null &&
@@ -56,6 +62,9 @@
 		</div>
 		<div class="merken">
 			{#if vondst.isNew}<span class="merk nieuw-merk">nieuw</span>{/if}
+			{#if vondst.level === 'top'}<span class="merk top-merk">topvondst</span>{/if}
+			{#if vondst.productName}<span class="merk">{vondst.productName}</span>{/if}
+			{#if distanceUnknown}<span class="merk uitzoeken">afstand onbekend</span>{/if}
 			{#if vondst.needsReview}<span class="merk uitzoeken">uitzoeken</span>{/if}
 			{#if vondst.percentUnderMarket !== null && vondst.percentUnderMarket > 0}
 				<span class="merk">{percent(vondst.percentUnderMarket)} onder de markt</span>
@@ -256,6 +265,13 @@
 	.merk.nieuw-merk {
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	.merk.top-merk {
+		border-color: var(--accent);
+		background: var(--accent);
+		color: #10231b;
+		font-weight: 600;
 	}
 
 	.merk.uitzoeken {

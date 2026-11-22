@@ -5,6 +5,23 @@
 	let { data, form } = $props();
 
 	const ruimte = $derived(data.grens - data.aan);
+	const productsById = $derived(
+		new Map(data.producten.map((product) => [product.id, product]))
+	);
+	const productLabel = (id: string) => {
+		const product = productsById.get(id);
+		if (!product) return id || 'zonder product';
+		return product.enabled ? product.name : `${product.name} (uit)`;
+	};
+
+	// Op volgorde van de producten, want zo staan de termen al uit de database.
+	const groups = $derived.by(() => {
+		const byProduct = new Map<string, typeof data.termen>();
+		for (const term of data.termen) {
+			byProduct.set(term.product, [...(byProduct.get(term.product) ?? []), term]);
+		}
+		return [...byProduct].map(([id, terms]) => ({ id, terms }));
+	});
 </script>
 
 {#if form?.message}
@@ -29,51 +46,53 @@
 
 <form class="toevoegen" method="POST" action="?/toevoegen" use:enhance>
 	<input name="term" placeholder="nieuwe zoekterm, ook de verkeerd gespelde" required />
-	<select name="kind">
-		<option value="card">kaart</option>
-		<option value="part">onderdeel</option>
+	<select name="product" required aria-label="Product">
+		{#each data.producten as product (product.id)}
+			<option value={product.id}>{product.name}</option>
+		{/each}
 	</select>
 	<button disabled={ruimte <= 0}>toevoegen</button>
 </form>
 
-<table>
-	<thead>
-		<tr>
-			<th>Zoekterm</th>
-			<th>Soort</th>
-			<th>Toegevoegd</th>
-			<th></th>
-		</tr>
-	</thead>
-	<tbody>
-		{#each data.termen as term (term.term)}
-			<tr class:uit={!term.enabled}>
-				<td>{term.term}</td>
-				<td class="gedempt">{term.kind === 'card' ? 'kaart' : 'onderdeel'}</td>
-				<td class="gedempt">{ago(term.addedAt)} · {term.addedBy}</td>
-				<td>
-					<!-- De knoppen zitten in een eigen laag: een tabelcel die zelf flex is,
-					     tekent zijn randen niet meer door. -->
-					<div class="acties">
-						<form method="POST" action="?/aanzetten" use:enhance>
-							<input type="hidden" name="term" value={term.term} />
-							<input type="hidden" name="enabled" value={term.enabled ? 'nee' : 'ja'} />
-							<button disabled={!term.enabled && ruimte <= 0}>
-								{term.enabled ? 'uitzetten' : 'aanzetten'}
-							</button>
-						</form>
-						<form method="POST" action="?/verwijderen" use:enhance>
-							<input type="hidden" name="term" value={term.term} />
-							<button class="weg">verwijderen</button>
-						</form>
-					</div>
-				</td>
+{#each groups as group (group.id)}
+	<h3 class="groepkop">{productLabel(group.id)}</h3>
+	<table>
+		<thead>
+			<tr>
+				<th>Zoekterm</th>
+				<th class="toegevoegd">Toegevoegd</th>
+				<th></th>
 			</tr>
-		{:else}
-			<tr><td colspan="4" class="gedempt">Nog geen zoektermen.</td></tr>
-		{/each}
-	</tbody>
-</table>
+		</thead>
+		<tbody>
+			{#each group.terms as term (term.term)}
+				<tr class:uit={!term.enabled}>
+					<td>{term.term}</td>
+					<td class="gedempt toegevoegd">{ago(term.addedAt)} · {term.addedBy}</td>
+					<td>
+						<!-- De knoppen zitten in een eigen laag: een tabelcel die zelf flex is,
+						     tekent zijn randen niet meer door. -->
+						<div class="acties">
+							<form method="POST" action="?/aanzetten" use:enhance>
+								<input type="hidden" name="term" value={term.term} />
+								<input type="hidden" name="enabled" value={term.enabled ? 'nee' : 'ja'} />
+								<button disabled={!term.enabled && ruimte <= 0}>
+									{term.enabled ? 'uitzetten' : 'aanzetten'}
+								</button>
+							</form>
+							<form method="POST" action="?/verwijderen" use:enhance>
+								<input type="hidden" name="term" value={term.term} />
+								<button class="weg">verwijderen</button>
+							</form>
+						</div>
+					</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+{:else}
+	<p class="gedempt">Nog geen zoektermen.</p>
+{/each}
 
 <p class="voetnoot">
 	Een zoekterm uitzetten raakt bestaande vondsten niet: die worden via hun eigen
@@ -140,6 +159,22 @@
 		color: var(--tekst);
 	}
 
+	.groepkop {
+		font-size: 0.85rem;
+		font-weight: 600;
+		margin: 1.5rem 0 0.4rem;
+	}
+
+	.toegevoegd {
+		display: none;
+	}
+
+	@media (min-width: 36rem) {
+		.toegevoegd {
+			display: table-cell;
+		}
+	}
+
 	table {
 		width: 100%;
 		border-collapse: collapse;
@@ -173,6 +208,7 @@
 
 	.acties {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 0.35rem;
 		justify-content: flex-end;
 	}

@@ -59,8 +59,8 @@ INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen)
 INSERT INTO sighting (key, seen_at, price_cents, asking_cents, favourite_count)
   VALUES ('vinted:1', 1000, 60000, 60000, 3);
 INSERT INTO finding (key, matched_as, kind, confidence, reasons, warnings,
-                     became_a_find_at, judged_at)
-  VALUES ('vinted:1', 'RTX 3090', 'card', 'clear', '[]', '[]', 1000, 1000);
+                     became_a_find_at, judged_at, product, level)
+  VALUES ('vinted:1', 'RTX 3090', 'card', 'clear', '[]', '[]', 1000, 1000, 'videokaarten', 'top');
 INSERT INTO decision (key, state, changed_at) VALUES ('vinted:1', 'inbox', 1000);
 SQL
 
@@ -150,14 +150,32 @@ probeer "/" allesGezien 200 --data 'x=1'
   || fout "alles gezien legde het bezoek niet vast"
 
 say "==> De zoektermen"
-probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=rtx 4090 test' --data-urlencode 'kind=card'
-[ "$(sqlite3 "$DB" "SELECT COUNT(*) FROM search_term WHERE term='rtx 4090 test';")" = "1" ] \
-  || fout "de zoekterm werd niet toegevoegd"
-probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=rtx 4090 test' --data-urlencode 'kind=card'
+probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=rtx 4090 test' --data-urlencode 'product=videokaarten'
+[ "$(sqlite3 "$DB" "SELECT product FROM search_term WHERE term='rtx 4090 test';")" = "videokaarten" ] \
+  || fout "de zoekterm werd niet bij zijn product toegevoegd"
+probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=iets anders' --data-urlencode 'product=bestaat-niet'
+zegt "Kies een product dat bestaat"
+probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=rtx 4090 test' --data-urlencode 'product=videokaarten'
 zegt "staat er al"
 [ "$(sqlite3 "$DB" "SELECT COUNT(*) FROM search_term WHERE term='rtx 4090 test';")" = "1" ] \
   || fout "een dubbele zoekterm kwam er toch bij"
 probeer "/zoektermen" verwijderen 200 --data-urlencode 'term=rtx 4090 test'
+
+say "==> De producten"
+curl -sS "http://localhost:$PORT/" -o "$WORK/inbox.html"
+grep -qF "topvondst" "$WORK/inbox.html" || fout "de inbox toont de topvondst niet als topvondst"
+curl -sS "http://localhost:$PORT/producten" -o "$WORK/producten.html"
+grep -qF "Videokaarten" "$WORK/producten.html" || fout "de productenpagina toont Videokaarten niet"
+probeer "/producten" aanzetten 200 --data-urlencode 'id=videokaarten' --data-urlencode 'enabled=nee'
+[ "$(sqlite3 "$DB" "SELECT enabled FROM product WHERE id='videokaarten';")" = "0" ] \
+  || fout "uitzetten zette het product niet uit"
+curl -sS "http://localhost:$PORT/" -o "$WORK/inbox.html"
+! grep -qF "RTX 3090 test" "$WORK/inbox.html" || fout "een uitgezet product staat nog in de inbox"
+probeer "/producten" aanzetten 200 --data-urlencode 'id=videokaarten' --data-urlencode 'enabled=ja'
+[ "$(sqlite3 "$DB" "SELECT enabled FROM product WHERE id='videokaarten';")" = "1" ] \
+  || fout "aanzetten zette het product niet weer aan"
+curl -sS "http://localhost:$PORT/?product=videokaarten" -o "$WORK/inbox.html"
+grep -qF "RTX 3090 test" "$WORK/inbox.html" || fout "de inbox per product toont zijn vondst niet"
 
 say "==> Zelf een ronde starten"
 probeer "/" nuZoeken 200 --data 'x=1'

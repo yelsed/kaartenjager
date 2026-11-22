@@ -38,19 +38,19 @@ Release-branch: `release/widening`. Elke taak een eigen `feature/widening-<n>`.
 
 ### Checklist (elke regel heeft een controle in `kaartenjager selftest` of in `app/smoke.sh`)
 
-- [ ] Een configuratie zonder `[[product]]` levert Videokaarten plus één product per onderdeel
-- [ ] Een configuratie met `[[product]]` koppelt elke regel aan zijn product, en `check` weigert
+- [x] Een configuratie zonder `[[product]]` levert Videokaarten plus één product per onderdeel
+- [x] Een configuratie met `[[product]]` koppelt elke regel aan zijn product, en `check` weigert
       een regel die naar een onbekend product wijst
-- [ ] Een beeldbuis van Marktplaats binnen bereik is een topvondst
-- [ ] Een beeldbuis van Vinted zonder afstand is een goede deal met een waarschuwing
-- [ ] Een beeldbuis van Marktplaats buiten bereik valt af
-- [ ] Een topvondst van een product dat meldt gaat naar Discord; van een product dat niet meldt niet
-- [ ] Kaarten melden zoals voorheen (percentage onder de markt)
-- [ ] Een database van schema 2 migreert naar 3; bestaande zoektermen en vondsten krijgen hun product
-- [ ] Een nieuw product in de configuratie krijgt zijn zoektermen één keer in de database
-- [ ] Een uitgezet product wordt niet afgezocht en meldt niets
-- [ ] De app toont de inbox per product en zet producten aan en uit
-- [ ] De bestaande 70 zelftestcontroles blijven groen
+- [x] Een beeldbuis van Marktplaats binnen bereik is een topvondst
+- [x] Een beeldbuis van Vinted zonder afstand is een goede deal met een waarschuwing
+- [x] Een beeldbuis van Marktplaats buiten bereik valt af
+- [x] Een topvondst van een product dat meldt gaat naar Discord; van een product dat niet meldt niet
+- [x] Kaarten melden zoals voorheen (percentage onder de markt)
+- [x] Een database van schema 2 migreert naar 3; bestaande zoektermen en vondsten krijgen hun product
+- [x] Een nieuw product in de configuratie krijgt zijn zoektermen één keer in de database
+- [x] Een uitgezet product wordt niet afgezocht en meldt niets
+- [x] De app toont de inbox per product en zet producten aan en uit
+- [x] De bestaande 70 zelftestcontroles blijven groen (77 met de nieuwe)
 
 ### Wat het niet doet
 

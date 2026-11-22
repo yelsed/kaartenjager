@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { env } from '$env/dynamic/private';
 
 /** Het schema waar deze app op gebouwd is. Zie PRAGMA user_version in het programma. */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /** Onder deze fractie van de archiefprijs komt een advertentie terug in de inbox. */
 const RETURN_FROM_ARCHIVE_AT = 0.9;
@@ -35,6 +35,8 @@ const DAY_ENDS_AT = 22;
 
 export type Kind = 'card' | 'part' | 'unknown';
 export type State = 'inbox' | 'archived' | 'watching';
+/** top: het soort vondst waarvoor je gestoord wilt worden. deal: de rest die de moeite waard is. */
+export type Level = 'top' | 'deal';
 
 export type Finding = {
 	key: string;
@@ -49,6 +51,9 @@ export type Finding = {
 	description: string;
 	matchedAs: string;
 	kind: Kind;
+	product: string;
+	productName: string;
+	level: Level;
 	needsReview: boolean;
 	percentUnderMarket: number | null;
 	eurosUnderMarket: number | null;
@@ -101,10 +106,19 @@ export type Review = {
 
 export type SearchTerm = {
 	term: string;
-	kind: 'card' | 'part';
+	product: string;
 	enabled: boolean;
 	addedAt: number;
 	addedBy: string;
+};
+
+export type Product = {
+	id: string;
+	name: string;
+	enabled: boolean;
+	/** Zoektermen die aan staan; bij een uitgezet product tellen ze pas mee als hij weer aan gaat. */
+	enabledTermCount: number;
+	inboxCount: number;
 };
 
 export type Heartbeat = {
@@ -245,7 +259,7 @@ export function undoEverythingSeen(): void {
 // ------------------------------------------------------------------ vondsten
 
 const FINDING_COLUMNS = `
-	f.key, f.matched_as, f.kind, f.confidence, f.percent_under_market, f.euros_under_market,
+	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, f.confidence, f.percent_under_market, f.euros_under_market,
 	f.reasons, f.warnings, f.queue_note, f.became_a_find_at, f.judged_at, f.still_a_find,
 	l.title, l.url, l.source, l.delivery, l.location, l.seller, l.condition, l.photo_count,
 	l.description, l.gone_since, l.gone_reason, l.posted_at, l.first_seen, l.last_seen,
@@ -258,6 +272,14 @@ const FINDING_COLUMNS = `
 `;
 
 type Row = Record<string, string | number | null>;
+
+/** Vondsten met de tabellen die elke weergave nodig heeft. */
+const FINDING_TABLES = `
+	finding f
+	JOIN listing l ON l.key = f.key
+	LEFT JOIN decision d ON d.key = f.key
+	LEFT JOIN product pr ON pr.id = f.product
+`;
 
 function parseList(stored: unknown): string[] {
 	if (typeof stored !== 'string') return [];
@@ -287,6 +309,9 @@ function toFinding(row: Row, visitedAt: number): Finding {
 		description: String(row.description ?? ''),
 		matchedAs: String(row.matched_as),
 		kind: String(row.kind) as Kind,
+		product: String(row.product ?? ''),
+		productName: String(row.product_name ?? row.product ?? ''),
+		level: row.level === 'top' ? 'top' : 'deal',
 		needsReview: row.confidence === 'review',
 		percentUnderMarket: row.percent_under_market === null ? null : Number(row.percent_under_market),
 		eurosUnderMarket: row.euros_under_market === null ? null : Number(row.euros_under_market),
@@ -372,19 +397,23 @@ export function latestReview(key: string): Review | null {
 	};
 }
 
-function query(where: string, order: string, limit: number, offset: number): Finding[] {
+function query(
+	where: string,
+	order: string,
+	limit: number,
+	offset: number,
+	parameters: (string | number)[] = []
+): Finding[] {
 	const visitedAt = lastVisit();
 	const rows = db()
 		.prepare(
 			`SELECT ${FINDING_COLUMNS}
-			 FROM finding f
-			 JOIN listing l ON l.key = f.key
-			 LEFT JOIN decision d ON d.key = f.key
+			 FROM ${FINDING_TABLES}
 			 WHERE ${where}
 			 ORDER BY ${order}
 			 LIMIT ? OFFSET ?`
 		)
-		.all(limit, offset) as Row[];
+		.all(...parameters, limit, offset) as Row[];
 	return rows.map((row) => toFinding(row, visitedAt));
 }
 
@@ -395,22 +424,29 @@ function query(where: string, order: string, limit: number, offset: number): Fin
  * Die terugkeer is met opzet een leesregel en geen statuswijziging: `decision.state` blijft
  * `archived` tot jij er iets mee doet, zodat de app en de scanner nooit allebei aan dezelfde
  * beslissing schrijven.
+ *
+ * Een uitgezet product staat er niet in; zijn vondsten blijven bewaard voor als hij terugkomt.
  */
-export function inbox(limit: number, offset: number): Finding[] {
-	return query(
-		`f.still_a_find = 1
-		 AND l.gone_since IS NULL
-		 AND (
-		   COALESCE(d.state, 'inbox') = 'inbox'
-		   OR (d.state = 'archived'
-		       AND d.price_when_archived IS NOT NULL
-		       AND (SELECT price_cents FROM sighting p WHERE p.key = f.key
-		            ORDER BY p.seen_at DESC LIMIT 1) < d.price_when_archived * ${RETURN_FROM_ARCHIVE_AT})
-		 )`,
-		'f.became_a_find_at DESC',
-		limit,
-		offset
-	);
+const INBOX_WHERE = `
+	f.still_a_find = 1
+	AND l.gone_since IS NULL
+	AND COALESCE(pr.enabled, 1) = 1
+	AND (
+	  COALESCE(d.state, 'inbox') = 'inbox'
+	  OR (d.state = 'archived'
+	      AND d.price_when_archived IS NOT NULL
+	      AND (SELECT price_cents FROM sighting p WHERE p.key = f.key
+	           ORDER BY p.seen_at DESC LIMIT 1) < d.price_when_archived * ${RETURN_FROM_ARCHIVE_AT})
+	)
+`;
+
+export function inbox(limit: number, offset: number, productId: string | null = null): Finding[] {
+	if (productId === null) {
+		return query(INBOX_WHERE, 'f.became_a_find_at DESC', limit, offset);
+	}
+	return query(`${INBOX_WHERE} AND f.product = ?`, 'f.became_a_find_at DESC', limit, offset, [
+		productId
+	]);
 }
 
 export function watching(limit: number, offset: number): Finding[] {
@@ -430,10 +466,9 @@ export function archive(limit: number, offset: number): Finding[] {
 export function countInbox(): number {
 	const row = db()
 		.prepare(
-			`SELECT COUNT(*) AS n FROM finding f
-			 JOIN listing l ON l.key = f.key
-			 LEFT JOIN decision d ON d.key = f.key
+			`SELECT COUNT(*) AS n FROM ${FINDING_TABLES}
 			 WHERE f.still_a_find = 1 AND l.gone_since IS NULL
+			   AND COALESCE(pr.enabled, 1) = 1
 			   AND COALESCE(d.state, 'inbox') = 'inbox'
 			   AND f.became_a_find_at > ?`
 		)
@@ -492,18 +527,57 @@ export function openReviewCount(): number {
 	return Number(row.n);
 }
 
+// ----------------------------------------------------------------- producten
+
+/** Wat er bestaat schrijft het programma uit de configuratie; aan of uit is van de app. */
+export function products(): Product[] {
+	const rows = db()
+		.prepare(
+			`SELECT p.id, p.name, p.enabled,
+			   (SELECT COUNT(*) FROM search_term t WHERE t.product = p.id AND t.enabled = 1)
+			     AS enabled_term_count,
+			   (SELECT COUNT(*) FROM ${FINDING_TABLES} WHERE f.product = p.id AND ${INBOX_WHERE})
+			     AS inbox_count
+			 FROM product p ORDER BY p.position, p.id`
+		)
+		.all() as Row[];
+	return rows.map((row) => ({
+		id: String(row.id),
+		name: String(row.name),
+		enabled: Number(row.enabled) === 1,
+		enabledTermCount: Number(row.enabled_term_count),
+		inboxCount: Number(row.inbox_count)
+	}));
+}
+
+/**
+ * Aanzetten brengt de zoektermen van het product terug in de ronde, dus de grens geldt hier
+ * net zo goed als bij een losse zoekterm.
+ */
+export function setProductEnabled(id: string, enabled: boolean): string | null {
+	const product = products().find((candidate) => candidate.id === id);
+	if (!product) return 'Dat product bestaat niet (meer).';
+	if (enabled && !product.enabled) {
+		const overTheLimit = tooManyTerms(product.enabledTermCount);
+		if (overTheLimit) return overTheLimit;
+	}
+	db().prepare('UPDATE product SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
+	return null;
+}
+
 // ---------------------------------------------------------------- zoektermen
 
 export function searchTerms(): SearchTerm[] {
 	const rows = db()
 		.prepare(
-			`SELECT term, kind, enabled, added_at, added_by FROM search_term
-			 ORDER BY CASE kind WHEN 'card' THEN 0 ELSE 1 END, term`
+			`SELECT t.term, COALESCE(t.product, '') AS product, t.enabled, t.added_at, t.added_by
+			 FROM search_term t LEFT JOIN product p ON p.id = t.product
+			 ORDER BY COALESCE(p.position, 0), t.term`
 		)
 		.all() as Row[];
 	return rows.map((row) => ({
 		term: String(row.term),
-		kind: String(row.kind) as 'card' | 'part',
+		product: String(row.product),
 		enabled: Number(row.enabled) === 1,
 		addedAt: Number(row.added_at),
 		addedBy: String(row.added_by)
@@ -520,7 +594,10 @@ export function maxEnabledTerms(): number {
 
 export function enabledTermCount(): number {
 	const row = db()
-		.prepare('SELECT COUNT(*) AS n FROM search_term WHERE enabled = 1')
+		.prepare(
+			`SELECT COUNT(*) AS n FROM search_term t LEFT JOIN product p ON p.id = t.product
+			 WHERE t.enabled = 1 AND COALESCE(p.enabled, 1) = 1`
+		)
 		.get() as { n: number };
 	return Number(row.n);
 }
@@ -529,23 +606,28 @@ export function enabledTermCount(): number {
  * De grens valt hier, in het formulier, en niet pas in de ronde. Alleen daar weigeren zou
  * betekenen dat één extra term de wachter elk uur stilletjes laat weigeren.
  */
-export function addTerm(term: string, kind: 'card' | 'part'): string | null {
+export function addTerm(term: string, productId: string): string | null {
 	const cleaned = term.trim().toLowerCase();
 	if (!cleaned) return 'Een lege zoekterm gaat niet.';
 	if (cleaned.length > 60) return 'Die zoekterm is onwaarschijnlijk lang.';
 
+	const product = db().prepare('SELECT enabled FROM product WHERE id = ?').get(productId) as
+		| { enabled: number }
+		| undefined;
+	if (!product) return 'Kies een product dat bestaat.';
+
 	const exists = db().prepare('SELECT 1 FROM search_term WHERE term = ?').get(cleaned);
 	if (exists) return `"${cleaned}" staat er al.`;
 
-	const overTheLimit = tooManyTerms(1);
+	const overTheLimit = Number(product.enabled) === 1 ? tooManyTerms(1) : null;
 	if (overTheLimit) return overTheLimit;
 
 	db()
 		.prepare(
-			`INSERT INTO search_term (term, kind, enabled, added_at, added_by)
-			 VALUES (?, ?, 1, ?, 'app')`
+			`INSERT INTO search_term (term, kind, enabled, added_at, added_by, product)
+			 VALUES (?, 'product', 1, ?, 'app', ?)`
 		)
-		.run(cleaned, kind, nowSeconds());
+		.run(cleaned, nowSeconds(), productId);
 	return null;
 }
 

@@ -273,6 +273,27 @@ Zet je een drempel met de hand, dan blijft die staan wat de herziening ook voors
 start één keer in de database gezet; daarna beheer je hem in de app, onder Zoektermen. Zo
 zet het weghalen van je laatste zoekterm de hele lijst niet terug.
 
+**Producten.** Kaartenjager zoekt per product: videokaarten, voedingen, risers,
+beeldbuistelevisies. Een product is een `[[product]]`-blok met een `id`, een `name`, de
+`search_terms` waarmee hij begint en `notify` (melden topvondsten van dit product in Discord).
+Elke `[[card]]` en `[[part]]` wijst met `product = "<id>"` naar zijn product. Een product
+toevoegen gaat zo:
+
+1. Zet onder Instellingen een `[[product]]`-blok in het bestand, met zijn zoektermen.
+2. Zet er een of meer regels onder met `product = "<dat id>"`.
+3. Bewaren. `check` weigert een regel die naar een onbekend product wijst.
+
+De volgende ronde zet zijn zoektermen één keer in de database. Daarna staan ze onder
+Zoektermen, en onder Producten zet je hem aan of uit. Uit betekent: niet zoeken, niet melden,
+niet in de inbox; zijn vondsten blijven bewaard. Een bestand zonder `[[product]]` werkt ook nog:
+dan worden alle kaarten samen Videokaarten en elk onderdeel een eigen product.
+
+Elke vondst is een **topvondst** of een **goede deal**. Een kaart is top als hij ver genoeg
+onder de markt zit (`push_below_market_percent`), een onderdeel als hij onder `alert_below`
+zit en, als de regel op afstand zeeft, binnen `max_pickup_km`. Met `show_without_distance =
+true` op een onderdeelregel verschijnt een advertentie zonder afstand (Vinted) toch, als
+goede deal met het label "afstand onbekend".
+
 **De rest van het bestand bewerk je onder Instellingen.** Daar staat de echte TOML in een
 tekstvak. Bewaren draait eerst `kaartenjager check` op de nieuwe versie en vervangt pas als
 die goedkeurt, dus een typefout kan de wachter niet stilleggen; de versie van ervoor blijft

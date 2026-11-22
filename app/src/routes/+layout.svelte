@@ -9,6 +9,7 @@
 		{ pad: '/', naam: 'Inbox' },
 		{ pad: '/volglijst', naam: 'Volglijst' },
 		{ pad: '/archief', naam: 'Archief' },
+		{ pad: '/producten', naam: 'Producten' },
 		{ pad: '/zoektermen', naam: 'Zoektermen' },
 		{ pad: '/instellingen', naam: 'Instellingen' }
 	];

@@ -1,5 +1,18 @@
 # Wat er veranderde
 
+## Nog niet uitgegeven: producten
+
+- Zoeken per product (`[[product]]` in de configuratie). Elke regel hoort bij een product; een
+  bestand zonder producten blijft werken (`docs/decisions/0001`).
+- Elke vondst is een topvondst of een goede deal. Topvondsten van een product met `notify =
+  true` gaan naar Discord, nu ook voor onderdelen (`docs/decisions/0002`).
+- Beeldbuistelevisies van Vinted, waar geen afstand bekend is, verschijnen met
+  `show_without_distance` als goede deal met het label "afstand onbekend".
+- De app: een keuzebalk per product in de inbox, een pagina Producten om producten aan en uit
+  te zetten, zoektermen per product (`docs/decisions/0003`).
+- Schema 3 (`docs/database.md`). Het programma migreert zelf; **werk de app tegelijk bij**,
+  want de app weigert een schema dat hij niet kent.
+
 ## 2.0.0 — 18 september 2026
 
 ### Waarom
