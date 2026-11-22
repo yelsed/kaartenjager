@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini PC research</title>
+  <style>
+    :root {
+      --background: #14161a;
+      --surface: #1c2027;
+      --border: #2b323c;
+      --text: #e6e9ee;
+      --muted: #98a1ae;
+      --accent: #7fd1a8;
+      --warning: #e0a458;
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 4rem;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      margin: 0 0 0.25rem;
+    }
+
+    h2 {
+      font-size: 1.05rem;
+      margin: 2.25rem 0 0.75rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h3 {
+      font-size: 0.95rem;
+      margin: 1.5rem 0 0.5rem;
+      color: var(--muted);
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    .lead {
+      color: var(--muted);
+      margin: 0 0 1rem;
+    }
+
+    .verdict {
+      background: #1b2a24;
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+    }
+
+    .verdict p {
+      margin: 0.35rem 0;
+    }
+
+    .note {
+      background: #2b2418;
+      border: 1px solid var(--warning);
+      border-radius: 8px;
+      padding: 0.7rem 1rem;
+      font-size: 0.9rem;
+    }
+
+    ul {
+      padding-left: 1.2rem;
+    }
+
+    li {
+      margin: 0.25rem 0;
+    }
+
+    .listings {
+      list-style: none;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .listings li {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 0.8rem;
+      margin: 0;
+    }
+
+    .listings .name {
+      display: block;
+      font-weight: 600;
+    }
+
+    .listings .facts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem 1rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .listings .price {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .score-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .score-table th,
+    .score-table td {
+      text-align: left;
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .score-table th {
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .table-scroll {
+      overflow-x: auto;
+    }
+
+    footer {
+      margin-top: 3rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Mini PC for the cluster and the test queue</h1>
+  <p class="lead">Research for YEL-502, 22 and 23 November 2026. Asking prices and opening bids as seen on those days; listings move fast.</p>
+
+  <div class="verdict">
+    <p><strong>Best price for quality (32 GB):</strong> a new Minisforum UM790 Pro (Ryzen 9 7940HS, 32 GB, 1 TB) for about &euro;529, if that price holds around Black Friday.</p>
+    <p><strong>Used, about as fast:</strong> a mini PC with a Ryzen 7 7840HS and 32 GB on Vinted, &euro;547.</p>
+    <p><strong>Cheapest strong 32 GB:</strong> a used Minisforum HM90 (Ryzen 9 4900H, 32 GB) for &euro;399.</p>
+    <p><strong>Next step:</strong> stop searching by hand. Kaartenjager will watch mini PCs once Widening 4 is built.</p>
+  </div>
+
+  <h2>What we look for</h2>
+  <ul>
+    <li><strong>16 GB memory or more, in the listing itself.</strong> Hard requirement. Buying a second stick does not count; "8/16 GB" options count as the lowest.</li>
+    <li><strong>Budget is a guideline,</strong> not a limit.</li>
+    <li><strong>Processor: computing power per euro.</strong> No fixed floor. The ZenBook in the cluster (pve2) is only a reference point.</li>
+  </ul>
+
+  <h2>What the score means</h2>
+  <p>The score is the <strong>PassMark CPU Mark</strong>: a fixed set of calculations (integer and floating point maths, prime numbers, sorting, encryption, compression, physics) run on all cores at once, averaged over everyone who ran the test.</p>
+  <ul>
+    <li>It shows how much work all cores together get done. That is what compiling and running tests uses.</li>
+    <li>15,300 against 5,940 means 2.6 times as much work in that test, not exactly 2.6 times faster builds: disk and memory speed also count.</li>
+    <li>It is an average. A badly cooled machine scores lower.</li>
+  </ul>
+  <div class="table-scroll">
+    <table class="score-table">
+      <thead>
+        <tr><th>Processor</th><th>Cores / threads</th><th>Score</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Intel N100</td><td>4 / 4</td><td>5,300</td></tr>
+        <tr><td>i7-8565U (ZenBook, reference)</td><td>4 / 8</td><td>5,940</td></tr>
+        <tr><td>i5-8500T</td><td>6 / 6</td><td>7,700</td></tr>
+        <tr><td>Ryzen 5 PRO 3400GE / 2400GE</td><td>4 / 8</td><td>7,200 to 7,800</td></tr>
+        <tr><td>i5-9500T</td><td>6 / 6</td><td>8,000 to 8,200</td></tr>
+        <tr><td>i5-10500T</td><td>6 / 12</td><td>10,200</td></tr>
+        <tr><td>i7-9700T</td><td>8 / 8</td><td>10,500</td></tr>
+        <tr><td>Ryzen 3 PRO 5350GE</td><td>4 / 8</td><td>12,600</td></tr>
+        <tr><td>Ryzen 5 PRO 4650GE</td><td>6 / 12</td><td>15,300</td></tr>
+        <tr><td>Ryzen 7 5825U</td><td>8 / 16</td><td>17,800</td></tr>
+        <tr><td>Ryzen 9 4900H</td><td>8 / 16</td><td>about 18,900</td></tr>
+        <tr><td>Ryzen 9 6900HX</td><td>8 / 16</td><td>24,100</td></tr>
+        <tr><td>i9-12900HK</td><td>14 / 20</td><td>25,100</td></tr>
+        <tr><td>Ryzen 7 7840HS / 8845HS</td><td>8 / 16</td><td>28,400</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>32 GB, used</h2>
+  <h3>Vinted (price includes the Vinted fee)</h3>
+  <ul class="listings">
+    <li><a class="name" href="https://www.vinted.nl/items/10742315669-mini-pc-32gb-ddr5-ryzen-7-7840hs">Mini PC, Ryzen 7 7840HS, 32 GB DDR5</a><span class="facts"><span class="price">&euro;547</span><span>score 28,400</span><span>52 per euro</span><span>brand only says "AMD": ask the maker</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10757405289-minisforum-gd90-intel-core-i9-12900hk-32gb-ddr4-512gb-ssd">Minisforum GD90, i9-12900HK, 32 GB, 512 GB</a><span class="facts"><span class="price">&euro;499</span><span>score 25,100</span><span>50 per euro</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10924239159-mini-pc-gaming-rayzen-9-6900hx-1t-35gb-ddr5">Mini PC, Ryzen 9 6900HX, "35 GB" DDR5, 1 TB</a><span class="facts"><span class="price">&euro;484</span><span>score 24,100</span><span>50 per euro</span><span>35 GB is surely 32 GB: check</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10495600017-mini-pc-dell-optiplex-3070-intel-core-i5-9500t-ram-32-gb-1tb-nvme-windows-linux-or-proxmox">Dell OptiPlex 3070 Micro, i5-9500T, 32 GB, 1 TB</a><span class="facts"><span class="price">&euro;420</span><span>score 8,100</span><span>19 per euro</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10926639470-beelink-se5-max-mini-pc-ryzen-7-7735u-32gb-ram-ssd-1-teb">Beelink SE5 Max, Ryzen 7 7735U, 32 GB, 1 TB</a><span class="facts"><span class="price">&euro;526</span><span>score not looked up</span></span></li>
+  </ul>
+  <h3>Marktplaats</h3>
+  <ul class="listings">
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2440975072-minisforum-um690s-ryzen-9-6900hx-32gb-ram-1tb-ssd">Minisforum UM690S, Ryzen 9 6900HX, 32 GB, 1 TB</a><span class="facts"><span class="price">bids from &euro;500</span><span>score 24,100</span><span>48 per euro</span></span></li>
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2386658338-minis-forum-hm90-mini-pc-amd-ryzen-9-4900h-32-512">Minisforum HM90, Ryzen 9 4900H, 32 GB, 512 GB</a><span class="facts"><span class="price">&euro;399</span><span>score about 18,900</span><span>47 per euro</span></span></li>
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2465496294-minisforum-un1265-intel-core-i7-12650h-32gb-1tb">Minisforum UN1265, i7-12650H, 32 GB, 1 TB</a><span class="facts"><span class="price">&euro;465</span><span>score 21,300</span><span>46 per euro</span></span></li>
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2462691514-hp-prodesk-400-g4-dm-i5-8500t-32gb-ram-512gb-ssd">HP ProDesk 400 G4 DM, i5-8500T, 32 GB, 512 GB</a><span class="facts"><span class="price">bids from &euro;300</span><span>score 7,700</span><span>26 per euro</span></span></li>
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2462987963-dell-optiplex-3080-mff-i5-10500t-32gb-ram-2tb-ssd">Dell OptiPlex 3080 MFF, i5-10500T, 32 GB, 2 TB</a><span class="facts"><span class="price">bids from &euro;500</span><span>score 10,200</span><span>20 per euro</span></span></li>
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2462886879-lenovo-thinkcentre-i7-14700t-32gb-m70q-gen-5-mini-desktop">Lenovo M70q Gen 5, i7-14700T, 32 GB</a><span class="facts"><span class="price">&euro;647</span><span>score not found</span></span></li>
+  </ul>
+  <h3>Barebones to fill yourself (need DDR5)</h3>
+  <ul class="listings">
+    <li><a class="name" href="https://www.vinted.nl/items/10841572556-new-chuwi-aubox-mini-pc-amd-ryzen-7-8745hs-radeon-780m-barebone-oculink">Chuwi AuBox, Ryzen 7 8745HS, barebone</a><span class="facts"><span class="price">&euro;279</span><span>score about 28,500</span><span>plus DDR5: total &euro;450 to &euro;550</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10476355639-mini-pc-ryzen-7-8745hs-firebat-mn56">Firebat MN56, Ryzen 7 8745HS</a><span class="facts"><span class="price">&euro;275</span><span>memory not stated</span></span></li>
+  </ul>
+
+  <h2>32 GB, new</h2>
+  <ul class="listings">
+    <li><span class="name">Minisforum UM790 Pro, Ryzen 9 7940HS, 32 GB, 1 TB</span><span class="facts"><span class="price">&euro;529 to &euro;629</span><span>about as fast as the 7840HS</span><span>price from a Dutch buying guide, check the store</span></span></li>
+    <li><a class="name" href="https://www.bestbuy.com/product/beelink-ser8-mini-pc-with-amd-ryzen-7-8845hs-32gb-ddr5-ram-1tbb-ssd-win-11-pro-pre-installed-frost-silver/J3GW9S8P3H">Beelink SER8, Ryzen 7 8845HS, 32 GB, 1 TB, two 2.5 GbE ports</a><span class="facts"><span class="price">&euro;599 to &euro;699</span><span>score 28,400</span></span></li>
+    <li><a class="name" href="https://de.gmktec.com/en/products/gmktec-nucbox-m5-plus-amd-ryzen-7-5825u-mini-pc">GMKtec NucBox M5 Plus, Ryzen 7 5825U, 32 GB, 1 TB</a><span class="facts"><span class="price">&euro;409.99, out of stock</span><span>score 17,800</span><span>barebone &euro;259.99 has no memory and no SSD</span></span></li>
+    <li><span class="name">GMKtec K9, Core Ultra 9 185H, 32 GB, 1 TB</span><span class="facts"><span class="price">&euro;649 to &euro;749</span><span>score not looked up</span></span></li>
+  </ul>
+  <p class="note">The GMKtec &euro;259.99 is the barebone. With 2&times;16 GB DDR4 (&euro;80 to &euro;120) and an SSD it lands at &euro;380 to &euro;450, the same as the ready-made 32 GB version. The <code>clearance30</code> code only applies to the 16 GB / 512 GB version.</p>
+
+  <h2>16 GB, used (earlier round)</h2>
+  <h3>Vinted</h3>
+  <ul class="listings">
+    <li><a class="name" href="https://www.vinted.nl/items/10926402285-lenovo-thinkcentre-m75q-gen-2">Lenovo M75q Gen 2, Ryzen 3 PRO 5350GE, 16 GB, 256 GB</a><span class="facts"><span class="price">&euro;242</span><span>score 12,600</span><span>52 per euro</span><span>to 32 GB: add one stick if it is 1&times;16 GB, about &euro;300 total</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10643697533-lenovo-thinkcentre-m75q-gen-2">Lenovo M75q Gen 2, 5350GE, 16 GB, 932 GB</a><span class="facts"><span class="price">&euro;300</span><span>score 12,600</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10817578193-dell-optiplex-3070-micro-intel-i7-9700t-16-go-ram-2x8-go-ssd-128-go">Dell OptiPlex 3070 Micro, i7-9700T, 16 GB (2&times;8), 128 GB</a><span class="facts"><span class="price">&euro;211</span><span>score 10,500</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10829253566-hp-prodesk-400-g6-mini-pc-i5-10500t-16-gb-ram-256-gb-windows-11-pro">HP ProDesk 400 G6 Mini, i5-10500T, 16 GB, 256 GB</a><span class="facts"><span class="price">&euro;289</span><span>score 10,200</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10899190093-mini-pc-hp-prodesk-400-g4-i5-8500t-16-496-gb">HP ProDesk 400 G4 Mini, i5-8500T, 16 GB, 496 GB</a><span class="facts"><span class="price">&euro;205</span><span>score 7,700</span></span></li>
+    <li><a class="name" href="https://www.vinted.nl/items/10791130761-mini-pc-lenovo-thinkcentre-m720q-i5-8500t-16gb-ram-256gb-ssd-win-11-office-2024">Lenovo M720q, i5-8500T, 16 GB, 256 GB</a><span class="facts"><span class="price">&euro;241</span><span>score 7,700</span></span></li>
+  </ul>
+  <h3>Marktplaats</h3>
+  <ul class="listings">
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2460499123-hp-elitedesk-805-g6-ryzen-5-4650ge-16gb-ddr4-256gb-ssd">HP EliteDesk 805 G6 Mini, Ryzen 5 4650GE, 16 GB, 256 GB</a><span class="facts"><span class="price">&euro;315</span><span>score 15,300</span><span>49 per euro</span></span></li>
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2434855592-hp-prodesk-400-g6-mini-i5-10500t-256gb-16gb-w11pro-wifi">HP ProDesk 400 G6 Mini, i5-10500T, 16 GB, 256 GB, with adapter</a><span class="facts"><span class="price">bids from &euro;275</span><span>score 10,200</span></span></li>
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2467693268-4x-dell-optiplex-3080-micro-intel-i5-10500t-16gb-ram-256gb">Dell OptiPlex 3080 Micro, i5-10500T, 16 GB, 256 GB (4 in stock)</a><span class="facts"><span class="price">&euro;280</span><span>score 10,200</span></span></li>
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/m2422536599-hp-elitedesk-705-g5-mini-ryzen-5-pro-3400-16gb-256gb-w11">HP EliteDesk 705 G5 Mini, Ryzen 5 PRO 3400, 16 GB, 256 GB</a><span class="facts"><span class="price">bids from &euro;165</span><span>score about 7,800</span></span></li>
+    <li><a class="name" href="https://www.marktplaats.nl/v/computers-en-software/desktop-pc-s/a1491546016-hp-elitedesk-705-g4-mini-amd-ryzen-5-pro-2400ge">HP EliteDesk 705 G4 Mini, Ryzen 5 PRO 2400GE, 16 GB</a><span class="facts"><span class="price">&euro;129</span><span>score about 7,800</span><span>only way under &euro;150</span></span></li>
+  </ul>
+
+  <h2>New, 16 GB</h2>
+  <ul class="listings">
+    <li><a class="name" href="https://www.bol.com/nl/nl/p/geekom-nuc-mini-pc-a5mini-pc-met-windows-11-amd-ryzen-7-5825u-desktop-pc-mini-computer-16-gb-ddr4-512-gb-ssd-met-windows-11-pro-wifi-6-hdmi-bt-5-2-pc-voor-games-en-kantoor-mini-pc-desktops-game-pc/9300000232347129/">Geekom A5, Ryzen 7 5825U, 16 GB, 512 GB (bol.com)</a><span class="facts"><span class="price">&euro;350 to &euro;440</span><span>score 17,800</span></span></li>
+    <li><a class="name" href="https://www.bol.com/nl/nl/l/mini-pc-s-met-amd-ryzen-7-ryzen-ai-7-processor/16348/75267/">Kamrui E3B, Ryzen 7 5825U (bol.com list)</a><span class="facts"><span class="price">&euro;300 to &euro;350</span><span>score 17,800</span></span></li>
+    <li><span class="name">Intel N100 starter boxes</span><span class="facts"><span class="price">about &euro;150 to &euro;200</span><span>score 5,300: weaker than the ZenBook, not an option</span></span></li>
+  </ul>
+
+  <h2>Trade-offs</h2>
+  <ul>
+    <li><strong>Business 1-liter PCs</strong> (Lenovo Tiny, Dell Micro, HP Mini) are built to run day and night and are quiet, but with 32 GB they carry old Intel chips and score poorly per euro.</li>
+    <li><strong>Consumer brands</strong> (Minisforum, GMKtec, Beelink, Geekom) give two to three times the computing power for the same money, but use laptop chips in a small box: louder under long load. Some have Realtek network cards that need extra work under Proxmox. Not checked per model yet.</li>
+  </ul>
+
+  <h2>What it will do</h2>
+  <ul>
+    <li>Becomes Proxmox node <strong>pve5</strong>. With five nodes, two may be down at once instead of one.</li>
+    <li>A virtual machine <code>ci</code> with two GitHub runners: two jobs at once, the rest waits in GitHub's own queue.</li>
+    <li>Only for private repositories. Public ones (kaartenjager, henk, goghmode) stay on GitHub's runners, so nobody can run code on the home network through a pull request.</li>
+    <li>One shared queue for all repositories needs a free GitHub organisation; with a personal account a runner belongs to one repository.</li>
+    <li>Self-hosted runners are free today; GitHub announced a fee for March 2026 and postponed it.</li>
+    <li>Later option: move the paperclip virtual machine to the new node and the runners to the ZenBook.</li>
+  </ul>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://www.cpubenchmark.net/compare/3768vs3454vs2917vs3843vs3565/Intel-i5-10500T-vs-Intel-i5-9500T-vs-Intel-i5-7500T-vs-AMD-Ryzen-5-PRO-4650GE-vs-AMD-Ryzen-5-PRO-3400GE">PassMark: i5-10500T, i5-9500T, 4650GE, 3400GE</a></li>
+    <li><a href="https://www.cpubenchmark.net/cpu.php?id=3308">PassMark: i7-8565U</a></li>
+    <li><a href="https://www.cpubenchmark.net/compare/5594vs5448vs5915vs5258vs6353/AMD-Ryzen-5-7640HS-vs-Intel-i9-13900HK-vs-AMD-Ryzen-7-8845HS-vs-AMD-Ryzen-7-7840HS-vs-AMD-Ryzen-7-8745HS">PassMark: 7840HS, 8845HS, 8745HS</a></li>
+    <li><a href="https://www.cpubenchmark.net/compare/4867vs4771/AMD-Ryzen-9-6900HX-vs-Intel-i7-12650H">PassMark: 6900HX, i7-12650H</a></li>
+    <li><a href="https://www.cpubenchmark.net/compare/4384vs3477/AMD-Ryzen-3-PRO-5350GE-vs-Intel-i7-9700">PassMark: 5350GE</a></li>
+    <li><a href="https://cpubenchmark.net/compare/4788vs5157/AMD-Ryzen-7-5825U-vs-Intel-N100">PassMark: 5825U, N100</a></li>
+    <li><a href="https://productvraag.nl/en/buying-guides/beste-mini-pc-2026">Mini PC buying guide 2026 (productvraag.nl)</a></li>
+    <li><a href="https://computingforgeeks.com/black-friday-mini-pc-homelab-deals/">Black Friday mini PC deals 2026</a></li>
+    <li><a href="https://github.blog/changelog/2025-12-16-coming-soon-simpler-pricing-and-a-better-experience-for-github-actions/">GitHub changelog on Actions pricing</a></li>
+    <li><a href="https://forum.proxmox.com/posts/873274/">Proxmox forum: Intel e1000e hang</a></li>
+  </ul>
+
+  <footer>Kept in the kaartenjager repository at <code>docs/onderzoek/mini-pcs.html</code>. Vault note: <code>Projecten/Home/Homelab/Mini-pc voor cluster en CI.md</code>.</footer>
+</main>
+</body>
+</html>
