@@ -327,8 +327,18 @@ pub fn run_round(
     match written {
         Ok(no_longer_finds) => {
             database.commit()?;
-            let pushes = decide_pushes(database, settings, now)?;
-            let pushes = deliver(database, settings, pushes, now, &mut problems)?;
+            // Een fout bij het melden mag de hartslag en het slot niet overslaan.
+            let pushes = match decide_pushes(database, settings, now) {
+                Ok(pushes) => deliver(database, settings, pushes, now, &mut problems)
+                    .unwrap_or_else(|error| {
+                        problems.push(error);
+                        Vec::new()
+                    }),
+                Err(error) => {
+                    problems.push(error);
+                    Vec::new()
+                }
+            };
             // Hoogstens één keer per uur. Bij rondes van vijf minuten zou dit anders elke
             // ronde hetzelfde bericht sturen zolang niemand de wachtrij afwerkt — precies de
             // ruis waar dit hele ontwerp vanaf moest.
@@ -667,28 +677,31 @@ pub(crate) fn deliver(
         return Ok(pushes.into_iter().filter(|candidate| candidate.level == Level::Top).collect());
     };
 
-    let mut refused = Vec::new();
+    let agent = crate::discord::agent();
     for (index, candidate) in pushes.iter().enumerate() {
         if index > 0 {
             // Discord laat een webhook ongeveer vijf berichten per twee seconden sturen.
             std::thread::sleep(Duration::from_millis(DISCORD_GAP_MS));
         }
-        match crate::discord::post(&webhook, &crate::discord::payload(candidate, settings)) {
-            Ok(()) => database.mark_pushed_at_level(
-                &candidate.key,
-                candidate.price_euros,
-                candidate.level,
-                now,
-            )?,
-            Err(reason) => refused.push(reason),
+        let stamp = || {
+            database.mark_pushed_at_level(&candidate.key, candidate.price_euros, candidate.level, now)
+        };
+        match crate::discord::post(&agent, &webhook, &crate::discord::payload(candidate, settings)) {
+            Ok(()) => stamp()?,
+            Err(crate::discord::Refusal::ThisMessage(reason)) => {
+                // Opnieuw proberen geeft elke ronde dezelfde weigering; hij staat in de app.
+                problems.push(format!("{reason}: {}. Die staat alleen in de app.", candidate.title));
+                stamp()?;
+            }
+            Err(crate::discord::Refusal::Everything(reason)) => {
+                problems.push(format!(
+                    "{reason}. {} van de {} meldingen wachten op de volgende ronde.",
+                    pushes.len() - index,
+                    pushes.len()
+                ));
+                break;
+            }
         }
-    }
-    if let Some(reason) = refused.first() {
-        problems.push(format!(
-            "{} van de {} meldingen kwamen niet aan ({reason}). De volgende ronde probeert het opnieuw.",
-            refused.len(),
-            pushes.len()
-        ));
     }
     Ok(Vec::new())
 }

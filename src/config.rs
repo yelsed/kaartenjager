@@ -450,10 +450,11 @@ pub struct Notify {
 
 impl Notify {
     pub fn webhook(&self) -> Option<String> {
+        let given = |url: &String| !url.trim().is_empty();
         std::env::var("KAARTENJAGER_DISCORD_WEBHOOK")
             .ok()
-            .or_else(|| self.discord_webhook.clone())
-            .filter(|url| !url.trim().is_empty())
+            .filter(given)
+            .or_else(|| self.discord_webhook.clone().filter(given))
     }
 }
 
@@ -762,10 +763,10 @@ impl Settings {
 
     /// Wat `check` per product zegt over melden.
     pub fn describe_notify(&self, product: &Product) -> String {
-        let has_cards = self
-            .cards
-            .iter()
-            .any(|card| card.product.clone().unwrap_or_else(|| self.card_product_id()) == product.id);
+        let has_cards = self.cards.iter().any(|card| {
+            self.product(card.product.as_deref().unwrap_or(""))
+                .is_some_and(|owner| owner.id == product.id)
+        });
         let mut parts = Vec::new();
         if product.notify {
             parts.push(if has_cards {
@@ -943,9 +944,8 @@ impl Settings {
         self.cards
             .iter()
             .filter_map(|card| {
-                let product = card.product.clone().unwrap_or_else(|| self.card_product_id());
                 let percent = self
-                    .product(&product)
+                    .product(card.product.as_deref().unwrap_or(""))
                     .and_then(|product| product.push_below_market_percent)
                     .unwrap_or(percent);
                 let push_below = card.used_price_low * (1.0 - percent / 100.0);

@@ -486,7 +486,7 @@ fn command_check(arguments: &Arguments) -> ExitCode {
         println!("  browser            {browser_line}");
     }
     println!(
-        "  uitschieter        meer dan {:.0}% onder de markt gaat naar Discord, \
+        "  uitschieter        meer dan {:.0}% onder de markt gaat naar Discord (of de drempel van het product), \
          behalve onder suspicious_below",
         settings.notify.push_below_market_percent
     );

@@ -168,8 +168,18 @@ INSERT INTO app_state (name, value) VALUES ('terms_from_legacy', '1')
 
 /// Van schema 3 naar 4: met welk niveau een vondst gestempeld werd, zodat een goede deal die
 /// topvondst wordt alsnog luid meldt. Oude stempels zijn van topvondsten, dus NULL telt als top.
+///
+/// Wat nog geen stempel had krijgt er nu een. Tot schema 4 kwamen goede deals nooit in Discord,
+/// en zonder stempel zou de eerste ronde met `notify_deals` de hele achterstand posten.
 const MIGRATION_3_TO_4: &str = r#"
 ALTER TABLE finding ADD COLUMN pushed_level TEXT;
+
+UPDATE finding
+   SET pushed_at = CAST(strftime('%s', 'now') AS INTEGER),
+       pushed_at_price = (SELECT price_cents FROM sighting s WHERE s.key = finding.key
+                          ORDER BY s.seen_at DESC LIMIT 1),
+       pushed_level = level
+ WHERE pushed_at IS NULL;
 "#;
 
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
@@ -856,6 +866,9 @@ impl Database {
                 (Some(_), Some(was)) => to_cents(candidate.price_euros) as f64 <= was as f64 * 0.9,
                 (Some(_), None) => false,
             } || (pushed_at.is_some() && pushed_level == "deal" && candidate.level == Level::Top);
+            // Als topvondst gemeld en nu een goede deal: de eigenaar weet het al.
+            let worth_repeating = worth_repeating
+                && !(pushed_at.is_some() && pushed_level == "top" && candidate.level == Level::Deal);
             if worth_repeating {
                 candidates.push(candidate);
             }

@@ -80,18 +80,30 @@ Release-branch: `release/widening`. Elke taak een eigen `feature/widening-<n>`.
 
 ### Checklist (elke regel heeft een controle in `kaartenjager selftest` of in `app/smoke.sh`)
 
-- [ ] Met een webhook gaat een topvondst als bericht met vermelding naar de webhook, en de ronde
+- [x] Met een webhook gaat een topvondst als bericht met vermelding naar de webhook, en de ronde
       drukt hem niet meer af
-- [ ] Een goede deal van een product met `notify_deals` gaat stil naar de webhook (vlag 4096),
+- [x] Een goede deal van een product met `notify_deals` gaat stil naar de webhook (vlag 4096),
       zonder vermelding
-- [ ] Een goede deal van een product zonder `notify_deals` gaat nergens heen
-- [ ] Zonder webhook drukt de ronde de topvondsten af zoals voorheen
-- [ ] Een mislukte webhook laat de vondst ongemeld, zodat de volgende ronde het opnieuw probeert
-- [ ] `push_below_market_percent` op een product gaat voor op die in `[notify]`
-- [ ] `check` toont per product of en hoe het meldt
-- [ ] Een ronde schrijft `last_round_seconds`, en de app waarschuwt als die over het budget gaat
-- [ ] Rondeduur gemeten voor en na Widening 1 en 2, met de uitkomst in dit document
+- [x] Een goede deal van een product zonder `notify_deals` gaat nergens heen
+- [x] Zonder webhook drukt de ronde de topvondsten af zoals voorheen
+- [x] Een mislukte webhook laat de vondst ongemeld, zodat de volgende ronde het opnieuw probeert
+- [x] `push_below_market_percent` op een product gaat voor op die in `[notify]`
+- [x] `check` toont per product of en hoe het meldt
+- [x] Een ronde schrijft `last_round_seconds`, en de app waarschuwt als die over het budget gaat
+- [x] Rondeduur gemeten, met de uitkomst in dit document (hieronder)
+- [x] Een goede deal die topvondst wordt meldt alsnog luid; een gemelde topvondst komt niet
+      terug als goede deal
+- [x] Na de overgang naar schema 4 komt de oude achterstand niet in Discord
 - [ ] Op de telefoon van de eigenaar getest: een topvondst trilt, een deal niet
+
+### Gemeten
+
+Een proefronde (`run --dry-run`) vanaf omarchy op 23 november 2026 met de voorbeeldconfiguratie,
+18 zoektermen over beide bronnen: **76 seconden**. Het budget bij rondes van vijf minuten is
+150 seconden. Vinted gaf vanaf omarchy geen resultaten ("geen enkel bekend anker op de pagina"),
+dus een ronde op de server met een werkende Vinted duurt langer; de app meet het daar vanaf nu
+elke ronde. Een meting van voor de verbreding bestaat niet: tot nu toe werd de duur nergens
+vastgelegd.
 
 ### Wat het niet doet
 

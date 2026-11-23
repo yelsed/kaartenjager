@@ -229,6 +229,8 @@ pub fn run() -> bool {
         ("zonder webhook drukt de ronde alleen topvondsten af", check_without_webhook_prints_tops),
         ("een product kiest zijn eigen drempel", check_product_threshold),
         ("een goede deal die topvondst wordt meldt alsnog", check_deal_that_becomes_top_is_loud),
+        ("na de overgang naar schema 4 komt de achterstand niet in Discord", check_upgrade_stamps_backlog),
+        ("een lege KAARTENJAGER_DISCORD_WEBHOOK verbergt de configuratie niet", check_empty_webhook_variable),
         ("check zegt per product hoe het meldt", check_notify_summary),
         ("een ronde schrijft hoe lang hij duurde", check_round_duration_recorded),
         ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
@@ -2947,6 +2949,19 @@ fn check_deal_that_becomes_top_is_loud(_settings: &Settings) -> Result<(), Strin
     if pushes.len() != 1 || pushes[0].level != crate::listing::Level::Top {
         return Err("een deal die topvondst werd hoort alsnog te melden".into());
     }
+    crate::hunt::deliver(&database, &settings, pushes, now + 300, &mut Vec::new())?;
+
+    // Daarna weer een goede deal, ook nog tien procent lager: geen tweede, stil bericht.
+    let mut quiet_deals = settings.clone();
+    quiet_deals.products.iter_mut().for_each(|product| product.notify_deals = true);
+    let mut back = table.judge(&top).ok_or("de 3090 werd geen vondst")?;
+    back.level = crate::listing::Level::Deal;
+    back.listing.price_euros = 430.0;
+    back.listing.asking_price_euros = 430.0;
+    store(&database, &back, now + 600)?;
+    if !crate::hunt::decide_pushes(&database, &quiet_deals, now + 600)?.is_empty() {
+        return Err("een als topvondst gemelde advertentie hoort niet terug te komen als goede deal".into());
+    }
     Ok(())
 }
 
@@ -2977,6 +2992,27 @@ fn check_round_duration_recorded(settings: &Settings) -> Result<(), String> {
     crate::hunt::record_heartbeat(&database, settings, 1_000, Duration::from_secs(48), &[]);
     if database.state("last_round_seconds").as_deref() != Some("48") {
         return Err(format!("verwacht 48 seconden, kreeg {:?}", database.state("last_round_seconds")));
+    }
+    Ok(())
+}
+
+fn check_upgrade_stamps_backlog(_settings: &Settings) -> Result<(), String> {
+    let (_directory, path) = old_database("schema-4-achterstand")?;
+    let database = Database::open(&path)?;
+    if !database.findings_to_push()?.is_empty() {
+        return Err("een vondst van voor schema 4 hoort na de overgang gestempeld te zijn".into());
+    }
+    Ok(())
+}
+
+fn check_empty_webhook_variable(_settings: &Settings) -> Result<(), String> {
+    let mut notify = crate::config::Notify::default();
+    notify.discord_webhook = Some("https://discord.invalid/api/webhooks/1/x".to_string());
+    std::env::set_var("KAARTENJAGER_DISCORD_WEBHOOK", "");
+    let found = notify.webhook();
+    std::env::remove_var("KAARTENJAGER_DISCORD_WEBHOOK");
+    if found.as_deref() != Some("https://discord.invalid/api/webhooks/1/x") {
+        return Err(format!("met een lege variabele hoort de webhook uit de configuratie te gelden, kreeg {found:?}"));
     }
     Ok(())
 }

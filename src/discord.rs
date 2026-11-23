@@ -11,7 +11,7 @@ use std::time::Duration;
 const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
 
 pub fn payload(candidate: &PushCandidate, settings: &Settings) -> Value {
-    let mention = settings.notify.mention_user_id.as_deref().filter(|id| !id.trim().is_empty());
+    let mention = settings.notify.mention_user_id.as_deref();
     let loud = candidate.level == Level::Top;
     let content = report::render_push(candidate, settings, if loud { mention } else { None });
     let mut body = json!({
@@ -26,11 +26,22 @@ pub fn payload(candidate: &PushCandidate, settings: &Settings) -> Value {
     body
 }
 
-pub fn post(webhook: &str, body: &Value) -> Result<(), String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+/// Waarom een bericht niet aankwam, en wat dat zegt over de rest van de ronde.
+pub enum Refusal {
+    /// Discord weigerde dit ene bericht (400). Opnieuw proberen geeft hetzelfde antwoord.
+    ThisMessage(String),
+    /// De webhook, het netwerk of Discords tempo: de rest van de ronde lukt ook niet.
+    Everything(String),
+}
+
+pub fn agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(15)))
         .build()
-        .into();
+        .into()
+}
+
+pub fn post(agent: &ureq::Agent, webhook: &str, body: &Value) -> Result<(), Refusal> {
     agent
         .post(webhook)
         .content_type("application/json")
@@ -38,8 +49,13 @@ pub fn post(webhook: &str, body: &Value) -> Result<(), String> {
         .map(|_| ())
         // Zonder de foutmelding zelf: die kan de webhook-URL bevatten, en daarin staat het geheim.
         .map_err(|error| match error {
-            ureq::Error::StatusCode(code) => format!("Discord antwoordde {code}"),
-            ureq::Error::Timeout(_) => "Discord antwoordde niet op tijd".to_string(),
-            _ => "Discord was niet bereikbaar".to_string(),
+            ureq::Error::StatusCode(400) => {
+                Refusal::ThisMessage("Discord weigerde een bericht (400)".to_string())
+            }
+            ureq::Error::StatusCode(code) => Refusal::Everything(format!("Discord antwoordde {code}")),
+            ureq::Error::Timeout(_) => {
+                Refusal::Everything("Discord antwoordde niet op tijd".to_string())
+            }
+            _ => Refusal::Everything("Discord was niet bereikbaar".to_string()),
         })
 }
