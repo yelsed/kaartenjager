@@ -616,24 +616,16 @@ fn rejudge_at_new_price(
     Ok(())
 }
 
-/// Wat er van de nog niet gemelde vondsten de deur uit mag. Een kaart is een topvondst vanaf de
-/// drempel van zijn product; een onderdeel heeft zijn niveau al. Wat blijft liggen krijgt hier
-/// zijn stempel, wat mag gaan pas als het afgeleverd is (`deliver`).
+/// Wat er van de nog niet gemelde vondsten de deur uit mag. Het niveau komt uit de prijstabel,
+/// die de drempel van het product al toepaste. Wat blijft liggen krijgt hier zijn stempel, wat
+/// mag gaan pas als het afgeleverd is (`deliver`).
 pub(crate) fn decide_pushes(
     database: &Database,
     settings: &Settings,
     now: i64,
 ) -> Result<Vec<PushCandidate>, String> {
     let mut worth_telling = Vec::new();
-    for mut candidate in database.findings_to_push()? {
-        if !candidate.is_part {
-            let threshold = settings.push_percent_for(&candidate.product);
-            candidate.level = if candidate.percent_under_market >= threshold {
-                Level::Top
-            } else {
-                Level::Deal
-            };
-        }
+    for candidate in database.findings_to_push()? {
         let product_wants_it = match candidate.level {
             Level::Top => settings.product_notifies(&candidate.product),
             Level::Deal => settings.product_notifies_deals(&candidate.product),
@@ -647,7 +639,7 @@ pub(crate) fn decide_pushes(
         {
             worth_telling.push(candidate);
         } else {
-            database.mark_pushed(&candidate.key, candidate.price_euros, now)?;
+            database.mark_pushed_at_level(&candidate.key, candidate.price_euros, candidate.level, now)?;
         }
     }
     Ok(worth_telling)
@@ -659,6 +651,8 @@ pub(crate) fn decide_pushes(
 /// niet aannam houdt geen stempel, zodat de volgende ronde het opnieuw probeert. Zonder webhook
 /// drukt de ronde de topvondsten af voor Hermes; een goede deal kan die route niet stil sturen,
 /// dus die blijft in de app.
+const DISCORD_GAP_MS: u64 = 450;
+
 pub(crate) fn deliver(
     database: &Database,
     settings: &Settings,
@@ -668,20 +662,33 @@ pub(crate) fn deliver(
 ) -> Result<Vec<PushCandidate>, String> {
     let Some(webhook) = settings.notify.webhook() else {
         for candidate in &pushes {
-            database.mark_pushed(&candidate.key, candidate.price_euros, now)?;
+            database.mark_pushed_at_level(&candidate.key, candidate.price_euros, candidate.level, now)?;
         }
         return Ok(pushes.into_iter().filter(|candidate| candidate.level == Level::Top).collect());
     };
 
-    for candidate in &pushes {
-        match crate::discord::post(&webhook, &crate::discord::payload(candidate, settings)) {
-            Ok(()) => database.mark_pushed(&candidate.key, candidate.price_euros, now)?,
-            Err(reason) => {
-                // Faalt er een, dan faalt de rest ook; één regel in de app is genoeg.
-                problems.push(format!("{reason}. De volgende ronde probeert het opnieuw."));
-                break;
-            }
+    let mut refused = Vec::new();
+    for (index, candidate) in pushes.iter().enumerate() {
+        if index > 0 {
+            // Discord laat een webhook ongeveer vijf berichten per twee seconden sturen.
+            std::thread::sleep(Duration::from_millis(DISCORD_GAP_MS));
         }
+        match crate::discord::post(&webhook, &crate::discord::payload(candidate, settings)) {
+            Ok(()) => database.mark_pushed_at_level(
+                &candidate.key,
+                candidate.price_euros,
+                candidate.level,
+                now,
+            )?,
+            Err(reason) => refused.push(reason),
+        }
+    }
+    if let Some(reason) = refused.first() {
+        problems.push(format!(
+            "{} van de {} meldingen kwamen niet aan ({reason}). De volgende ronde probeert het opnieuw.",
+            refused.len(),
+            pushes.len()
+        ));
     }
     Ok(Vec::new())
 }

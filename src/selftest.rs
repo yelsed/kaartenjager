@@ -228,6 +228,7 @@ pub fn run() -> bool {
         ("een mislukte webhook laat de vondst ongemeld", check_webhook_failure_keeps_finding),
         ("zonder webhook drukt de ronde alleen topvondsten af", check_without_webhook_prints_tops),
         ("een product kiest zijn eigen drempel", check_product_threshold),
+        ("een goede deal die topvondst wordt meldt alsnog", check_deal_that_becomes_top_is_loud),
         ("check zegt per product hoe het meldt", check_notify_summary),
         ("een ronde schrijft hoe lang hij duurde", check_round_duration_recorded),
         ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
@@ -1300,7 +1301,9 @@ fn check_gone_needs_two_checks(_settings: &Settings) -> Result<(), String> {
 fn check_push_threshold(settings: &Settings) -> Result<(), String> {
     let (database, directory) = scratch_database("drempel")?;
 
-    store(&database, &sample_finding("6", 1260.0, 30.0), 1_000)?;
+    let mut deal = sample_finding("6", 1260.0, 30.0);
+    deal.level = crate::listing::Level::Deal;
+    store(&database, &deal, 1_000)?;
     if !crate::hunt::decide_pushes(&database, settings, 1_000)?.is_empty() {
         return Err("30% onder de markt hoort bij een grens van 35% stil te blijven".into());
     }
@@ -2727,10 +2730,20 @@ fn local_webhook(expected: usize) -> Result<(String, std::thread::JoinHandle<Vec
     use std::io::{BufRead, BufReader, Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
     let address = listener.local_addr().map_err(|error| error.to_string())?;
+    listener.set_nonblocking(true).map_err(|error| error.to_string())?;
     let handle = std::thread::spawn(move || {
         let mut bodies = Vec::new();
-        for stream in listener.incoming().take(expected) {
-            let Ok(mut stream) = stream else { break };
+        // Komen er minder berichten dan verwacht, dan faalt de controle in plaats van te hangen.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while bodies.len() < expected && std::time::Instant::now() < deadline {
+            let mut stream = match listener.accept() {
+                Ok((stream, _)) => stream,
+                Err(_) => {
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+            };
+            let _ = stream.set_nonblocking(false);
             let mut reader = BufReader::new(stream.try_clone().expect("stream"));
             let mut length = 0;
             loop {
@@ -2744,7 +2757,10 @@ fn local_webhook(expected: usize) -> Result<(String, std::thread::JoinHandle<Vec
             }
             let mut body = vec![0; length];
             let _ = reader.read_exact(&mut body);
-            bodies.push(serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null));
+            // Alleen echte berichten tellen; een lege verbinding hoort niet bij de verwachte.
+            if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body) {
+                bodies.push(value);
+            }
             let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         }
         bodies
@@ -2870,32 +2886,66 @@ fn check_product_threshold(_settings: &Settings) -> Result<(), String> {
     if settings.push_percent_for("videokaarten") != settings.notify.push_below_market_percent {
         return Err("zonder eigen drempel hoort [notify] te gelden".into());
     }
+    let listing = Listing {
+        title: "RTX 3090 24GB".to_string(),
+        ..sample_listing("41", 525.0)
+    };
+    let before = PriceTable::new(&settings).judge(&listing).ok_or("de 3090 werd geen vondst")?;
+    if before.level != crate::listing::Level::Deal {
+        return Err("30% onder de markt hoort bij de drempel uit [notify] (35%) een goede deal te zijn".into());
+    }
+
     settings.products.iter_mut().for_each(|product| {
         if product.id == "videokaarten" {
             product.push_below_market_percent = Some(25.0);
         }
     });
+    let judged = PriceTable::new(&settings).judge(&listing).ok_or("de 3090 werd geen vondst")?;
+    if judged.level != crate::listing::Level::Top {
+        return Err(format!("bij een productdrempel van 25% hoort 30% een topvondst te zijn, gaf {:?}", judged.level));
+    }
     let (database, _directory) = scratch_database("drempel-per-product")?;
     let now = 1_790_000_000;
     database.sync_products(&settings, now)?;
-    let mut finding = sample_finding("40", 525.0, 30.0);
-    finding.matched_as = "RTX 3090".to_string();
-    store(&database, &finding, now)?;
-    let pushes = crate::hunt::decide_pushes(&database, &settings, now)?;
-    if pushes.len() != 1 || pushes[0].level != crate::listing::Level::Top {
-        return Err("30% onder de markt hoort bij een productdrempel van 25% een topvondst te zijn".into());
+    store(&database, &judged, now)?;
+    if crate::hunt::decide_pushes(&database, &settings, now)?.len() != 1 {
+        return Err("de topvondst volgens de productdrempel hoort te melden".into());
     }
 
+    let mut wrong = settings.clone();
+    wrong.products.iter_mut().for_each(|product| product.push_below_market_percent = Some(350.0));
+    if wrong.validate().is_ok() {
+        return Err("een drempel van 350% hoort geweigerd te worden".into());
+    }
+    let mut wrong = settings.clone();
+    wrong.notify.mention_user_id = Some("@me".to_string());
+    if wrong.validate().is_ok() {
+        return Err("een mention_user_id die geen getal is hoort geweigerd te worden".into());
+    }
+    Ok(())
+}
+
+/// Een goede deal die stil ging en daarna een beetje zakt tot topvondst, meldt alsnog luid.
+fn check_deal_that_becomes_top_is_loud(_settings: &Settings) -> Result<(), String> {
+    std::env::remove_var("KAARTENJAGER_DISCORD_WEBHOOK");
+    let settings = product_settings()?;
     let table = PriceTable::new(&settings);
-    let listing = Listing {
-        title: "RTX 3090 24GB".to_string(),
-        price_euros: 525.0,
-        asking_price_euros: 525.0,
-        ..sample_listing("41", 525.0)
-    };
-    let judged = table.judge(&listing).ok_or("de 3090 werd geen vondst")?;
-    if judged.level != crate::listing::Level::Top {
-        return Err(format!("de prijstabel hoort de productdrempel te gebruiken, gaf {:?}", judged.level));
+    let (database, _directory) = scratch_database("deal-wordt-top")?;
+    let now = 1_790_000_000;
+    database.sync_products(&settings, now)?;
+
+    let deal = Listing { title: "RTX 3090 24GB".to_string(), ..sample_listing("50", 525.0) };
+    store_judged(&database, &table, &deal, now)?;
+    if !crate::hunt::decide_pushes(&database, &settings, now)?.is_empty() {
+        return Err("een goede deal van een product zonder notify_deals hoort stil te blijven".into());
+    }
+
+    // Acht procent lager, dus geen tien, maar op 485 euro is hij 35% onder de markt: topvondst.
+    let top = Listing { title: "RTX 3090 24GB".to_string(), ..sample_listing("50", 485.0) };
+    store_judged(&database, &table, &top, now + 300)?;
+    let pushes = crate::hunt::decide_pushes(&database, &settings, now + 300)?;
+    if pushes.len() != 1 || pushes[0].level != crate::listing::Level::Top {
+        return Err("een deal die topvondst werd hoort alsnog te melden".into());
     }
     Ok(())
 }

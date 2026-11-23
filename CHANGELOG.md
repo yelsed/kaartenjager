@@ -10,7 +10,7 @@
   `show_without_distance` als goede deal met het label "afstand onbekend".
 - De app: een keuzebalk per product in de inbox, een pagina Producten om producten aan en uit
   te zetten, zoektermen per product (`docs/decisions/0003`).
-- Schema 3 (`docs/database.md`). Het programma migreert zelf; **werk de app tegelijk bij**,
+- Schema 3, en met de meldingen schema 4 (`docs/database.md`). Het programma migreert zelf; **werk de app tegelijk bij**,
   want de app weigert een schema dat hij niet kent.
 - Meldingen via een eigen Discord-webhook (`[notify] discord_webhook`): topvondsten noemen je
   (`mention_user_id`) zodat je telefoon trilt, goede deals van een product met `notify_deals`

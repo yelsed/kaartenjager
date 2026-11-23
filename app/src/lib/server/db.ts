@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { env } from '$env/dynamic/private';
 
 /** Het schema waar deze app op gebouwd is. Zie PRAGMA user_version in het programma. */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /** Onder deze fractie van de archiefprijs komt een advertentie terug in de inbox. */
 const RETURN_FROM_ARCHIVE_AT = 0.9;
@@ -241,7 +241,8 @@ export function heartbeat(): Heartbeat {
 		withinDayWindow && (lastRoundAt === null || nowSeconds() - lastRoundAt > allowed);
 
 	const rawSeconds = readState('last_round_seconds');
-	const lastRoundSeconds = rawSeconds === null ? null : Number(rawSeconds);
+	const parsedSeconds = rawSeconds === null || rawSeconds === '' ? NaN : Number(rawSeconds);
+	const lastRoundSeconds = Number.isFinite(parsedSeconds) ? parsedSeconds : null;
 	const roundBudgetSeconds = gap ? Math.round(gap / 2) : null;
 	const overBudget =
 		lastRoundSeconds !== null && roundBudgetSeconds !== null && lastRoundSeconds > roundBudgetSeconds;

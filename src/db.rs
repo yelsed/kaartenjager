@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// Opgehoogd bij elke schemawijziging. De Svelte-app controleert dit bij het starten en
 /// weigert bij een versie die hij niet kent, in plaats van half te werken op een schema dat
 /// hij verkeerd begrijpt.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA: &str = r#"
 CREATE TABLE listing (
@@ -68,7 +68,8 @@ CREATE TABLE finding (
   still_a_find         INTEGER NOT NULL DEFAULT 1,
   left_find_at_price   INTEGER,
   pushed_at            INTEGER,
-  pushed_at_price      INTEGER
+  pushed_at_price      INTEGER,
+  pushed_level         TEXT                  -- top | deal: wat hij was toen hij zijn stempel kreeg
 );
 
 CREATE TABLE decision (
@@ -163,6 +164,12 @@ CREATE TABLE product (
 
 INSERT INTO app_state (name, value) VALUES ('terms_from_legacy', '1')
   ON CONFLICT(name) DO NOTHING;
+"#;
+
+/// Van schema 3 naar 4: met welk niveau een vondst gestempeld werd, zodat een goede deal die
+/// topvondst wordt alsnog luid meldt. Oude stempels zijn van topvondsten, dus NULL telt als top.
+const MIGRATION_3_TO_4: &str = r#"
+ALTER TABLE finding ADD COLUMN pushed_level TEXT;
 "#;
 
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
@@ -260,10 +267,10 @@ impl Database {
         } else if version < SCHEMA_VERSION {
             // In één transactie, zodat een halve migratie geen database achterlaat die
             // nergens meer op lijkt.
-            let steps = if version == 1 {
-                format!("{MIGRATION_1_TO_2} {MIGRATION_2_TO_3}")
-            } else {
-                MIGRATION_2_TO_3.to_string()
+            let steps = match version {
+                1 => format!("{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4}"),
+                2 => format!("{MIGRATION_2_TO_3} {MIGRATION_3_TO_4}"),
+                _ => MIGRATION_3_TO_4.to_string(),
             };
             connection
                 .execute_batch(&format!(
@@ -792,10 +799,8 @@ impl Database {
 
     // --------------------------------------------------------------- Discord
 
-    /// Uitschieters die nog niet gemeld zijn, of die sinds de melding nog eens tien procent
-    /// zakten. Eén bericht per advertentie, niet per ronde.
-    /// Elke vondst die nog niet gemeld is, topvondst of goede deal. Wat er werkelijk heen gaat
-    /// beslist `hunt::decide_pushes`, want de drempel hangt aan het product.
+    /// Elke vondst die nog niet gemeld is, of sindsdien nog eens tien procent zakte, of van goede
+    /// deal topvondst werd. Wat er werkelijk heen gaat beslist `hunt::decide_pushes`.
     pub fn findings_to_push(&self) -> Result<Vec<PushCandidate>, String> {
         let mut statement = self
             .connection
@@ -804,7 +809,8 @@ impl Database {
                         f.pushed_at_price, l.title, l.url, l.source, l.delivery,
                         (SELECT price_cents FROM sighting p WHERE p.key = f.key
                          ORDER BY p.seen_at DESC LIMIT 1) AS price_cents,
-                        f.kind, COALESCE(f.product, ''), f.level, f.warnings
+                        f.kind, COALESCE(f.product, ''), f.level, f.warnings,
+                        COALESCE(f.pushed_level, 'top')
                  FROM finding f
                  JOIN listing l ON l.key = f.key
                  WHERE f.still_a_find = 1
@@ -835,20 +841,21 @@ impl Database {
                     },
                     pushed_at,
                     pushed_price,
+                    row.get::<_, String>(14)?,
                 ))
             })
             .map_err(|error| format!("Uitschieters niet te lezen: {error}"))?;
 
         let mut candidates = Vec::new();
         for row in rows {
-            let (candidate, pushed_at, pushed_price) =
+            let (candidate, pushed_at, pushed_price, pushed_level) =
                 row.map_err(|error| format!("Uitschieters niet te lezen: {error}"))?;
             let worth_repeating = match (pushed_at, pushed_price) {
                 (None, _) => true,
                 // Nog eens tien procent lager dan bij de vorige melding is echt nieuws.
                 (Some(_), Some(was)) => to_cents(candidate.price_euros) as f64 <= was as f64 * 0.9,
                 (Some(_), None) => false,
-            };
+            } || (pushed_at.is_some() && pushed_level == "deal" && candidate.level == Level::Top);
             if worth_repeating {
                 candidates.push(candidate);
             }
@@ -857,10 +864,21 @@ impl Database {
     }
 
     pub fn mark_pushed(&self, key: &str, price_euros: f64, now: i64) -> Result<(), String> {
+        self.mark_pushed_at_level(key, price_euros, Level::Top, now)
+    }
+
+    pub fn mark_pushed_at_level(
+        &self,
+        key: &str,
+        price_euros: f64,
+        level: Level,
+        now: i64,
+    ) -> Result<(), String> {
         self.connection
             .execute(
-                "UPDATE finding SET pushed_at = ?2, pushed_at_price = ?3 WHERE key = ?1",
-                params![key, now, to_cents(price_euros)],
+                "UPDATE finding SET pushed_at = ?2, pushed_at_price = ?3, pushed_level = ?4
+                 WHERE key = ?1",
+                params![key, now, to_cents(price_euros), level.name()],
             )
             .map(|_| ())
             .map_err(|error| format!("Melding van {key} niet vast te leggen: {error}"))

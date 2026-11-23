@@ -829,6 +829,26 @@ impl Settings {
             ));
         }
 
+        for product in &self.products {
+            if let Some(percent) = product.push_below_market_percent {
+                if !(0.0..100.0).contains(&percent) {
+                    return Err(ConfigError::Rejected(format!(
+                        "Product \"{}\": push_below_market_percent ({percent}) moet tussen 0 en 100 \
+                         liggen.",
+                        product.name
+                    )));
+                }
+            }
+        }
+        if let Some(user) = &self.notify.mention_user_id {
+            if user.is_empty() || !user.chars().all(|character| character.is_ascii_digit()) {
+                return Err(ConfigError::Rejected(format!(
+                    "mention_user_id (\"{user}\") hoort je Discord-gebruikers-ID te zijn, alleen \
+                     cijfers. Zet in Discord Ontwikkelaarsmodus aan en kies Gebruikers-ID kopiëren."
+                )));
+            }
+        }
+
         let requests = self.requests_per_round();
         if requests > MAX_REQUESTS_PER_ROUND {
             return Err(ConfigError::Rejected(format!(
@@ -918,10 +938,16 @@ impl Settings {
     /// een vast bedrag. Kruisen die elkaar, dan is elke advertentie die de meldgrens haalt
     /// per definitie al als oplichterij weggezet en blijft het kanaal stil. Dat is precies
     /// het soort fout dat je pas na weken opvalt, dus `check` hoort het te zeggen.
+    /// `percent` is de drempel uit `[notify]`; een product met een eigen drempel gaat voor.
     pub fn cards_that_can_never_notify(&self, percent: f64) -> Vec<(&str, f64, f64)> {
         self.cards
             .iter()
             .filter_map(|card| {
+                let product = card.product.clone().unwrap_or_else(|| self.card_product_id());
+                let percent = self
+                    .product(&product)
+                    .and_then(|product| product.push_below_market_percent)
+                    .unwrap_or(percent);
                 let push_below = card.used_price_low * (1.0 - percent / 100.0);
                 (card.suspicious_below >= push_below).then_some((
                     card.name.as_str(),

@@ -36,5 +36,10 @@ pub fn post(webhook: &str, body: &Value) -> Result<(), String> {
         .content_type("application/json")
         .send(body.to_string())
         .map(|_| ())
-        .map_err(|error| format!("Discord nam de melding niet aan: {error}"))
+        // Zonder de foutmelding zelf: die kan de webhook-URL bevatten, en daarin staat het geheim.
+        .map_err(|error| match error {
+            ureq::Error::StatusCode(code) => format!("Discord antwoordde {code}"),
+            ureq::Error::Timeout(_) => "Discord antwoordde niet op tijd".to_string(),
+            _ => "Discord was niet bereikbaar".to_string(),
+        })
 }
