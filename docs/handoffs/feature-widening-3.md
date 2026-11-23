@@ -8,5 +8,5 @@ Geen code. Het onderzoek staat in `docs/onderzoek/hosting.md`, het besluit in
 
 ## Stand
 
-- Onderzoek, besluit en checklist: klaar, wacht op het akkoord van de eigenaar.
+- Onderzoek, besluit en checklist: klaar, akkoord van de eigenaar op 23 november 2026.
 - Video: geen, er valt niets te tonen.
