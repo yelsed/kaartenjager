@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { enhance } from '$app/forms';
-	import { clockTime } from '$lib/format';
+	import { clockTime, roundDuration } from '$lib/format';
 
 	let { children, data } = $props();
 
@@ -51,6 +51,16 @@
 					<li>{probleem}</li>
 				{/each}
 			</ul>
+		</div>
+	{/if}
+
+	{#if !data.heartbeat.stale && data.heartbeat.overBudget && data.heartbeat.lastRoundSeconds !== null && data.heartbeat.roundBudgetSeconds !== null}
+		<div class="waarschuwing">
+			<strong>De laatste ronde duurde {roundDuration(data.heartbeat.lastRoundSeconds)}.</strong>
+			Dat is langer dan de helft van de tijd tussen twee rondes ({roundDuration(
+				data.heartbeat.roundBudgetSeconds
+			)}), dus een vondst komt later binnen dan nodig. Zet een paar zoektermen uit, of laat
+			de rondes minder vaak lopen.
 		</div>
 	{/if}
 
@@ -105,7 +115,8 @@
 
 	<footer>
 		{#if data.heartbeat.lastRoundAt && !data.heartbeat.stale}
-			Laatste ronde {clockTime(data.heartbeat.lastRoundAt)}.
+			Laatste ronde {clockTime(data.heartbeat.lastRoundAt)}{#if data.heartbeat.lastRoundSeconds !== null},
+				in {roundDuration(data.heartbeat.lastRoundSeconds)}{/if}.
 		{/if}
 	</footer>
 </div>

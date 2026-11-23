@@ -239,6 +239,21 @@ else
   fout "zonder Origin-kop gaf $status, verwacht 403"
 fi
 
+say "==> De rondeduur"
+rondeduur() {
+  sqlite3 "$DB" "INSERT OR REPLACE INTO app_state (name, value) VALUES
+    ('last_round_at', strftime('%s','now')), ('round_gap_seconds', '300'),
+    ('last_round_problems', '[]'), ('last_round_seconds', '$1');"
+  curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/"
+}
+rondeduur 48
+zegt "in 48 seconden"
+grep -qF "De laatste ronde duurde" "$WORK/antwoord.html" \
+  && fout "een ronde binnen het budget gaf toch een waarschuwing"
+rondeduur 190
+zegt "De laatste ronde duurde 3 minuten en 10 seconden."
+zegt "2 minuten en 30 seconden"
+
 # --------------------------------------------------------------------- slot
 
 if [ "$FAILURES" -eq 0 ]; then

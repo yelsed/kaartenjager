@@ -128,6 +128,10 @@ export type Heartbeat = {
 	withinDayWindow: boolean;
 	/** Hoe lang stilte nog normaal is, afgeleid van het waargenomen tempo. */
 	allowedSilence: number;
+	lastRoundSeconds: number | null;
+	/** De helft van het gat tussen twee rondes; daarboven komt een vondst later binnen dan nodig. */
+	roundBudgetSeconds: number | null;
+	overBudget: boolean;
 };
 
 /**
@@ -236,7 +240,22 @@ export function heartbeat(): Heartbeat {
 	const stale =
 		withinDayWindow && (lastRoundAt === null || nowSeconds() - lastRoundAt > allowed);
 
-	return { lastRoundAt, problems, stale, withinDayWindow, allowedSilence: allowed };
+	const rawSeconds = readState('last_round_seconds');
+	const lastRoundSeconds = rawSeconds === null ? null : Number(rawSeconds);
+	const roundBudgetSeconds = gap ? Math.round(gap / 2) : null;
+	const overBudget =
+		lastRoundSeconds !== null && roundBudgetSeconds !== null && lastRoundSeconds > roundBudgetSeconds;
+
+	return {
+		lastRoundAt,
+		problems,
+		stale,
+		withinDayWindow,
+		allowedSilence: allowed,
+		lastRoundSeconds,
+		roundBudgetSeconds,
+		overBudget
+	};
 }
 
 // -------------------------------------------------------------------- bezoek
