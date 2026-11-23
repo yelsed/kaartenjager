@@ -111,3 +111,28 @@ vastgelegd.
 - Hermes blijft voor de knop "Hermes laten kijken" en de prijsherziening; of Hermes blijft is
   Widening 3.
 - Geen stille uren; Discord regelt dat op de telefoon zelf.
+
+## Widening 3 (TASK-3): waar Kaartenjager draait
+
+### Wat het oplevert
+
+Geen code: een onderzoek (`docs/onderzoek/hosting.md`) en een besluit (ADR 0006). De app blijft
+op openbinker naast Hermes, tot Vinted het datacenteradres drie dagen achter elkaar weert.
+
+Antwoorden van de eigenaar (23 november 2026):
+- Geen inventaris op de machine zelf; de vault is genoeg. Het opruimen is YEL-409.
+- Hermes blijft, voor de knop en de prijsherziening.
+- Vinted werkend houden weegt het zwaarst.
+
+### Checklist
+
+- [x] Een lijst van alles wat openbinker de app nu geeft
+- [x] Per alternatief: wat verloren gaat, wat gewonnen wordt, wat het kost
+- [x] Een ADR met het besluit en de aanleiding om te verhuizen
+- [x] De app blijft op openbinker tot die ADR anders zegt
+
+### Wat het niet doet
+
+- Niets verhuizen, niets op openbinker veranderen.
+- Geen backup inrichten. Dat er geen bekende backup van de database is, staat in het onderzoek;
+  het hoort bij YEL-409.
