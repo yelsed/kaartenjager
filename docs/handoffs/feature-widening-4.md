@@ -26,6 +26,26 @@ het marktonderzoek en de marktcheck in `docs/onderzoek/mini-pcs.md`.
   een tweede soort regel de beschrijving nodig heeft, loont het om alle Vinted-vondsten pas na
   hun beschrijving te beoordelen.
 
+## Browsertest van alle vier de verbredingen (24 november 2026)
+
+Op omarchy via henk (`https://kaartenjager.test`), met een echte Marktplaats-ronde als data.
+Gelopen: inbox per product, mini-pc's op score, uitklappen, product uit en aan, zoekterm
+toevoegen, dubbel, leeg, uitzetten en verwijderen, volgen, archiveren en terug, Instellingen,
+een onbekend `?product=`, en nu zoeken. Screenshots in `docs/phases/widening/screenshots/`.
+
+Gevonden en hersteld, elk met een controle in selftest of smoke:
+
+- Een losse handleiding en een zwart-wit-tv werden topvondst bij de beeldbuizen: de
+  voorbeeldregel sluit ze nu uit en `suspicious_below` staat op 5.
+- Een processor die de advertentie noemt maar de tabel niet kent, heet nu bij naam
+  ("Mini-pc, i7-6700T niet in de tabel") in plaats van "processor onbekend".
+- De CPU Mark in de reden heeft een punt per duizendtal.
+- Het gekozen product schuift op een smal scherm de rij in, in plaats van rechts buiten beeld.
+- De melding bij aan- of uitzetten noemt het product.
+
+Vondsten die al in een database staan, worden niet opnieuw beoordeeld; de twee valse
+beeldbuisvondsten uit de demo blijven dus staan tot ze gearchiveerd worden.
+
 ## Bij het uitrollen
 
 - Schema 5. Programma en app samen bijwerken.

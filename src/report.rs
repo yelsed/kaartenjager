@@ -27,7 +27,7 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Opti
         Some(format!("{score:.0} CPU Mark per euro"))
     } else if candidate.is_computer {
         Some(shortened(
-            &[vec!["processor onbekend".to_string()], candidate.warnings.clone()].concat().join(" · "),
+            &[vec!["geen CPU Mark bekend".to_string()], candidate.warnings.clone()].concat().join(" · "),
             MAX_LINE_CHARACTERS,
         ))
     } else if candidate.is_part {

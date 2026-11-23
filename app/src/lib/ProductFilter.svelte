@@ -8,6 +8,14 @@
 	}: { products: Product[]; selected: string | null; totalCount: number } = $props();
 
 	const enabledProducts = $derived(products.filter((product) => product.enabled));
+
+	// Op een smal scherm staat het gekozen product anders buiten beeld, rechts van de rij.
+	function scrollIntoRowWhenSelected(link: HTMLAnchorElement, isSelected: boolean) {
+		if (!isSelected) return;
+		const row = link.parentElement;
+		if (!row) return;
+		row.scrollLeft = link.offsetLeft - (row.clientWidth - link.offsetWidth) / 2;
+	}
 </script>
 
 {#if enabledProducts.length > 1}
@@ -20,6 +28,7 @@
 				href="/?product={encodeURIComponent(product.id)}"
 				class:actief={selected === product.id}
 				aria-current={selected === product.id ? 'page' : undefined}
+				use:scrollIntoRowWhenSelected={selected === product.id}
 			>
 				{product.name} <span class="aantal">{product.inboxCount}</span>
 			</a>
@@ -29,6 +38,7 @@
 
 <style>
 	.product-filter {
+		position: relative;
 		display: flex;
 		gap: 0.4rem;
 		overflow-x: auto;

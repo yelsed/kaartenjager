@@ -482,11 +482,13 @@ patterns = ["crt", "beeldbuis", "trinitron"]
 exclude_patterns = [
   "lcd", "led", "oled", "plasma",
   "afstandsbediening", "kabel", "beugel", "onderdelen",
+  "handleiding", "manual", "zwart-wit", "zwart wit",
 ]
 max_pickup_km = 45
 show_without_distance = true
 alert_below = 150
-suspicious_below = 1
+# Onder de vijf euro is het een losse handleiding of een lokprijs, geen televisie.
+suspicious_below = 5
 note = "Vraag om een foto van een aan staand scherm: inbranden en een scheve geometrie zie je niet op een foto van een uit toestel. Let op de aansluitingen — SCART of component is bruikbaar, alleen coax niet. En vraag hoe zwaar hij is voordat je de auto pakt."
 
 [[part]]

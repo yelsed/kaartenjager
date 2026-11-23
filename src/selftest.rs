@@ -238,6 +238,7 @@ pub fn run() -> bool {
         ("een mini-pc zonder 16 GB valt af", check_computer_needs_memory),
         ("geheugen lezen: keuzes, repen, Go, en geen opslag", check_ram_parsing),
         ("een mini-pc met een onbekende processor is uitzoeken", check_computer_unknown_processor),
+        ("de voorbeeldconfiguratie vangt geen handleiding als beeldbuis", check_example_crt_excludes),
         ("een mini-pc van Vinted wacht op zijn beschrijving", check_computer_waits_for_description),
         ("een topvondst-mini-pc meldt luid met zijn score", check_computer_push_message),
         ("check zegt per product hoe het meldt", check_notify_summary),
@@ -3148,6 +3149,9 @@ fn check_computer_top_find(_settings: &Settings) -> Result<(), String> {
     if (score - 46.3).abs() > 0.1 || finding.matched_as != "Mini-pc, i5-9500T" {
         return Err(format!("verwacht i5-9500T met 46 per euro, kreeg {} met {score:.1}", finding.matched_as));
     }
+    if !finding.reasons.iter().any(|reason| reason == "i5-9500T: CPU Mark 8.100, 46 per euro") {
+        return Err(format!("de CPU Mark hoort met een punt per duizendtal, kreeg {:?}", finding.reasons));
+    }
     // "i5-8500T" hoort niet als "i5-8500" herkend te worden, en een te dure is een goede deal.
     let dearer = computer_listing("81", "marktplaats", "HP ProDesk 400 G4 Mini i5-8500T 16 GB", "", 210.0);
     let finding = table.judge(&dearer).ok_or("de ProDesk werd geen vondst")?;
@@ -3245,9 +3249,25 @@ fn check_computer_unknown_processor(_settings: &Settings) -> Result<(), String> 
     if finding.level != crate::listing::Level::Deal
         || finding.confidence != Confidence::NeedsReview
         || finding.score_per_euro.is_some()
-        || finding.matched_as != "Mini-pc, processor onbekend"
+        || finding.matched_as != "Mini-pc, i7-9700T niet in de tabel"
     {
         return Err(format!("verwacht een goede deal om uit te zoeken, kreeg {:?} {}", finding.level, finding.matched_as));
+    }
+    // Een processor die de advertentie noemt maar de tabel niet kent, krijgt zijn naam; alleen
+    // zonder enige processor in de tekst is hij onbekend. "9e generatie" is geen typenummer.
+    let cases = [
+        ("Ryzen 7 PRO 5750GE", "Mini-pc, Ryzen 7 PRO 5750GE niet in de tabel"),
+        ("intel i7 6700T", "Mini-pc, i7-6700T niet in de tabel"),
+        ("i5 9e generatie", "Mini-pc, processor onbekend"),
+        ("", "Mini-pc, processor onbekend"),
+    ];
+    for (description, expected) in cases {
+        let finding = table
+            .judge(&computer_listing("87", "marktplaats", "Dell OptiPlex 7070 Micro 16GB", description, 150.0))
+            .ok_or("een mini-pc met een onbekende processor viel weg")?;
+        if finding.matched_as != expected {
+            return Err(format!("bij \"{description}\" verwacht {expected}, kreeg {}", finding.matched_as));
+        }
     }
     Ok(())
 }
@@ -3302,6 +3322,29 @@ fn check_computer_push_message(_settings: &Settings) -> Result<(), String> {
     let content = body["content"].as_str().unwrap_or("");
     if !content.starts_with("<@123456789> topvondst") || !content.contains("46 CPU Mark per euro") || !body["flags"].is_null() {
         return Err(format!("verwacht een luid bericht met de score:\n{content}"));
+    }
+    Ok(())
+}
+
+fn check_example_crt_excludes(_settings: &Settings) -> Result<(), String> {
+    let settings = parse_settings(include_str!("../kaartenjager.example.toml"), Path::new("<voorbeeld>"))
+        .map_err(|error| error.to_string())?;
+    let table = PriceTable::new(&settings);
+    for title in ["Sony Trinitron handleiding", "Zwart-wit CRT-TV"] {
+        let listing = Listing {
+            distance_km: Some(20.0),
+            ..computer_listing("91", "marktplaats", title, "", 6.5)
+        };
+        if let Some(finding) = table.judge(&listing) {
+            return Err(format!("\"{title}\" hoort geen vondst te zijn, werd {}", finding.matched_as));
+        }
+    }
+    let television = Listing {
+        distance_km: Some(20.0),
+        ..computer_listing("92", "marktplaats", "Sony Trinitron KV-29 crt tv", "", 40.0)
+    };
+    if table.judge(&television).is_none() {
+        return Err("een gewone beeldbuistelevisie hoort nog wel een vondst te zijn".into());
     }
     Ok(())
 }

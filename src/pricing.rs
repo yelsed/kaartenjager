@@ -136,7 +136,7 @@ impl<'settings> PriceTable<'settings> {
                 let per_euro = score / listing.price_euros;
                 reasons.insert(
                     0,
-                    format!("{name}: CPU Mark {score:.0}, {per_euro:.0} per euro"),
+                    format!("{name}: CPU Mark {}, {per_euro:.0} per euro", crate::money::whole_number(score)),
                 );
                 let provisional = queue_note.is_some();
                 let level = if per_euro >= computer.top_score_per_euro && !provisional {
@@ -149,10 +149,16 @@ impl<'settings> PriceTable<'settings> {
             }
             None => {
                 confidence = Confidence::NeedsReview;
-                queue_note.get_or_insert_with(|| {
-                    "Processor niet gevonden of niet in de tabel; zoek de CPU Mark op.".to_string()
+                let named = named_processor(&listing.title).or_else(|| named_processor(&listing.description));
+                let matched_as = match &named {
+                    Some(name) => format!("{}, {name} niet in de tabel", computer.name),
+                    None => format!("{}, processor onbekend", computer.name),
+                };
+                queue_note.get_or_insert_with(|| match named {
+                    Some(name) => format!("{name} staat niet in de processortabel; zoek de CPU Mark op en vul hem aan."),
+                    None => "Geen processor gevonden in de advertentie; zoek uit welke erin zit.".to_string(),
                 });
-                (format!("{}, processor onbekend", computer.name), Level::Deal, None)
+                (matched_as, Level::Deal, None)
             }
         };
 
@@ -810,6 +816,42 @@ pub fn find_processor(text: &str, processors: &BTreeMap<String, f64>) -> Option<
             })
         })
         .map(|(name, score, _)| (name.clone(), score))
+}
+
+/// Een processor die de tekst noemt, ook als de tabel hem niet kent: "i7 6700T" wordt
+/// "i7-6700T", "ryzen 7 pro 5750ge" wordt "Ryzen 7 PRO 5750GE". Alleen een typenummer van vier
+/// cijfers of meer telt, zodat "i5 9e generatie" geen processor is.
+pub fn named_processor(text: &str) -> Option<String> {
+    let words: Vec<String> = text
+        .to_lowercase()
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
+        .collect();
+    let is_model = |word: &str| word.chars().take_while(char::is_ascii_digit).count() >= 4;
+    for (position, word) in words.iter().enumerate() {
+        let next = words.get(position + 1).map(String::as_str).unwrap_or_default();
+        let is_intel_family = matches!(word.as_str(), "i3" | "i5" | "i7" | "i9");
+        if is_intel_family && is_model(next) {
+            return Some(format!("{word}-{}", next.to_uppercase()));
+        }
+        // "i76700t": familie en typenummer aan elkaar.
+        if word.len() >= 6 && matches!(&word[..2], "i3" | "i5" | "i7" | "i9") && is_model(&word[2..]) {
+            return Some(format!("{}-{}", &word[..2], word[2..].to_uppercase()));
+        }
+        if word == "ryzen" && next.len() == 1 && next.chars().all(|character| character.is_ascii_digit()) {
+            let after = words.get(position + 2).map(String::as_str).unwrap_or_default();
+            let (pro, model) = if after == "pro" {
+                (" PRO", words.get(position + 3).map(String::as_str).unwrap_or_default())
+            } else {
+                ("", after)
+            };
+            if is_model(model) {
+                return Some(format!("Ryzen {next}{pro} {}", model.to_uppercase()));
+            }
+        }
+    }
+    None
 }
 
 /// "i5-9500T" wordt ["i5", "9500t"]. Het laatste woord is het typenummer.

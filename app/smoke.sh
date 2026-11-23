@@ -167,6 +167,7 @@ grep -qF "topvondst" "$WORK/inbox.html" || fout "de inbox toont de topvondst nie
 curl -sS "http://localhost:$PORT/producten" -o "$WORK/producten.html"
 grep -qF "Videokaarten" "$WORK/producten.html" || fout "de productenpagina toont Videokaarten niet"
 probeer "/producten" aanzetten 200 --data-urlencode 'id=videokaarten' --data-urlencode 'enabled=nee'
+zegt "Videokaarten staat uit."
 [ "$(sqlite3 "$DB" "SELECT enabled FROM product WHERE id='videokaarten';")" = "0" ] \
   || fout "uitzetten zette het product niet uit"
 curl -sS "http://localhost:$PORT/" -o "$WORK/inbox.html"

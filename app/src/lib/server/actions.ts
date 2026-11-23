@@ -123,11 +123,12 @@ export const productActions: Actions = {
 		if (typeof id !== 'string') return fail(400, { success: false, message: 'Geen product meegegeven.' });
 		const refused = store.setProductEnabled(id, enabled);
 		if (refused) return fail(400, { success: false, message: refused });
+		const name = store.products().find((product) => product.id === id)?.name ?? id;
 		return {
 			success: true,
 			message: enabled
-				? 'Staat weer aan. De volgende ronde zoekt hij mee.'
-				: 'Staat uit. Niet meer zoeken, niet meer melden, niet in de inbox; de vondsten blijven bewaard.'
+				? `${name} staat weer aan. De volgende ronde zoekt hij mee.`
+				: `${name} staat uit. Niet meer zoeken, niet meer melden, niet in de inbox; de vondsten blijven bewaard.`
 		};
 	}
 };
