@@ -183,8 +183,9 @@ impl<'settings> PriceTable<'settings> {
         } else {
             None
         };
+        let product = card.product.clone().unwrap_or_else(|| self.settings.card_product_id());
         let far_enough_under = percent_under_market
-            .is_some_and(|percent| percent >= self.settings.notify.push_below_market_percent);
+            .is_some_and(|percent| percent >= self.settings.push_percent_for(&product));
         let level = if far_enough_under && listing.price_euros >= card.suspicious_below {
             Level::Top
         } else {
@@ -195,7 +196,7 @@ impl<'settings> PriceTable<'settings> {
             listing: listing.clone(),
             matched_as: card.name.clone(),
             kind: FindingKind::Card,
-            product: card.product.clone().unwrap_or_else(|| self.settings.card_product_id()),
+            product,
             level,
             confidence,
             percent_under_market,

@@ -13,6 +13,7 @@ use crate::pricing::{pattern_occurs, stated_memory_gb, stated_watts, PriceTable}
 use crate::selfupdate;
 use crate::sources::{marktplaats, vinted};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const VINTED_CATALOG: &str = include_str!("../tests/fixtures/vinted_catalog.html");
 const VINTED_CATALOG_EMPTY: &str = include_str!("../tests/fixtures/vinted_catalog_leeg.html");
@@ -222,7 +223,13 @@ pub fn run() -> bool {
         ("een uitgezet product zoekt en meldt niets", check_disabled_product_is_quiet),
         ("een nieuw product krijgt zijn zoektermen één keer", check_new_product_seeds_once),
         ("een oude database krijgt producten", check_old_database_gets_products),
-        ("het Discord-bericht is vier regels", check_push_message),
+        ("het Discord-bericht is vijf regels", check_push_message),
+        ("met een webhook: topvondst luid, deal stil, niets afgedrukt", check_webhook_delivery),
+        ("een mislukte webhook laat de vondst ongemeld", check_webhook_failure_keeps_finding),
+        ("zonder webhook drukt de ronde alleen topvondsten af", check_without_webhook_prints_tops),
+        ("een product kiest zijn eigen drempel", check_product_threshold),
+        ("check zegt per product hoe het meldt", check_notify_summary),
+        ("een ronde schrijft hoe lang hij duurde", check_round_duration_recorded),
         ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
         ("één melding per advertentie, tien procent lager een tweede", check_push_once),
         ("tweemaal klikken geeft één verzoek", check_one_open_request),
@@ -1224,7 +1231,7 @@ fn check_one_time_fields_survive(_settings: &Settings) -> Result<(), String> {
         store(&database, &finding, 1_000 + round * 3_600)?;
     }
 
-    let again = database.findings_to_push(30.0)?;
+    let again = database.findings_to_push()?;
     if !again.is_empty() {
         return Err("een al gemelde vondst hoort stil te blijven".into());
     }
@@ -1290,16 +1297,16 @@ fn check_gone_needs_two_checks(_settings: &Settings) -> Result<(), String> {
     Ok(())
 }
 
-fn check_push_threshold(_settings: &Settings) -> Result<(), String> {
+fn check_push_threshold(settings: &Settings) -> Result<(), String> {
     let (database, directory) = scratch_database("drempel")?;
 
     store(&database, &sample_finding("6", 1260.0, 30.0), 1_000)?;
-    if !database.findings_to_push(35.0)?.is_empty() {
+    if !crate::hunt::decide_pushes(&database, settings, 1_000)?.is_empty() {
         return Err("30% onder de markt hoort bij een grens van 35% stil te blijven".into());
     }
 
     store(&database, &sample_finding("7", 1080.0, 40.0), 1_000)?;
-    let pushes = database.findings_to_push(35.0)?;
+    let pushes = crate::hunt::decide_pushes(&database, settings, 1_000)?;
     if pushes.len() != 1 || pushes[0].key != "vinted:7" {
         return Err("40% onder de markt hoorde wel gemeld te worden".into());
     }
@@ -1312,24 +1319,24 @@ fn check_push_once(_settings: &Settings) -> Result<(), String> {
     let (database, directory) = scratch_database("melden")?;
 
     store(&database, &sample_finding("8", 1080.0, 40.0), 1_000)?;
-    if database.findings_to_push(35.0)?.len() != 1 {
+    if database.findings_to_push()?.len() != 1 {
         return Err("de eerste melding hoort te gaan".into());
     }
     database.mark_pushed("vinted:8", 1080.0, 1_000)?;
 
-    if !database.findings_to_push(35.0)?.is_empty() {
+    if !database.findings_to_push()?.is_empty() {
         return Err("dezelfde advertentie hoort geen tweede bericht te geven".into());
     }
 
     // Vijf procent lager is nog geen nieuws.
     store(&database, &sample_finding("8", 1026.0, 43.0), 2_000)?;
-    if !database.findings_to_push(35.0)?.is_empty() {
+    if !database.findings_to_push()?.is_empty() {
         return Err("vijf procent lager hoort nog stil te blijven".into());
     }
 
     // Tien procent lager wel.
     store(&database, &sample_finding("8", 972.0, 46.0), 3_000)?;
-    if database.findings_to_push(35.0)?.len() != 1 {
+    if database.findings_to_push()?.len() != 1 {
         return Err("tien procent lager hoort een tweede bericht te geven".into());
     }
 
@@ -1421,7 +1428,7 @@ fn check_migration_is_quiet(_settings: &Settings) -> Result<(), String> {
     if outcome.findings != 1 {
         return Err(format!("er hoorde één vondst over te komen, het waren er {}", outcome.findings));
     }
-    if !database.findings_to_push(35.0)?.is_empty() {
+    if !database.findings_to_push()?.is_empty() {
         return Err("een overgezette vondst hoort niet opnieuw naar Discord te gaan".into());
     }
     if database.state("last_visit").as_deref() != Some("9000") {
@@ -1551,28 +1558,31 @@ fn check_push_message(settings: &Settings) -> Result<(), String> {
     finding.listing.delivery = Delivery::PickupOnly;
     store(&database, &finding, 1_000)?;
 
-    let pushes = database.findings_to_push(35.0)?;
+    let pushes = database.findings_to_push()?;
     if pushes.len() != 1 {
         return Err("38% onder de markt hoorde gemeld te worden".into());
     }
 
     let message = crate::report::render_round(&pushes, 0, settings);
     let lines: Vec<&str> = message.trim_end().lines().collect();
-    if lines.len() != 4 {
-        return Err(format!("het bericht heeft {} regels in plaats van 4:\n{message}", lines.len()));
+    if lines.len() != 5 {
+        return Err(format!("het bericht heeft {} regels in plaats van 5:\n{message}", lines.len()));
     }
-    if !lines[0].contains("RTX 3090") || !lines[0].contains("620") {
-        return Err(format!("regel 1 hoort het model en de prijs te noemen: {}", lines[0]));
+    if lines[0] != "topvondst" {
+        return Err(format!("regel 1 hoort te zeggen wat voor vondst het is: {}", lines[0]));
+    }
+    if !lines[1].contains("RTX 3090") || !lines[1].contains("620") {
+        return Err(format!("regel 2 hoort het model en de prijs te noemen: {}", lines[1]));
     }
     // Het marktbereik komt uit de tabel, niet uit de database.
-    if !lines[1].contains("38% onder de markt") || !lines[1].contains("750") {
-        return Err(format!("regel 2 hoort het percentage en het marktbereik te noemen: {}", lines[1]));
+    if !lines[2].contains("38% onder de markt") || !lines[2].contains("750") {
+        return Err(format!("regel 3 hoort het percentage en het marktbereik te noemen: {}", lines[2]));
     }
-    if !lines[2].contains("alleen ophalen") || !lines[2].contains("Vinted") {
-        return Err(format!("regel 3 hoort de uitvoering en de bron te noemen: {}", lines[2]));
+    if !lines[3].contains("alleen ophalen") || !lines[3].contains("Vinted") {
+        return Err(format!("regel 4 hoort de uitvoering en de bron te noemen: {}", lines[3]));
     }
-    if !lines[3].starts_with("https://") {
-        return Err(format!("regel 4 hoort de link te zijn: {}", lines[3]));
+    if !lines[4].starts_with("https://") {
+        return Err(format!("regel 5 hoort de link te zijn: {}", lines[4]));
     }
 
     // En het vangnet onder het wekbericht, als de wachtrij blijft staan.
@@ -1603,7 +1613,7 @@ fn check_reserved_clears_finding(settings: &Settings) -> Result<(), String> {
 
     // Wat de ronde met een geweerde advertentie doet.
     database.clear_finding("vinted:13", reserved.price_euros, 2_000)?;
-    if !database.findings_to_push(35.0)?.is_empty() {
+    if !database.findings_to_push()?.is_empty() {
         return Err("een gereserveerde advertentie hoort niet meer gemeld te worden".into());
     }
 
@@ -1685,7 +1695,7 @@ fn check_below_floor_stays_quiet(settings: &Settings) -> Result<(), String> {
 
     // Wel gestempeld, anders komt hij elke ronde opnieuw langs en duwt één prijsstijging hem
     // alsnog het kanaal in.
-    if !database.findings_to_push(35.0)?.is_empty() {
+    if !database.findings_to_push()?.is_empty() {
         return Err("een gefilterde vondst hoort toch zijn stempel te krijgen".into());
     }
 
@@ -2539,7 +2549,7 @@ fn check_part_top_find_notifies_per_product(_settings: &Settings) -> Result<(), 
         ));
     }
     let message = crate::report::render_round(&pushes, 0, &settings);
-    if !message.contains("topvondst onder €150") && !message.contains("topvondst onder € 150") {
+    if !message.starts_with("topvondst\n") || !message.contains("onder €150") {
         return Err(format!("het bericht noemt de topvondstprijs niet:\n{message}"));
     }
     Ok(())
@@ -2620,6 +2630,8 @@ fn check_new_product_seeds_once(_settings: &Settings) -> Result<(), String> {
         name: "Mini-pc's".to_string(),
         search_terms: vec!["m720q".to_string()],
         notify: true,
+        notify_deals: false,
+        push_below_market_percent: None,
     });
     database.sync_products(&later, now + 120)?;
     let terms = search_terms_of(&path)?;
@@ -2706,6 +2718,215 @@ fn check_old_database_gets_products(legacy_settings: &Settings) -> Result<(), St
         .map_err(|error| error.to_string())?;
     if product != "beeldbuistelevisies" {
         return Err(format!("de oude vondst kreeg product {product}"));
+    }
+    Ok(())
+}
+
+/// Een webhook op 127.0.0.1 die de berichten bewaart en elk met 204 beantwoordt, zoals Discord.
+fn local_webhook(expected: usize) -> Result<(String, std::thread::JoinHandle<Vec<serde_json::Value>>), String> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
+    let address = listener.local_addr().map_err(|error| error.to_string())?;
+    let handle = std::thread::spawn(move || {
+        let mut bodies = Vec::new();
+        for stream in listener.incoming().take(expected) {
+            let Ok(mut stream) = stream else { break };
+            let mut reader = BufReader::new(stream.try_clone().expect("stream"));
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body);
+            bodies.push(serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null));
+            let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        }
+        bodies
+    });
+    Ok((format!("http://{address}/api/webhooks/1/test"), handle))
+}
+
+fn settings_with_quiet_crt_deals(webhook: Option<String>) -> Result<Settings, String> {
+    let mut settings = product_settings()?;
+    for product in settings.products.iter_mut() {
+        if product.id == "beeldbuistelevisies" {
+            product.notify_deals = true;
+        }
+    }
+    settings.notify.discord_webhook = webhook;
+    settings.notify.mention_user_id = Some("123456789".to_string());
+    Ok(settings)
+}
+
+fn crt_top_and_deal(database: &Database, settings: &Settings, now: i64) -> Result<(), String> {
+    let table = PriceTable::new(settings);
+    database.sync_products(settings, now)?;
+    store_judged(database, &table, &crt_listing("30", "marktplaats", Some(20.0), 80.0), now)?;
+    store_judged(database, &table, &crt_listing("31", "vinted", None, 70.0), now)
+}
+
+fn check_webhook_delivery(_settings: &Settings) -> Result<(), String> {
+    std::env::remove_var("KAARTENJAGER_DISCORD_WEBHOOK");
+    let (url, server) = local_webhook(2)?;
+    let settings = settings_with_quiet_crt_deals(Some(url))?;
+    let (database, _directory) = scratch_database("webhook")?;
+    let now = 1_790_000_000;
+    crt_top_and_deal(&database, &settings, now)?;
+
+    let mut problems = Vec::new();
+    let pushes = crate::hunt::decide_pushes(&database, &settings, now)?;
+    let printed = crate::hunt::deliver(&database, &settings, pushes, now, &mut problems)?;
+    if !printed.is_empty() || !problems.is_empty() {
+        return Err(format!("met een webhook hoort de ronde niets af te drukken; problemen: {problems:?}"));
+    }
+    let bodies = server.join().map_err(|_| "de testwebhook liep vast".to_string())?;
+    let top = bodies
+        .iter()
+        .find(|body| body["content"].as_str().is_some_and(|text| text.contains("topvondst")))
+        .ok_or(format!("geen topvondst bij de webhook: {bodies:?}"))?;
+    if !top["content"].as_str().unwrap_or("").starts_with("<@123456789> topvondst")
+        || top["allowed_mentions"]["users"][0] != "123456789"
+        || !top["flags"].is_null()
+    {
+        return Err(format!("de topvondst hoort de eigenaar luid te noemen: {top}"));
+    }
+    let deal = bodies
+        .iter()
+        .find(|body| body["content"].as_str().is_some_and(|text| text.starts_with("goede deal")))
+        .ok_or(format!("geen goede deal bij de webhook: {bodies:?}"))?;
+    if deal["flags"] != 4096 || deal["content"].as_str().unwrap_or("").contains("<@") {
+        return Err(format!("de goede deal hoort stil te zijn en niemand te noemen: {deal}"));
+    }
+    if !deal["content"].as_str().unwrap_or("").contains("afstand onbekend") {
+        return Err(format!("de goede deal hoort te zeggen dat de afstand onbekend is: {deal}"));
+    }
+    if !database.findings_to_push()?.is_empty() {
+        return Err("afgeleverde vondsten horen hun stempel te krijgen".into());
+    }
+
+    // Zonder notify_deals gaat een goede deal nergens heen.
+    let (database, _directory) = scratch_database("webhook-zonder-deals")?;
+    let mut without_deals = settings.clone();
+    without_deals.products.iter_mut().for_each(|product| product.notify_deals = false);
+    crt_top_and_deal(&database, &without_deals, now)?;
+    let pushes = crate::hunt::decide_pushes(&database, &without_deals, now)?;
+    if pushes.iter().any(|push| push.level == crate::listing::Level::Deal) {
+        return Err("een goede deal van een product zonder notify_deals ging toch weg".into());
+    }
+    Ok(())
+}
+
+fn check_webhook_failure_keeps_finding(_settings: &Settings) -> Result<(), String> {
+    std::env::remove_var("KAARTENJAGER_DISCORD_WEBHOOK");
+    let settings = settings_with_quiet_crt_deals(Some("http://127.0.0.1:9/api/webhooks/1/dicht".to_string()))?;
+    let (database, _directory) = scratch_database("webhook-dicht")?;
+    let now = 1_790_000_000;
+    crt_top_and_deal(&database, &settings, now)?;
+
+    let mut problems = Vec::new();
+    let pushes = crate::hunt::decide_pushes(&database, &settings, now)?;
+    crate::hunt::deliver(&database, &settings, pushes, now, &mut problems)?;
+    if problems.len() != 1 {
+        return Err(format!("een dichte webhook hoort één probleem voor de app te geven: {problems:?}"));
+    }
+    if database.findings_to_push()?.len() != 2 {
+        return Err("een vondst die niet afgeleverd werd hoort de volgende ronde terug te komen".into());
+    }
+    Ok(())
+}
+
+fn check_without_webhook_prints_tops(_settings: &Settings) -> Result<(), String> {
+    std::env::remove_var("KAARTENJAGER_DISCORD_WEBHOOK");
+    let settings = settings_with_quiet_crt_deals(None)?;
+    let (database, _directory) = scratch_database("zonder-webhook")?;
+    let now = 1_790_000_000;
+    crt_top_and_deal(&database, &settings, now)?;
+
+    let mut problems = Vec::new();
+    let pushes = crate::hunt::decide_pushes(&database, &settings, now)?;
+    let printed = crate::hunt::deliver(&database, &settings, pushes, now, &mut problems)?;
+    let keys: Vec<&str> = printed.iter().map(|push| push.key.as_str()).collect();
+    if keys != ["marktplaats:30"] {
+        return Err(format!("zonder webhook hoort alleen de topvondst afgedrukt te worden: {keys:?}"));
+    }
+    let message = crate::report::render_round(&printed, 0, &settings);
+    if message.contains("<@") {
+        return Err(format!("de cron-uitvoer hoort niemand te noemen:\n{message}"));
+    }
+    if !database.findings_to_push()?.is_empty() {
+        return Err("ook zonder webhook krijgen de vondsten hun stempel".into());
+    }
+    Ok(())
+}
+
+fn check_product_threshold(_settings: &Settings) -> Result<(), String> {
+    let mut settings = product_settings()?;
+    if settings.push_percent_for("videokaarten") != settings.notify.push_below_market_percent {
+        return Err("zonder eigen drempel hoort [notify] te gelden".into());
+    }
+    settings.products.iter_mut().for_each(|product| {
+        if product.id == "videokaarten" {
+            product.push_below_market_percent = Some(25.0);
+        }
+    });
+    let (database, _directory) = scratch_database("drempel-per-product")?;
+    let now = 1_790_000_000;
+    database.sync_products(&settings, now)?;
+    let mut finding = sample_finding("40", 525.0, 30.0);
+    finding.matched_as = "RTX 3090".to_string();
+    store(&database, &finding, now)?;
+    let pushes = crate::hunt::decide_pushes(&database, &settings, now)?;
+    if pushes.len() != 1 || pushes[0].level != crate::listing::Level::Top {
+        return Err("30% onder de markt hoort bij een productdrempel van 25% een topvondst te zijn".into());
+    }
+
+    let table = PriceTable::new(&settings);
+    let listing = Listing {
+        title: "RTX 3090 24GB".to_string(),
+        price_euros: 525.0,
+        asking_price_euros: 525.0,
+        ..sample_listing("41", 525.0)
+    };
+    let judged = table.judge(&listing).ok_or("de 3090 werd geen vondst")?;
+    if judged.level != crate::listing::Level::Top {
+        return Err(format!("de prijstabel hoort de productdrempel te gebruiken, gaf {:?}", judged.level));
+    }
+    Ok(())
+}
+
+fn check_notify_summary(_settings: &Settings) -> Result<(), String> {
+    let settings = settings_with_quiet_crt_deals(None)?;
+    let describe = |id: &str| {
+        settings
+            .products
+            .iter()
+            .find(|product| product.id == id)
+            .map(|product| settings.describe_notify(product))
+            .unwrap_or_default()
+    };
+    if describe("videokaarten") != "meldt topvondsten vanaf 35% onder de markt" {
+        return Err(format!("kaarten: {}", describe("videokaarten")));
+    }
+    if describe("beeldbuistelevisies") != "meldt topvondsten, goede deals stil" {
+        return Err(format!("beeldbuizen: {}", describe("beeldbuistelevisies")));
+    }
+    if describe("voedingen") != "meldt niets" {
+        return Err(format!("voedingen: {}", describe("voedingen")));
+    }
+    Ok(())
+}
+
+fn check_round_duration_recorded(settings: &Settings) -> Result<(), String> {
+    let (database, _directory) = scratch_database("rondeduur")?;
+    crate::hunt::record_heartbeat(&database, settings, 1_000, Duration::from_secs(48), &[]);
+    if database.state("last_round_seconds").as_deref() != Some("48") {
+        return Err(format!("verwacht 48 seconden, kreeg {:?}", database.state("last_round_seconds")));
     }
     Ok(())
 }

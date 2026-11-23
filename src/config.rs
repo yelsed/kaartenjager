@@ -146,9 +146,16 @@ pub struct Product {
     /// Waar hij mee begint. Komt één keer in de database; daarna beheert de app de zoektermen.
     #[serde(default)]
     pub search_terms: Vec<String>,
-    /// Of topvondsten van dit product een melding opleveren.
+    /// Of topvondsten van dit product een melding opleveren, een die de telefoon laat trillen.
     #[serde(default = "default_notify")]
     pub notify: bool,
+    /// Of goede deals van dit product stil in het kanaal komen.
+    #[serde(default)]
+    pub notify_deals: bool,
+    /// Hoe ver onder de markt een kaart van dit product een topvondst is. Zonder waarde geldt
+    /// die uit `[notify]`.
+    #[serde(default)]
+    pub push_below_market_percent: Option<f64>,
 }
 
 fn default_notify() -> bool {
@@ -432,6 +439,22 @@ pub struct Notify {
     /// bereik, dus onderdelen halen deze drempel per definitie nooit.
     #[serde(default = "default_push_percent")]
     pub push_below_market_percent: f64,
+    /// Waar vondsten heen gaan. Zonder webhook drukt de ronde de topvondsten af en post Hermes
+    /// ze; `KAARTENJAGER_DISCORD_WEBHOOK` gaat voor op deze waarde.
+    #[serde(default)]
+    pub discord_webhook: Option<String>,
+    /// Wie een topvondst noemt, zodat de telefoon trilt.
+    #[serde(default)]
+    pub mention_user_id: Option<String>,
+}
+
+impl Notify {
+    pub fn webhook(&self) -> Option<String> {
+        std::env::var("KAARTENJAGER_DISCORD_WEBHOOK")
+            .ok()
+            .or_else(|| self.discord_webhook.clone())
+            .filter(|url| !url.trim().is_empty())
+    }
 }
 
 fn default_push_percent() -> f64 {
@@ -442,6 +465,8 @@ impl Default for Notify {
     fn default() -> Self {
         Notify {
             push_below_market_percent: default_push_percent(),
+            discord_webhook: None,
+            mention_user_id: None,
         }
     }
 }
@@ -618,6 +643,8 @@ impl Settings {
                 name: CARD_PRODUCT_NAME.to_string(),
                 search_terms: self.card_search_terms.clone(),
                 notify: true,
+                notify_deals: false,
+                push_below_market_percent: None,
             });
         }
         for part in &self.parts {
@@ -634,6 +661,8 @@ impl Settings {
                 name: part.name.clone(),
                 search_terms: Vec::new(),
                 notify: false,
+                notify_deals: false,
+                push_below_market_percent: None,
             });
         }
         for term in &self.part_search_terms {
@@ -718,12 +747,51 @@ impl Settings {
             .unwrap_or_else(|| CARD_PRODUCT_ID.to_string())
     }
 
-    pub fn product_notifies(&self, id: &str) -> bool {
+    fn product(&self, id: &str) -> Option<&Product> {
         let id = if id.is_empty() { self.card_product_id() } else { id.to_string() };
-        self.products
+        self.products.iter().find(|product| product.id == id)
+    }
+
+    pub fn product_notifies(&self, id: &str) -> bool {
+        self.product(id).is_some_and(|product| product.notify)
+    }
+
+    pub fn product_notifies_deals(&self, id: &str) -> bool {
+        self.product(id).is_some_and(|product| product.notify_deals)
+    }
+
+    /// Wat `check` per product zegt over melden.
+    pub fn describe_notify(&self, product: &Product) -> String {
+        let has_cards = self
+            .cards
             .iter()
-            .find(|product| product.id == id)
-            .is_some_and(|product| product.notify)
+            .any(|card| card.product.clone().unwrap_or_else(|| self.card_product_id()) == product.id);
+        let mut parts = Vec::new();
+        if product.notify {
+            parts.push(if has_cards {
+                format!(
+                    "meldt topvondsten vanaf {:.0}% onder de markt",
+                    self.push_percent_for(&product.id)
+                )
+            } else {
+                "meldt topvondsten".to_string()
+            });
+        }
+        if product.notify_deals {
+            parts.push(if parts.is_empty() { "meldt goede deals stil" } else { "goede deals stil" }.to_string());
+        }
+        if parts.is_empty() {
+            "meldt niets".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
+
+    /// Hoe ver onder de markt een kaart van dit product een topvondst is.
+    pub fn push_percent_for(&self, id: &str) -> f64 {
+        self.product(id)
+            .and_then(|product| product.push_below_market_percent)
+            .unwrap_or(self.notify.push_below_market_percent)
     }
 
     /// Hoeveel paginabezoeken een ronde kost bij dit aantal zoektermen.

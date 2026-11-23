@@ -6,27 +6,34 @@
 
 use crate::config::Settings;
 use crate::db::PushCandidate;
-use crate::listing::Delivery;
+use crate::listing::{Delivery, Level};
 use crate::money;
 
-/// The four-line message from the design: what, how much under, which one, where. Everything
-/// else lives in the app.
-pub fn render_push(candidate: &PushCandidate, settings: &Settings) -> String {
-    let mut out = format!(
-        "{} — {}\n",
+/// Het bericht uit het ontwerp: wat voor vondst, wat en hoeveel, waarom, welke, waar. De rest
+/// staat in de app. Een topvondst noemt de eigenaar als `mention` gegeven is.
+pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Option<&str>) -> String {
+    let mut out = match (candidate.level, mention) {
+        (Level::Top, Some(user)) => format!("<@{user}> topvondst\n"),
+        (Level::Top, None) => "topvondst\n".to_string(),
+        (Level::Deal, _) => "goede deal\n".to_string(),
+    };
+    out.push_str(&format!(
+        "{}: {}\n",
         candidate.matched_as,
         money::euros_precise(candidate.price_euros)
-    );
+    ));
 
-    if candidate.is_part {
-        // Een onderdeel heeft geen marktbereik; het meldt omdat het onder zijn topvondstprijs zit.
+    let reason = if candidate.is_part {
         let limit = settings
             .parts
             .iter()
             .find(|part| part.name == candidate.matched_as)
-            .map(|part| format!(" onder {}", money::euros(part.alert_below)))
-            .unwrap_or_default();
-        out.push_str(&format!("topvondst{limit}\n"));
+            .map(|part| format!("onder {}", money::euros(part.alert_below)));
+        match candidate.level {
+            // Een onderdeel heeft geen marktbereik; het meldt omdat het onder zijn topvondstprijs zit.
+            Level::Top => limit,
+            Level::Deal => (!candidate.warnings.is_empty()).then(|| candidate.warnings.join(" · ")),
+        }
     } else {
         let market = settings
             .cards
@@ -34,16 +41,17 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings) -> String {
             .find(|card| card.name == candidate.matched_as)
             .map(|card| {
                 format!(
-                    " ({}–{})",
+                    " ({} tot {})",
                     money::euros(card.used_price_low),
                     money::euros(card.used_price_high)
                 )
             })
             .unwrap_or_default();
-        out.push_str(&format!(
-            "{:.0}% onder de markt{market}\n",
-            candidate.percent_under_market
-        ));
+        Some(format!("{:.0}% onder de markt{market}", candidate.percent_under_market))
+    };
+    if let Some(reason) = reason {
+        out.push_str(&reason);
+        out.push('\n');
     }
 
     let mut parts = vec![candidate.title.clone()];
@@ -72,7 +80,7 @@ pub fn render_round(
         if index > 0 {
             out.push('\n');
         }
-        out.push_str(&render_push(candidate, settings));
+        out.push_str(&render_push(candidate, settings, None));
     }
 
     // Het vangnet onder het wekbericht naar Hermes. Blijft de wachtrij staan, dan is dat een

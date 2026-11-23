@@ -6,7 +6,7 @@
 //! locked" te geven.
 
 use crate::config::Settings;
-use crate::listing::{Confidence, Delivery, Finding, FindingKind, Listing};
+use crate::listing::{Confidence, Delivery, Finding, FindingKind, Level, Listing};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
@@ -195,6 +195,8 @@ pub struct PushCandidate {
     /// Een onderdeel meldt op zijn topvondstprijs, niet op een percentage onder de markt.
     pub is_part: bool,
     pub product: String,
+    pub level: Level,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -792,7 +794,9 @@ impl Database {
 
     /// Uitschieters die nog niet gemeld zijn, of die sinds de melding nog eens tien procent
     /// zakten. Eén bericht per advertentie, niet per ronde.
-    pub fn findings_to_push(&self, minimum_percent: f64) -> Result<Vec<PushCandidate>, String> {
+    /// Elke vondst die nog niet gemeld is, topvondst of goede deal. Wat er werkelijk heen gaat
+    /// beslist `hunt::decide_pushes`, want de drempel hangt aan het product.
+    pub fn findings_to_push(&self) -> Result<Vec<PushCandidate>, String> {
         let mut statement = self
             .connection
             .prepare(
@@ -800,18 +804,17 @@ impl Database {
                         f.pushed_at_price, l.title, l.url, l.source, l.delivery,
                         (SELECT price_cents FROM sighting p WHERE p.key = f.key
                          ORDER BY p.seen_at DESC LIMIT 1) AS price_cents,
-                        f.kind, COALESCE(f.product, '')
+                        f.kind, COALESCE(f.product, ''), f.level, f.warnings
                  FROM finding f
                  JOIN listing l ON l.key = f.key
                  WHERE f.still_a_find = 1
-                   AND ((f.kind = 'card' AND f.percent_under_market >= ?1)
-                        OR (f.kind = 'part' AND f.level = 'top'))
+                   AND f.kind IN ('card', 'part')
                    AND l.gone_since IS NULL",
             )
             .map_err(|error| format!("Uitschieters niet op te vragen: {error}"))?;
 
         let rows = statement
-            .query_map(params![minimum_percent], |row| {
+            .query_map([], |row| {
                 let pushed_at: Option<i64> = row.get(3)?;
                 let pushed_price: Option<i64> = row.get(4)?;
                 let price_cents: Option<i64> = row.get(9)?;
@@ -827,6 +830,8 @@ impl Database {
                         price_euros: from_cents(price_cents.unwrap_or(0)),
                         is_part: row.get::<_, String>(10)? == "part",
                         product: row.get(11)?,
+                        level: if row.get::<_, String>(12)? == "top" { Level::Top } else { Level::Deal },
+                        warnings: json_list(row.get::<_, Option<String>>(13)?),
                     },
                     pushed_at,
                     pushed_price,

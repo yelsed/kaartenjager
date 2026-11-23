@@ -2,6 +2,7 @@ mod browser;
 mod config;
 mod db;
 mod detail;
+mod discord;
 mod doctor;
 mod dossier;
 mod filter;
@@ -446,13 +447,21 @@ fn command_check(arguments: &Arguments) -> ExitCode {
     println!("  bronnen            {}", settings.sources.join(", "));
     for product in &settings.products {
         println!(
-            "  product            {} ({}): {} zoektermen{}",
+            "  product            {} ({}): {} zoektermen, {}",
             product.name,
             product.id,
             product.search_terms.len(),
-            if product.notify { ", meldt topvondsten" } else { "" }
+            settings.describe_notify(product)
         );
     }
+    println!(
+        "  meldingen          {}",
+        if settings.notify.webhook().is_some() {
+            "via de eigen Discord-webhook"
+        } else {
+            "via de cron-uitvoer (geen discord_webhook)"
+        }
+    );
     println!(
         "  regels             {} kaarten, {} onderdelen",
         settings.cards.len(),
