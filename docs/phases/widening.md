@@ -136,3 +136,35 @@ Antwoorden van de eigenaar (23 november 2026):
 - Niets verhuizen, niets op openbinker veranderen.
 - Geen backup inrichten. Dat er geen bekende backup van de database is, staat in het onderzoek;
   het hoort bij YEL-409.
+
+## Widening 4 (TASK-4): mini-pc's
+
+### Wat het bouwt
+
+- Het product Mini-pc's met een `[[computer]]`-regel (ADR 0007): doelmodellen, 16 GB als harde
+  eis, CPU Mark per processor en een topvondst vanaf 45 CPU Mark per euro.
+- Topvondsten melden luid (antwoord van de eigenaar, 23 november 2026). Goede deals staan in de
+  app.
+- Schema 5: `finding.score_per_euro`. De inbox van Mini-pc's staat op score per euro.
+- De vondst toont "N CPU Mark per euro".
+
+Al gedaan op 22 november: het koopadvies, het plan voor de CI-runners en de notitie in de vault
+(criteria 3 tot en met 5).
+
+### Checklist (elke regel heeft een controle in `kaartenjager selftest` of in `app/smoke.sh`)
+
+- [ ] Een M720q met i5-9500T en 16 GB voor € 175 is een topvondst met 46 per euro
+- [ ] Dezelfde met 8 GB valt af; zonder geheugen in de advertentie ook
+- [ ] "8/16GB" telt als 8, "2x8GB" telt als 16, "16 Go" telt als 16, "256GB SSD" telt niet
+- [ ] Het veld `memoryRAM` van Marktplaats gaat voor op de tekst
+- [ ] Een onbekende processor is een goede deal met "uitzoeken", geen topvondst
+- [ ] Een Vinted-advertentie zonder beschrijving wordt na het ophalen opnieuw beoordeeld
+- [ ] Onder `min_price` is het geen pc
+- [ ] Een topvondst van Mini-pc's meldt luid, met de score in het bericht
+- [ ] De inbox van Mini-pc's staat op score per euro
+- [ ] Een database van schema 4 migreert naar 5
+
+### Wat het niet doet
+
+- Geen Tweakers Vraag & Aanbod: een nieuwe bron.
+- Geen verzendkosten van buitenlandse Vinted-verkopers meetellen; die staan niet in de tegel.
