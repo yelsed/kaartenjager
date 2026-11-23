@@ -450,11 +450,14 @@ pub struct Notify {
 
 impl Notify {
     pub fn webhook(&self) -> Option<String> {
-        let given = |url: &String| !url.trim().is_empty();
+        let given = |url: String| {
+            let url = url.trim().to_string();
+            (!url.is_empty()).then_some(url)
+        };
         std::env::var("KAARTENJAGER_DISCORD_WEBHOOK")
             .ok()
-            .filter(given)
-            .or_else(|| self.discord_webhook.clone().filter(given))
+            .and_then(given)
+            .or_else(|| self.discord_webhook.clone().and_then(given))
     }
 }
 

@@ -80,8 +80,9 @@ export function stamp(seconds: number): string {
 
 /** "48 seconden", "2 minuten en 30 seconden". Voor hoe lang een ronde duurde. */
 export function roundDuration(seconds: number): string {
-	const minutes = Math.floor(seconds / 60);
-	const rest = Math.round(seconds % 60);
+	const whole = Math.round(seconds);
+	const minutes = Math.floor(whole / 60);
+	const rest = whole % 60;
 	const secondsText = `${rest} ${rest === 1 ? 'seconde' : 'seconden'}`;
 	if (minutes === 0) return secondsText;
 	const minutesText = `${minutes} ${minutes === 1 ? 'minuut' : 'minuten'}`;

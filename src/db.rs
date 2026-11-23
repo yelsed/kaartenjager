@@ -812,72 +812,52 @@ impl Database {
     /// Elke vondst die nog niet gemeld is, of sindsdien nog eens tien procent zakte, of van goede
     /// deal topvondst werd. Wat er werkelijk heen gaat beslist `hunt::decide_pushes`.
     pub fn findings_to_push(&self) -> Result<Vec<PushCandidate>, String> {
+        // De herhaalregel staat alleen hier. Nog niet gestempeld; van goede deal topvondst
+        // geworden; of nog eens tien procent lager, behalve een topvondst die nu een goede deal
+        // is, want daarvan weet de eigenaar al. Een stempel van voor schema 4 telt als top.
         let mut statement = self
             .connection
             .prepare(
-                "SELECT f.key, f.matched_as, f.percent_under_market, f.pushed_at,
-                        f.pushed_at_price, l.title, l.url, l.source, l.delivery,
-                        (SELECT price_cents FROM sighting p WHERE p.key = f.key
-                         ORDER BY p.seen_at DESC LIMIT 1) AS price_cents,
-                        f.kind, COALESCE(f.product, ''), f.level, f.warnings,
-                        COALESCE(f.pushed_level, 'top')
-                 FROM finding f
-                 JOIN listing l ON l.key = f.key
-                 WHERE f.still_a_find = 1
-                   AND f.kind IN ('card', 'part')
-                   AND l.gone_since IS NULL
-                   AND (f.pushed_at IS NULL
-                        OR (f.pushed_level = 'deal' AND f.level = 'top')
-                        OR (SELECT price_cents FROM sighting p WHERE p.key = f.key
-                            ORDER BY p.seen_at DESC LIMIT 1) <= f.pushed_at_price * 0.9)",
+                "SELECT key, matched_as, percent_under_market, title, url, source, delivery,
+                        price_cents, kind, product, level, warnings
+                 FROM (SELECT f.key, f.matched_as, f.percent_under_market, l.title, l.url,
+                              l.source, l.delivery, f.kind, COALESCE(f.product, '') AS product,
+                              f.level, f.warnings, f.pushed_at, f.pushed_at_price,
+                              COALESCE(f.pushed_level, 'top') AS pushed_level,
+                              (SELECT price_cents FROM sighting p WHERE p.key = f.key
+                               ORDER BY p.seen_at DESC LIMIT 1) AS price_cents
+                       FROM finding f
+                       JOIN listing l ON l.key = f.key
+                       WHERE f.still_a_find = 1
+                         AND f.kind IN ('card', 'part')
+                         AND l.gone_since IS NULL)
+                 WHERE pushed_at IS NULL
+                    OR (pushed_level = 'deal' AND level = 'top')
+                    OR (price_cents <= pushed_at_price * 0.9
+                        AND NOT (pushed_level = 'top' AND level = 'deal'))",
             )
             .map_err(|error| format!("Uitschieters niet op te vragen: {error}"))?;
 
         let rows = statement
             .query_map([], |row| {
-                let pushed_at: Option<i64> = row.get(3)?;
-                let pushed_price: Option<i64> = row.get(4)?;
-                let price_cents: Option<i64> = row.get(9)?;
-                Ok((
-                    PushCandidate {
-                        key: row.get(0)?,
-                        matched_as: row.get(1)?,
-                        percent_under_market: row.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
-                        title: row.get(5)?,
-                        url: row.get(6)?,
-                        source: row.get(7)?,
-                        delivery: delivery_from_name(&row.get::<_, String>(8)?),
-                        price_euros: from_cents(price_cents.unwrap_or(0)),
-                        is_part: row.get::<_, String>(10)? == "part",
-                        product: row.get(11)?,
-                        level: if row.get::<_, String>(12)? == "top" { Level::Top } else { Level::Deal },
-                        warnings: json_list(row.get::<_, Option<String>>(13)?),
-                    },
-                    pushed_at,
-                    pushed_price,
-                    row.get::<_, String>(14)?,
-                ))
+                Ok(PushCandidate {
+                    key: row.get(0)?,
+                    matched_as: row.get(1)?,
+                    percent_under_market: row.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
+                    title: row.get(3)?,
+                    url: row.get(4)?,
+                    source: row.get(5)?,
+                    delivery: delivery_from_name(&row.get::<_, String>(6)?),
+                    price_euros: from_cents(row.get::<_, Option<i64>>(7)?.unwrap_or(0)),
+                    is_part: row.get::<_, String>(8)? == "part",
+                    product: row.get(9)?,
+                    level: if row.get::<_, String>(10)? == "top" { Level::Top } else { Level::Deal },
+                    warnings: json_list(row.get::<_, Option<String>>(11)?),
+                })
             })
             .map_err(|error| format!("Uitschieters niet te lezen: {error}"))?;
-
-        let mut candidates = Vec::new();
-        for row in rows {
-            let (candidate, pushed_at, pushed_price, pushed_level) =
-                row.map_err(|error| format!("Uitschieters niet te lezen: {error}"))?;
-            let worth_repeating = match (pushed_at, pushed_price) {
-                (None, _) => true,
-                // Nog eens tien procent lager dan bij de vorige melding is echt nieuws.
-                (Some(_), Some(was)) => to_cents(candidate.price_euros) as f64 <= was as f64 * 0.9,
-                (Some(_), None) => false,
-            } || (pushed_at.is_some() && pushed_level == "deal" && candidate.level == Level::Top);
-            // Als topvondst gemeld en nu een goede deal: de eigenaar weet het al.
-            let worth_repeating = worth_repeating
-                && !(pushed_at.is_some() && pushed_level == "top" && candidate.level == Level::Deal);
-            if worth_repeating {
-                candidates.push(candidate);
-            }
-        }
-        Ok(candidates)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("Uitschieters niet te lezen: {error}"))
     }
 
     /// Stempelt met het niveau dat de vondst nu heeft.
@@ -887,23 +867,6 @@ impl Database {
                 "UPDATE finding SET pushed_at = ?2, pushed_at_price = ?3, pushed_level = level
                  WHERE key = ?1",
                 params![key, now, to_cents(price_euros)],
-            )
-            .map(|_| ())
-            .map_err(|error| format!("Melding van {key} niet vast te leggen: {error}"))
-    }
-
-    pub fn mark_pushed_at_level(
-        &self,
-        key: &str,
-        price_euros: f64,
-        level: Level,
-        now: i64,
-    ) -> Result<(), String> {
-        self.connection
-            .execute(
-                "UPDATE finding SET pushed_at = ?2, pushed_at_price = ?3, pushed_level = ?4
-                 WHERE key = ?1",
-                params![key, now, to_cents(price_euros), level.name()],
             )
             .map(|_| ())
             .map_err(|error| format!("Melding van {key} niet vast te leggen: {error}"))

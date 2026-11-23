@@ -29,22 +29,60 @@ pub fn payload(candidate: &PushCandidate, settings: &Settings) -> Value {
     body
 }
 
+/// Discord laat een webhook ongeveer vijf berichten per twee seconden sturen.
+const GAP_BETWEEN_MESSAGES: Duration = Duration::from_millis(450);
+
+/// Post de vondsten na elkaar en roept `delivered` aan voor elke vondst die afgehandeld is: ook
+/// een bericht dat Discord weigert, want opnieuw proberen geeft hetzelfde antwoord. Faalt de
+/// webhook zelf, dan stopt het en wacht de rest op de volgende ronde. Geeft de problemen voor
+/// de app terug.
+pub fn post_all(
+    webhook: &str,
+    candidates: &[PushCandidate],
+    settings: &Settings,
+    mut delivered: impl FnMut(&PushCandidate) -> Result<(), String>,
+) -> Result<Vec<String>, String> {
+    let agent = agent();
+    let mut problems = Vec::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        if index > 0 {
+            std::thread::sleep(GAP_BETWEEN_MESSAGES);
+        }
+        match post(&agent, webhook, &payload(candidate, settings)) {
+            Ok(()) => delivered(candidate)?,
+            Err(Refusal::ThisMessage(reason)) => {
+                problems.push(format!("{reason}: {}. Die staat alleen in de app.", candidate.title));
+                delivered(candidate)?;
+            }
+            Err(Refusal::Everything(reason)) => {
+                problems.push(format!(
+                    "{reason}. {} van de {} meldingen wachten op de volgende ronde.",
+                    candidates.len() - index,
+                    candidates.len()
+                ));
+                break;
+            }
+        }
+    }
+    Ok(problems)
+}
+
 /// Waarom een bericht niet aankwam, en wat dat zegt over de rest van de ronde.
-pub enum Refusal {
+enum Refusal {
     /// Discord weigerde dit ene bericht (400). Opnieuw proberen geeft hetzelfde antwoord.
     ThisMessage(String),
     /// De webhook, het netwerk of Discords tempo: de rest van de ronde lukt ook niet.
     Everything(String),
 }
 
-pub fn agent() -> ureq::Agent {
+fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(15)))
         .build()
         .into()
 }
 
-pub fn post(agent: &ureq::Agent, webhook: &str, body: &Value) -> Result<(), Refusal> {
+fn post(agent: &ureq::Agent, webhook: &str, body: &Value) -> Result<(), Refusal> {
     agent
         .post(webhook)
         .content_type("application/json")

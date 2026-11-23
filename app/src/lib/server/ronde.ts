@@ -73,9 +73,9 @@ export function startRound(): { started: boolean; message: string } {
 			}
 
 			const outliers = stdout.trim();
-			lastResult = outliers
-				? 'De ronde vond een uitschieter; die staat hieronder en is naar Discord gestuurd.'
-				: 'De ronde is klaar. Nieuwe vondsten staan hieronder, en wat te melden viel staat in Discord.';
+			// Met een webhook post het programma zelf en drukt het alleen nog de herinnering
+			// over wachtende beoordelingen af; dus geen uitspraak over uitschieters hier.
+			lastResult = 'De ronde is klaar. Nieuwe vondsten staan hieronder, en wat te melden viel staat in Discord.';
 
 			// Wat het programma op stdout zet, gaat bij de cronjob naar Discord. Start jij de
 			// ronde vanuit de app, dan is er geen cronjob die dat doet — en zonder deze regel

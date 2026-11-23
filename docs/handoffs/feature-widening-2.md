@@ -13,7 +13,7 @@ en `0005`.
 - Docs, plan en ontwerp (`docs/phases/widening/design/`): klaar en goedgekeurd.
 - Programma: klaar. `kaartenjager selftest`: 88 controles groen, waarvan 11 nieuw.
 - App: klaar. `npm run check` zonder fouten, `npm run smoke` groen, ook voor de rondeduur.
-- Drie reviewrondes, alle punten opgelost op één na (hieronder).
+- Vier reviewrondes, alle punten opgelost op drie na (hieronder).
 - Nog niet gedaan: de test op de telefoon van de eigenaar. Daarvoor zijn de webhook-URL en zijn
   Discord-gebruikers-ID nodig.
 
@@ -25,7 +25,7 @@ en `0005`.
   er staat drukt de ronde geen vondsten meer af, dus Hermes post ze niet meer dubbel.
 - `notify_deals = true` op het product Beeldbuistelevisies, als de eigenaar daar stille deals wil.
 
-## Reviewpunt dat bewust blijft
+## Reviewpunten die bewust blijven
 
 Een vondst houdt het niveau dat de prijstabel gaf bij de laatste beoordeling. Verhoog je de
 drempel, dan kan een advertentie die deze ronde niet in de zoekresultaten staat en niet van prijs
@@ -33,6 +33,17 @@ veranderde nog één keer luid melden op de oude drempel. Elke advertentie wordt
 zodra hij in de zoekresultaten staat of van prijs verandert, dus dat duurt hooguit tot de
 volgende keer dat hij langskomt. De drempel opnieuw in de query toepassen zou de regel op twee
 plekken zetten, en dat vond de eerste review juist een fout.
+
+Een stempel van voor schema 4 telt als topvondst. Het oude programma stempelde ook stille
+vondsten (onder de bodem, product uit), dus een daarvan die na de overgang topvondst wordt meldt
+pas bij tien procent prijsdaling. De overgang kan het verschil niet meer zien, en `level` van
+oude kaartvondsten is vaak de standaardwaarde, dus `pushed_level = level` zou juist echte
+topvondsten opnieuw luid melden. Eén keer te stil is beter dan een tweede bericht.
+
+Een ronde die de gebruiker in de app start, stuurt wat het programma afdrukt door via
+`KAARTENJAGER_DISCORD_WEBHOOK` uit de service van de app, niet via `discord_webhook` uit de
+TOML. Met een webhook drukt het programma alleen de herinnering over wachtende beoordelingen af.
+Zet dezelfde webhook in beide, zoals `deploy.sh` al doet voor de app.
 
 ## Video
 

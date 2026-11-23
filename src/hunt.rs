@@ -328,6 +328,7 @@ pub fn run_round(
         Ok(no_longer_finds) => {
             database.commit()?;
             // Een fout bij het melden mag de hartslag en het slot niet overslaan.
+            let search_duration = started.elapsed();
             let pushes = match decide_pushes(database, settings, now) {
                 Ok(pushes) => deliver(database, settings, pushes, now, &mut problems)
                     .unwrap_or_else(|error| {
@@ -354,7 +355,7 @@ pub fn run_round(
                 0
             };
 
-            record_heartbeat(database, settings, now, started.elapsed(), &problems);
+            record_heartbeat(database, settings, now, search_duration, &problems);
             let _ = database.release_round_lock();
 
             Ok(RoundOutcome {
@@ -649,21 +650,18 @@ pub(crate) fn decide_pushes(
         {
             worth_telling.push(candidate);
         } else {
-            database.mark_pushed_at_level(&candidate.key, candidate.price_euros, candidate.level, now)?;
+            database.mark_pushed(&candidate.key, candidate.price_euros, now)?;
         }
     }
     Ok(worth_telling)
 }
 
-/// Discord laat een webhook ongeveer vijf berichten per twee seconden sturen.
-const DISCORD_GAP_MS: u64 = 450;
-
 /// Brengt de vondsten weg en geeft terug wat de ronde zelf nog moet afdrukken.
 ///
-/// Met een webhook gaat alles naar Discord en drukt de ronde niets af. Een vondst die Discord
-/// niet aannam houdt geen stempel, zodat de volgende ronde het opnieuw probeert. Zonder webhook
-/// drukt de ronde de topvondsten af voor Hermes; een goede deal kan die route niet stil sturen,
-/// dus die blijft in de app.
+/// Met een webhook gaat alles daarheen en drukt de ronde niets af. Een vondst die niet aankwam
+/// houdt geen stempel, zodat de volgende ronde het opnieuw probeert. Zonder webhook drukt de
+/// ronde de topvondsten af voor Hermes; een goede deal kan die route niet stil sturen, dus die
+/// blijft in de app.
 pub(crate) fn deliver(
     database: &Database,
     settings: &Settings,
@@ -673,36 +671,14 @@ pub(crate) fn deliver(
 ) -> Result<Vec<PushCandidate>, String> {
     let Some(webhook) = settings.notify.webhook() else {
         for candidate in &pushes {
-            database.mark_pushed_at_level(&candidate.key, candidate.price_euros, candidate.level, now)?;
+            database.mark_pushed(&candidate.key, candidate.price_euros, now)?;
         }
         return Ok(pushes.into_iter().filter(|candidate| candidate.level == Level::Top).collect());
     };
-
-    let agent = crate::discord::agent();
-    for (index, candidate) in pushes.iter().enumerate() {
-        if index > 0 {
-            std::thread::sleep(Duration::from_millis(DISCORD_GAP_MS));
-        }
-        let stamp = || {
-            database.mark_pushed_at_level(&candidate.key, candidate.price_euros, candidate.level, now)
-        };
-        match crate::discord::post(&agent, &webhook, &crate::discord::payload(candidate, settings)) {
-            Ok(()) => stamp()?,
-            Err(crate::discord::Refusal::ThisMessage(reason)) => {
-                // Opnieuw proberen geeft elke ronde dezelfde weigering; hij staat in de app.
-                problems.push(format!("{reason}: {}. Die staat alleen in de app.", candidate.title));
-                stamp()?;
-            }
-            Err(crate::discord::Refusal::Everything(reason)) => {
-                problems.push(format!(
-                    "{reason}. {} van de {} meldingen wachten op de volgende ronde.",
-                    pushes.len() - index,
-                    pushes.len()
-                ));
-                break;
-            }
-        }
-    }
+    let delivery_problems = crate::discord::post_all(&webhook, &pushes, settings, |candidate| {
+        database.mark_pushed(&candidate.key, candidate.price_euros, now)
+    })?;
+    problems.extend(delivery_problems);
     Ok(Vec::new())
 }
 
