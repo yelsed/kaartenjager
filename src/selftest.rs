@@ -3064,6 +3064,7 @@ fn check_discord_message_length(_settings: &Settings) -> Result<(), String> {
         level: crate::listing::Level::Deal,
         warnings: vec!["afstand onbekend".to_string()],
         score_per_euro: None,
+        is_computer: false,
     };
     let body = crate::discord::payload(&candidate, &settings);
     let length = body["content"].as_str().unwrap_or("").chars().count();
@@ -3156,6 +3157,23 @@ fn check_computer_top_find(_settings: &Settings) -> Result<(), String> {
     if table.judge(&computer_listing("82", "marktplaats", "OptiPlex Micro VESA beugel 16GB", "", 25.0)).is_some() {
         return Err("onder min_price is het geen pc".into());
     }
+    // De titel wint van een processor die de beschrijving ter vergelijking noemt.
+    let compared = computer_listing("89", "marktplaats", "M720q i5-8500T 16GB", "sneller dan een i5-9500T niet", 150.0);
+    let finding = table.judge(&compared).ok_or("de vergeleken M720q werd geen vondst")?;
+    if finding.matched_as != "Mini-pc, i5-8500T" {
+        return Err(format!("de processor uit de titel hoort te winnen, kreeg {}", finding.matched_as));
+    }
+    // Een kaal getal is geen i5-8500.
+    let bare = computer_listing("90", "marktplaats", "M720q 16GB", "artikelnummer 8500", 150.0);
+    let finding = table.judge(&bare).ok_or("de M720q werd geen vondst")?;
+    if finding.score_per_euro.is_some() {
+        return Err(format!("een los getal hoort geen processor te zijn, kreeg {}", finding.matched_as));
+    }
+    let mut twice = settings.clone();
+    twice.computers[0].processors.insert("Ryzen 5 4650GE".to_string(), 15000.0);
+    if twice.validate().is_ok() {
+        return Err("twee processors met hetzelfde typenummer horen geweigerd te worden".into());
+    }
     Ok(())
 }
 
@@ -3172,6 +3190,14 @@ fn check_computer_needs_memory(_settings: &Settings) -> Result<(), String> {
     with_field.memory_gb = Some(16);
     if table.judge(&with_field).is_none() {
         return Err("het veld memoryRAM van Marktplaats hoort te tellen".into());
+    }
+    // Een hercontrole leest de advertentie uit de database; het veld moet daar ook staan.
+    let (database, _directory) = scratch_database("geheugenveld")?;
+    database.record_listing(&with_field, &[], 1_000)?;
+    database.record_price(&with_field.key(), 175.0, 175.0, 1_000)?;
+    let stored = database.listing(&with_field.key()).ok_or("de advertentie kwam niet terug")?;
+    if stored.memory_gb != Some(16) || table.judge(&stored).is_none() {
+        return Err("na een hercontrole hoort het geheugen uit het veld er nog te zijn".into());
     }
     with_field.memory_gb = Some(8);
     with_field.title = "Lenovo M720q i5-9500T 16GB".to_string();
@@ -3193,6 +3219,9 @@ fn check_ram_parsing(_settings: &Settings) -> Result<(), String> {
         ("512gb nvme, 1gbit lan", None),
         ("8GB, uit te breiden tot 32GB", Some(8)),
         ("i5-8500t 3.5ghz", None),
+        ("M720q 16GB (2 x 8GB) DDR4", Some(16)),
+        ("8 / 16 GB naar keuze", Some(8)),
+        ("70000x70000gb", None),
     ];
     for (text, expected) in cases {
         if stated_ram_gb(text) != expected {

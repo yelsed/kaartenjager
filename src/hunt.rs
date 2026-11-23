@@ -296,10 +296,14 @@ pub fn run_round(
     let mut findings: Vec<Finding> = findings
         .into_iter()
         .filter_map(|finding| {
-            if finding.kind != crate::listing::FindingKind::Computer || finding.listing.description.is_empty() {
+            let provisional = finding.kind == crate::listing::FindingKind::Computer
+                && finding.listing.source == "vinted"
+                && finding.confidence == Confidence::NeedsReview
+                && !finding.listing.description.is_empty();
+            if !provisional {
                 return Some(finding);
             }
-            let rejudged = table.judge(&finding.listing);
+            let rejudged = sieve.check(&finding.listing).ok().and_then(|()| table.judge(&finding.listing));
             if rejudged.is_none() {
                 judged_to_nothing.push((finding.listing.key(), finding.listing.price_euros));
             }

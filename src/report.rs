@@ -25,6 +25,11 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Opti
 
     let reason = if let Some(score) = candidate.score_per_euro {
         Some(format!("{score:.0} CPU Mark per euro"))
+    } else if candidate.is_computer {
+        Some(shortened(
+            &[vec!["processor onbekend".to_string()], candidate.warnings.clone()].concat().join(" · "),
+            MAX_LINE_CHARACTERS,
+        ))
     } else if candidate.is_part {
         let limit = settings
             .part_rule(&candidate.matched_as)

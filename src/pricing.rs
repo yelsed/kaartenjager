@@ -37,8 +37,11 @@ impl<'settings> PriceTable<'settings> {
         let title = listing.title.to_lowercase();
 
         // Voor de zeef op accessoires: "incl. adapter" hoort bij een mini-pc gewoon in de titel.
-        if let Some(computer) = self.match_computer(&title) {
-            return self.judge_computer(listing, computer);
+        if let Some(finding) = self
+            .match_computer(&title)
+            .and_then(|computer| self.judge_computer(listing, computer))
+        {
+            return Some(finding);
         }
 
         // Water blocks, empty boxes, dead cards and scale models all carry a model number in
@@ -121,7 +124,9 @@ impl<'settings> PriceTable<'settings> {
             None => return None,
         }
 
-        let processor = find_processor(&text, &computer.processors);
+        // De titel eerst: een beschrijving noemt soms een andere processor ter vergelijking.
+        let processor = find_processor(&listing.title, &computer.processors)
+            .or_else(|| find_processor(&listing.description, &computer.processors));
         let (matched_as, level, score_per_euro) = match processor {
             Some((name, score)) => {
                 let per_euro = score / listing.price_euros;
@@ -700,16 +705,33 @@ pub fn stated_ram_gb(text: &str) -> Option<u32> {
         }
         let (mut amount, mut end) = number_at(index);
         index = end;
-        // "2x8gb": twee repen.
-        if end < bytes.len() && bytes[end] == b'x' && end + 1 < bytes.len() && bytes[end + 1].is_ascii_digit() {
-            let (per_module, after) = number_at(end + 1);
-            amount *= per_module;
+        let skip_spaces = |mut position: usize| {
+            while position < bytes.len() && bytes[position] == b' ' {
+                position += 1;
+            }
+            position
+        };
+        let operator = skip_spaces(end);
+        let operand = skip_spaces(operator + 1);
+        let operand_follows = operand < bytes.len() && bytes[operand].is_ascii_digit();
+        if operator < bytes.len() && bytes[operator] == b'x' && operand_follows {
+            // "2x8gb", "2 x 8GB": twee repen.
+            let (per_module, after) = number_at(operand);
+            amount = amount.saturating_mul(per_module);
             end = after;
+            index = after;
         } else {
-            // "8/16gb": de laagste van de keuzes.
-            while end < bytes.len() && bytes[end] == b'/' {
-                let (_, after) = number_at(end + 1);
+            // "8/16gb", "8 / 16 GB": de laagste van de keuzes.
+            let mut slash = operator;
+            while slash < bytes.len() && bytes[slash] == b'/' {
+                let next = skip_spaces(slash + 1);
+                if next >= bytes.len() || !bytes[next].is_ascii_digit() {
+                    break;
+                }
+                let (_, after) = number_at(next);
                 end = after;
+                index = after;
+                slash = skip_spaces(after);
             }
         }
         let rest = lowered[end..].trim_start();
@@ -742,30 +764,44 @@ pub fn find_processor(text: &str, processors: &BTreeMap<String, f64>) -> Option<
         .to_lowercase()
         .split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|word| !word.is_empty())
-        .map(|word| {
-            let glued = word.len() > 2
+        .flat_map(|word| {
+            // "i59500t" is "i5" en "9500t" aan elkaar.
+            let glued = word.len() >= 6
                 && word.starts_with('i')
                 && matches!(word.as_bytes()[1], b'3' | b'5' | b'7' | b'9')
-                && word.as_bytes()[2].is_ascii_digit()
-                && word.len() >= 6;
-            if glued { word[2..].to_string() } else { word.to_string() }
+                && word.as_bytes()[2].is_ascii_digit();
+            if glued {
+                vec![word[..2].to_string(), word[2..].to_string()]
+            } else {
+                vec![word.to_string()]
+            }
         })
         .collect();
-    let mut candidates: Vec<(&String, &f64, String)> = processors
+    let mut candidates: Vec<(&String, f64, Vec<String>)> = processors
         .iter()
-        .filter_map(|(name, score)| {
-            let model = name
-                .to_lowercase()
-                .split(|character: char| !character.is_ascii_alphanumeric())
-                .filter(|word| !word.is_empty())
-                .last()?
-                .to_string();
-            Some((name, score, model))
-        })
+        .map(|(name, score)| (name, *score, processor_words(name)))
+        .filter(|(_, _, key)| !key.is_empty())
         .collect();
-    candidates.sort_by_key(|(_, _, model)| std::cmp::Reverse(model.len()));
+    candidates.sort_by_key(|(_, _, key)| std::cmp::Reverse(key.last().map_or(0, String::len)));
     candidates
         .into_iter()
-        .find(|(_, _, model)| words.iter().any(|word| word == model))
-        .map(|(name, score, _)| (name.clone(), *score))
+        .find(|(_, _, key)| {
+            let model = &key[key.len() - 1];
+            // Een kaal getal ("8500") komt overal voor; dan moet het woord ervoor ook kloppen.
+            let needs_prefix = model.chars().all(|character| character.is_ascii_digit()) && key.len() > 1;
+            words.iter().enumerate().any(|(position, word)| {
+                word == model
+                    && (!needs_prefix || (position > 0 && words[position - 1] == key[key.len() - 2]))
+            })
+        })
+        .map(|(name, score, _)| (name.clone(), score))
+}
+
+/// "i5-9500T" wordt ["i5", "9500t"]. Het laatste woord is het typenummer.
+pub fn processor_words(name: &str) -> Vec<String> {
+    name.to_lowercase()
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
+        .collect()
 }

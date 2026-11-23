@@ -868,7 +868,7 @@ impl Settings {
 
         if self.cards.is_empty() && self.parts.is_empty() && self.computers.is_empty() {
             return Err(ConfigError::Rejected(
-                "Geen [[card]]- of [[part]]-regels ingesteld, dus er valt niets te beoordelen."
+                "Geen [[card]]-, [[part]]- of [[computer]]-regels ingesteld, dus er valt niets te beoordelen."
                     .into(),
             ));
         }
@@ -908,6 +908,7 @@ impl Settings {
         for (soort, namen) in [
             ("Kaart", self.cards.iter().map(|card| &card.name).collect::<Vec<_>>()),
             ("Onderdeel", self.parts.iter().map(|part| &part.name).collect::<Vec<_>>()),
+            ("Computer", self.computers.iter().map(|computer| &computer.name).collect::<Vec<_>>()),
         ] {
             let mut gezien = std::collections::BTreeSet::new();
             for naam in namen {
@@ -958,12 +959,29 @@ impl Settings {
             validate_card(card)?;
         }
         for computer in &self.computers {
-            if computer.processors.is_empty() || computer.top_score_per_euro <= 0.0 {
+            if computer.processors.is_empty()
+                || computer.top_score_per_euro <= 0.0
+                || computer.min_price < 0.0
+                || computer.min_memory_gb == 0
+                || computer.processors.values().any(|score| *score <= 0.0)
+            {
                 return Err(ConfigError::Rejected(format!(
-                    "Computer \"{}\" heeft processors met hun CPU Mark nodig, en een \
-                     top_score_per_euro boven nul.",
+                    "Computer \"{}\" heeft processors met een CPU Mark boven nul nodig, een \
+                     top_score_per_euro boven nul, een min_memory_gb en geen negatieve min_price.",
                     computer.name
                 )));
+            }
+            // Twee processors met hetzelfde typenummer: dan wint stil steeds dezelfde.
+            let mut models = std::collections::BTreeMap::new();
+            for name in computer.processors.keys() {
+                let model = crate::pricing::processor_words(name).last().cloned().unwrap_or_default();
+                if let Some(earlier) = models.insert(model.clone(), name) {
+                    return Err(ConfigError::Rejected(format!(
+                        "Computer \"{}\": \"{earlier}\" en \"{name}\" hebben hetzelfde typenummer \
+                         \"{model}\". Houd er een.",
+                        computer.name
+                    )));
+                }
             }
         }
         for part in &self.parts {

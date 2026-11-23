@@ -35,7 +35,8 @@ CREATE TABLE listing (
   gone_checks    INTEGER NOT NULL DEFAULT 0,
   gone_since     INTEGER,
   gone_reason    TEXT,                       -- sold | removed
-  posted_at      INTEGER                     -- wanneer de verkoper hem plaatste, indien bekend
+  posted_at      INTEGER,                    -- wanneer de verkoper hem plaatste, indien bekend
+  memory_gb      INTEGER                     -- werkgeheugen uit een veld van de bron (Marktplaats)
 );
 
 -- Eén regel per waarneming waarin iets veranderde: de prijs, het aantal kijkers of het
@@ -183,9 +184,11 @@ UPDATE finding
  WHERE pushed_at IS NULL;
 "#;
 
-/// Van schema 4 naar 5: de score per euro van een computer.
+/// Van schema 4 naar 5: de score per euro van een computer, en het geheugen uit het veld van
+/// de bron, zodat een hercontrole hem met hetzelfde geheugen beoordeelt.
 const MIGRATION_4_TO_5: &str = r#"
 ALTER TABLE finding ADD COLUMN score_per_euro REAL;
+ALTER TABLE listing ADD COLUMN memory_gb INTEGER;
 "#;
 
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
@@ -222,6 +225,7 @@ pub struct PushCandidate {
     pub warnings: Vec<String>,
     /// CPU Mark per euro, alleen bij computers met een bekende processor.
     pub score_per_euro: Option<f64>,
+    pub is_computer: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -566,8 +570,8 @@ impl Database {
                 "INSERT INTO listing (
                     key, source, listing_id, title, url, description, location, seller,
                     condition, delivery, photo_count, first_seen, last_seen, found_by_terms,
-                    posted_at
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13,?14)
+                    posted_at, memory_gb
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13,?14,?15)
                  ON CONFLICT(key) DO UPDATE SET
                     title       = excluded.title,
                     url         = excluded.url,
@@ -583,6 +587,7 @@ impl Database {
                     -- kunnen hem niet beter weten, en een bron die hem een keer weglaat mag
                     -- hem niet wissen.
                     posted_at   = COALESCE(listing.posted_at, excluded.posted_at),
+                    memory_gb   = COALESCE(excluded.memory_gb, listing.memory_gb),
                     -- Teruggezien betekent: hij bestaat nog. Een eerdere twijfel vervalt.
                     gone_checks = 0,
                     gone_since  = NULL,
@@ -603,6 +608,7 @@ impl Database {
                     now,
                     terms_json,
                     listing.posted_at,
+                    listing.memory_gb,
                 ],
             )
             .map_err(|error| format!("{key} niet op te slaan: {error}"))?;
@@ -870,6 +876,7 @@ impl Database {
                     level: if row.get::<_, String>(10)? == "top" { Level::Top } else { Level::Deal },
                     warnings: json_list(row.get::<_, Option<String>>(11)?),
                     score_per_euro: row.get(12)?,
+                    is_computer: row.get::<_, String>(8)? == "computer",
                 })
             })
             .map_err(|error| format!("Uitschieters niet te lezen: {error}"))?;
@@ -1242,7 +1249,8 @@ impl Database {
                         (SELECT price_cents FROM sighting p WHERE p.key = l.key
                          ORDER BY p.seen_at DESC LIMIT 1),
                         (SELECT asking_cents FROM sighting p WHERE p.key = l.key
-                         ORDER BY p.seen_at DESC LIMIT 1)
+                         ORDER BY p.seen_at DESC LIMIT 1),
+                        l.memory_gb
                  FROM listing l WHERE l.key = ?1",
                 params![key],
                 |row| {
@@ -1259,6 +1267,7 @@ impl Database {
                         photo_count: row.get::<_, i64>(9)? as usize,
                         price_euros: from_cents(row.get::<_, Option<i64>>(10)?.unwrap_or(0)),
                         asking_price_euros: from_cents(row.get::<_, Option<i64>>(11)?.unwrap_or(0)),
+                        memory_gb: row.get(12)?,
                         ..Listing::default()
                     })
                 },
