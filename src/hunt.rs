@@ -637,10 +637,9 @@ pub(crate) fn decide_pushes(
 ) -> Result<Vec<PushCandidate>, String> {
     let mut worth_telling = Vec::new();
     for candidate in database.findings_to_push()? {
-        let product_wants_it = match candidate.level {
-            Level::Top => settings.product_notifies(&candidate.product),
-            Level::Deal => settings.product_notifies_deals(&candidate.product),
-        };
+        // Een product dat deals stil meldt, meldt zijn topvondsten minstens zo stil.
+        let product_wants_it = settings.product_notifies_deals(&candidate.product)
+            || (candidate.level == Level::Top && settings.product_notifies(&candidate.product));
         // Een product dat niet meldt of uit staat, blijft stil. Ook die krijgen hun stempel,
         // anders meldt de eerste ronde nadat je het product aanzet de hele achterstand, en
         // duwt één prijsstijging een gefilterde vondst alsnog het kanaal in.
@@ -677,7 +676,7 @@ pub(crate) fn deliver(
     };
     let delivery_problems = crate::discord::post_all(&webhook, &pushes, settings, |candidate| {
         database.mark_pushed(&candidate.key, candidate.price_euros, now)
-    })?;
+    });
     problems.extend(delivery_problems);
     Ok(Vec::new())
 }
@@ -690,17 +689,9 @@ pub(crate) fn deliver(
 /// Hermes-knop eronder.
 fn below_the_floor(settings: &Settings, candidate: &PushCandidate) -> bool {
     let floor = if candidate.is_part {
-        settings
-            .parts
-            .iter()
-            .find(|part| part.name == candidate.matched_as)
-            .map(|part| part.suspicious_below)
+        settings.part_rule(&candidate.matched_as).map(|part| part.suspicious_below)
     } else {
-        settings
-            .cards
-            .iter()
-            .find(|card| card.name == candidate.matched_as)
-            .map(|card| card.suspicious_below)
+        settings.card_rule(&candidate.matched_as).map(|card| card.suspicious_below)
     };
     floor.is_some_and(|floor| candidate.price_euros < floor)
 }
@@ -717,8 +708,11 @@ pub(crate) fn record_heartbeat(
     // Hoe vaak er gedraaid wordt staat in de cron, en die kent de app niet. Door het gat
     // tussen twee rondes door te geven kan de app zelf bepalen wanneer stilte verdacht is —
     // bij rondes van vijf minuten hoort dat veel eerder te zijn dan bij rondes van een uur.
+    // Een ronde die je in de app start valt buiten de cron, en zou het tempo te kort maken.
+    let started_by_hand = std::env::var_os("KAARTENJAGER_ROUND_BY_HAND").is_some();
     if let Some(previous) = database
         .state("last_round_at")
+        .filter(|_| !started_by_hand)
         .and_then(|value| value.parse::<i64>().ok())
     {
         let gap = now - previous;

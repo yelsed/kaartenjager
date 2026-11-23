@@ -764,6 +764,14 @@ impl Settings {
         self.product(id).is_some_and(|product| product.notify_deals)
     }
 
+    pub fn card_rule(&self, name: &str) -> Option<&CardRule> {
+        self.cards.iter().find(|card| card.name == name)
+    }
+
+    pub fn part_rule(&self, name: &str) -> Option<&PartRule> {
+        self.parts.iter().find(|part| part.name == name)
+    }
+
     /// Wat `check` per product zegt over melden.
     pub fn describe_notify(&self, product: &Product) -> String {
         let has_cards = self.cards.iter().any(|card| {
@@ -782,7 +790,12 @@ impl Settings {
             });
         }
         if product.notify_deals {
-            parts.push(if parts.is_empty() { "meldt goede deals stil" } else { "goede deals stil" }.to_string());
+            let what = if parts.is_empty() { "meldt alles stil" } else { "goede deals stil" };
+            parts.push(if self.notify.webhook().is_some() {
+                what.to_string()
+            } else {
+                format!("{what} zodra er een discord_webhook is")
+            });
         }
         if parts.is_empty() {
             "meldt niets".to_string()

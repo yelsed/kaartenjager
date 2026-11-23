@@ -233,6 +233,7 @@ pub fn run() -> bool {
         ("een lege KAARTENJAGER_DISCORD_WEBHOOK verbergt de configuratie niet", check_empty_webhook_variable),
         ("een onderdeel onder zijn bodem komt niet als goede deal in Discord", check_part_below_floor_stays_quiet),
         ("een Discord-bericht blijft onder de tweeduizend tekens", check_discord_message_length),
+        ("een product dat alleen stil meldt, meldt ook zijn topvondsten stil", check_quiet_product_keeps_top_finds),
         ("check zegt per product hoe het meldt", check_notify_summary),
         ("een ronde schrijft hoe lang hij duurde", check_round_duration_recorded),
         ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
@@ -2983,7 +2984,7 @@ fn check_notify_summary(_settings: &Settings) -> Result<(), String> {
     if describe("videokaarten") != "meldt topvondsten vanaf 35% onder de markt" {
         return Err(format!("kaarten: {}", describe("videokaarten")));
     }
-    if describe("beeldbuistelevisies") != "meldt topvondsten, goede deals stil" {
+    if describe("beeldbuistelevisies") != "meldt topvondsten, goede deals stil zodra er een discord_webhook is" {
         return Err(format!("beeldbuizen: {}", describe("beeldbuistelevisies")));
     }
     if describe("voedingen") != "meldt niets" {
@@ -3060,6 +3061,27 @@ fn check_discord_message_length(_settings: &Settings) -> Result<(), String> {
     let length = body["content"].as_str().unwrap_or("").chars().count();
     if length > 2000 {
         return Err(format!("het bericht is {length} tekens, Discord weigert alles boven de 2000"));
+    }
+    Ok(())
+}
+
+fn check_quiet_product_keeps_top_finds(_settings: &Settings) -> Result<(), String> {
+    let mut settings = settings_with_quiet_crt_deals(None)?;
+    settings.products.iter_mut().for_each(|product| {
+        if product.id == "beeldbuistelevisies" {
+            product.notify = false;
+        }
+    });
+    let (database, _directory) = scratch_database("alleen-stil")?;
+    let now = 1_790_000_000;
+    crt_top_and_deal(&database, &settings, now)?;
+    let pushes = crate::hunt::decide_pushes(&database, &settings, now)?;
+    let top = pushes
+        .iter()
+        .find(|push| push.key == "marktplaats:30")
+        .ok_or("de topvondst van een product dat alleen stil meldt ging verloren")?;
+    if crate::discord::payload(top, &settings)["flags"] != 4096 {
+        return Err("die topvondst hoort stil te gaan, het product meldt niet luid".into());
     }
     Ok(())
 }

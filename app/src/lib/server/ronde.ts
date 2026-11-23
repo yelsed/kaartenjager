@@ -61,7 +61,11 @@ export function startRound(): { started: boolean; message: string } {
 	execFile(
 		binary(),
 		['run'],
-		{ timeout: MAX_RUN_SECONDS * 1000, maxBuffer: 4 * 1024 * 1024 },
+		{
+			timeout: MAX_RUN_SECONDS * 1000,
+			maxBuffer: 4 * 1024 * 1024,
+			env: { ...process.env, KAARTENJAGER_ROUND_BY_HAND: '1' }
+		},
 		(error, stdout, stderr) => {
 			startedAt = null;
 
@@ -72,16 +76,13 @@ export function startRound(): { started: boolean; message: string } {
 				return;
 			}
 
-			const outliers = stdout.trim();
-			// Met een webhook post het programma zelf en drukt het alleen nog de herinnering
-			// over wachtende beoordelingen af; dus geen uitspraak over uitschieters hier.
-			lastResult = 'De ronde is klaar. Nieuwe vondsten staan hieronder, en wat te melden viel staat in Discord.';
+			lastResult = 'De ronde is klaar. Nieuwe vondsten staan hieronder.';
 
-			// Wat het programma op stdout zet, gaat bij de cronjob naar Discord. Start jij de
-			// ronde vanuit de app, dan is er geen cronjob die dat doet — en zonder deze regel
-			// zou de melding verloren gaan terwijl `pushed_at` wél gestempeld is, zodat je hem
-			// ook later nooit meer krijgt.
-			if (outliers) void forwardToDiscord(outliers);
+			// Wat het programma afdrukt brengt bij de cronjob Hermes naar Discord; een ronde uit de
+			// app heeft geen cronjob, dus dat doet deze regel. Met een webhook post het programma
+			// zijn vondsten zelf en staat hier alleen de herinnering over wachtende beoordelingen.
+			const printed = stdout.trim();
+			if (printed) void forwardToDiscord(printed);
 		}
 	);
 

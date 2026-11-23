@@ -9,14 +9,11 @@ use std::time::Duration;
 
 /// Discords vlag voor een bericht dat in het kanaal komt zonder melding op de telefoon.
 const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
-const MAX_CONTENT_CHARACTERS: usize = 1900;
 
 pub fn payload(candidate: &PushCandidate, settings: &Settings) -> Value {
     let mention = settings.notify.mention_user_id.as_deref();
-    let loud = candidate.level == Level::Top;
+    let loud = candidate.level == Level::Top && settings.product_notifies(&candidate.product);
     let content = report::render_push(candidate, settings, if loud { mention } else { None });
-    // Discord weigert een bericht boven de tweeduizend tekens in plaats van het af te knippen.
-    let content: String = content.chars().take(MAX_CONTENT_CHARACTERS).collect();
     let mut body = json!({
         "username": "Kaartenjager",
         "content": content,
@@ -41,7 +38,7 @@ pub fn post_all(
     candidates: &[PushCandidate],
     settings: &Settings,
     mut delivered: impl FnMut(&PushCandidate) -> Result<(), String>,
-) -> Result<Vec<String>, String> {
+) -> Vec<String> {
     let agent = agent();
     let mut problems = Vec::new();
     for (index, candidate) in candidates.iter().enumerate() {
@@ -49,10 +46,9 @@ pub fn post_all(
             std::thread::sleep(GAP_BETWEEN_MESSAGES);
         }
         match post(&agent, webhook, &payload(candidate, settings)) {
-            Ok(()) => delivered(candidate)?,
+            Ok(()) => {}
             Err(Refusal::ThisMessage(reason)) => {
                 problems.push(format!("{reason}: {}. Die staat alleen in de app.", candidate.title));
-                delivered(candidate)?;
             }
             Err(Refusal::Everything(reason)) => {
                 problems.push(format!(
@@ -63,8 +59,12 @@ pub fn post_all(
                 break;
             }
         }
+        if let Err(error) = delivered(candidate) {
+            problems.push(error);
+            break;
+        }
     }
-    Ok(problems)
+    problems
 }
 
 /// Waarom een bericht niet aankwam, en wat dat zegt over de rest van de ronde.

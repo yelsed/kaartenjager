@@ -11,9 +11,9 @@ en `0005`.
 ## Stand
 
 - Docs, plan en ontwerp (`docs/phases/widening/design/`): klaar en goedgekeurd.
-- Programma: klaar. `kaartenjager selftest`: 88 controles groen, waarvan 11 nieuw.
+- Programma: klaar. `kaartenjager selftest`: 89 controles groen, waarvan 12 nieuw.
 - App: klaar. `npm run check` zonder fouten, `npm run smoke` groen, ook voor de rondeduur.
-- Vier reviewrondes, alle punten opgelost op drie na (hieronder).
+- Vijf reviewrondes. Alle punten opgelost op drie na (hieronder); de vijfde ronde vond nog punten, die zijn opgelost maar niet opnieuw nagekeken.
 - Nog niet gedaan: de test op de telefoon van de eigenaar. Daarvoor zijn de webhook-URL en zijn
   Discord-gebruikers-ID nodig.
 

@@ -176,8 +176,8 @@ ALTER TABLE finding ADD COLUMN pushed_level TEXT;
 
 UPDATE finding
    SET pushed_at = CAST(strftime('%s', 'now') AS INTEGER),
-       pushed_at_price = (SELECT price_cents FROM sighting s WHERE s.key = finding.key
-                          ORDER BY s.seen_at DESC LIMIT 1),
+       pushed_at_price = (SELECT price_cents FROM sighting WHERE sighting.key = finding.key
+                          ORDER BY sighting.seen_at DESC LIMIT 1),
        pushed_level = level
  WHERE pushed_at IS NULL;
 "#;
@@ -820,17 +820,19 @@ impl Database {
             .prepare(
                 "SELECT key, matched_as, percent_under_market, title, url, source, delivery,
                         price_cents, kind, product, level, warnings
-                 FROM (SELECT f.key, f.matched_as, f.percent_under_market, l.title, l.url,
-                              l.source, l.delivery, f.kind, COALESCE(f.product, '') AS product,
-                              f.level, f.warnings, f.pushed_at, f.pushed_at_price,
-                              COALESCE(f.pushed_level, 'top') AS pushed_level,
-                              (SELECT price_cents FROM sighting p WHERE p.key = f.key
-                               ORDER BY p.seen_at DESC LIMIT 1) AS price_cents
-                       FROM finding f
-                       JOIN listing l ON l.key = f.key
-                       WHERE f.still_a_find = 1
-                         AND f.kind IN ('card', 'part')
-                         AND l.gone_since IS NULL)
+                 FROM (SELECT finding.key, finding.matched_as, finding.percent_under_market,
+                              listing.title, listing.url, listing.source, listing.delivery,
+                              finding.kind, COALESCE(finding.product, '') AS product,
+                              finding.level, finding.warnings, finding.pushed_at,
+                              finding.pushed_at_price,
+                              COALESCE(finding.pushed_level, 'top') AS pushed_level,
+                              (SELECT price_cents FROM sighting WHERE sighting.key = finding.key
+                               ORDER BY sighting.seen_at DESC LIMIT 1) AS price_cents
+                       FROM finding
+                       JOIN listing ON listing.key = finding.key
+                       WHERE finding.still_a_find = 1
+                         AND finding.kind IN ('card', 'part')
+                         AND listing.gone_since IS NULL)
                  WHERE pushed_at IS NULL
                     OR (pushed_level = 'deal' AND level = 'top')
                     OR (price_cents <= pushed_at_price * 0.9

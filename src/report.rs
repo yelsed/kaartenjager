@@ -25,20 +25,17 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Opti
 
     let reason = if candidate.is_part {
         let limit = settings
-            .parts
-            .iter()
-            .find(|part| part.name == candidate.matched_as)
+            .part_rule(&candidate.matched_as)
             .map(|part| format!("onder {}", money::euros(part.alert_below)));
         match candidate.level {
             // Een onderdeel heeft geen marktbereik; het meldt omdat het onder zijn topvondstprijs zit.
             Level::Top => limit,
-            Level::Deal => (!candidate.warnings.is_empty()).then(|| candidate.warnings.join(" · ")),
+            Level::Deal => (!candidate.warnings.is_empty())
+                .then(|| shortened(&candidate.warnings.join(" · "), MAX_LINE_CHARACTERS)),
         }
     } else {
-        let market = settings
-            .cards
-            .iter()
-            .find(|card| card.name == candidate.matched_as)
+        let card = settings.card_rule(&candidate.matched_as);
+        let market = card
             .map(|card| {
                 format!(
                     " ({} tot {})",
@@ -51,11 +48,7 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Opti
             Some(format!("{:.0}% onder de markt{market}", candidate.percent_under_market))
         } else {
             // Onder je koopgrens, maar niet onder de onderkant van het marktbereik.
-            settings
-                .cards
-                .iter()
-                .find(|card| card.name == candidate.matched_as)
-                .map(|card| format!("onder je grens van {}", money::euros(card.alert_below)))
+            card.map(|card| format!("onder je grens van {}", money::euros(card.alert_below)))
         }
     };
     if let Some(reason) = reason {
@@ -63,7 +56,9 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Opti
         out.push('\n');
     }
 
-    let mut parts = vec![candidate.title.clone()];
+    // Discord weigert een bericht boven de tweeduizend tekens; ingekort wordt alleen wat lang
+    // kan worden, zodat de link onderaan altijd blijft.
+    let mut parts = vec![shortened(&candidate.title, MAX_LINE_CHARACTERS)];
     if matches!(candidate.delivery, Delivery::PickupOnly) {
         parts.push("alleen ophalen".to_string());
     }
@@ -109,6 +104,17 @@ pub fn render_round(
     }
 
     out
+}
+
+const MAX_LINE_CHARACTERS: usize = 300;
+
+fn shortened(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let mut short: String = text.chars().take(limit).collect();
+    short.push_str("...");
+    short
 }
 
 fn source_name(source: &str) -> String {
