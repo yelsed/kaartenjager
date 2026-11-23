@@ -47,7 +47,16 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Opti
                 )
             })
             .unwrap_or_default();
-        Some(format!("{:.0}% onder de markt{market}", candidate.percent_under_market))
+        if candidate.percent_under_market > 0.0 {
+            Some(format!("{:.0}% onder de markt{market}", candidate.percent_under_market))
+        } else {
+            // Onder je koopgrens, maar niet onder de onderkant van het marktbereik.
+            settings
+                .cards
+                .iter()
+                .find(|card| card.name == candidate.matched_as)
+                .map(|card| format!("onder je grens van {}", money::euros(card.alert_below)))
+        }
     };
     if let Some(reason) = reason {
         out.push_str(&reason);

@@ -231,6 +231,8 @@ pub fn run() -> bool {
         ("een goede deal die topvondst wordt meldt alsnog", check_deal_that_becomes_top_is_loud),
         ("na de overgang naar schema 4 komt de achterstand niet in Discord", check_upgrade_stamps_backlog),
         ("een lege KAARTENJAGER_DISCORD_WEBHOOK verbergt de configuratie niet", check_empty_webhook_variable),
+        ("een onderdeel onder zijn bodem komt niet als goede deal in Discord", check_part_below_floor_stays_quiet),
+        ("een Discord-bericht blijft onder de tweeduizend tekens", check_discord_message_length),
         ("check zegt per product hoe het meldt", check_notify_summary),
         ("een ronde schrijft hoe lang hij duurde", check_round_duration_recorded),
         ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
@@ -2064,12 +2066,15 @@ fn check_unreadable_verdict(_settings: &Settings) -> Result<(), String> {
 fn check_silent_rule_is_reported(settings: &Settings) -> Result<(), String> {
     // De testtabel: 3090 Ti met markt 950 en bodem 550. Bij 35% is de grens 617,50, dus die
     // regel kan melden.
-    if !settings.cards_that_can_never_notify(35.0).is_empty() {
+    let mut settings = settings.clone();
+    settings.notify.push_below_market_percent = 35.0;
+    if !settings.cards_that_can_never_notify().is_empty() {
         return Err("bij 35% hoort geen enkele regel stil te staan in deze tabel".into());
     }
 
     // Bij 45% zakt de grens naar 522,50 en komt hij onder de bodem van 550 te liggen.
-    let stil = settings.cards_that_can_never_notify(45.0);
+    settings.notify.push_below_market_percent = 45.0;
+    let stil = settings.cards_that_can_never_notify();
     if !stil.iter().any(|(naam, _, _)| *naam == "RTX 3090 Ti") {
         return Err("bij 45% hoort de 3090 Ti als stille regel gemeld te worden".into());
     }
@@ -3013,6 +3018,48 @@ fn check_empty_webhook_variable(_settings: &Settings) -> Result<(), String> {
     std::env::remove_var("KAARTENJAGER_DISCORD_WEBHOOK");
     if found.as_deref() != Some("https://discord.invalid/api/webhooks/1/x") {
         return Err(format!("met een lege variabele hoort de webhook uit de configuratie te gelden, kreeg {found:?}"));
+    }
+    Ok(())
+}
+
+fn check_part_below_floor_stays_quiet(_settings: &Settings) -> Result<(), String> {
+    let mut settings = settings_with_quiet_crt_deals(None)?;
+    for part in settings.parts.iter_mut() {
+        if part.name == "Beeldbuistelevisie" {
+            part.suspicious_below = 20.0;
+        }
+    }
+    let table = PriceTable::new(&settings);
+    let (database, _directory) = scratch_database("onderdeel-onder-bodem")?;
+    let now = 1_790_000_000;
+    database.sync_products(&settings, now)?;
+    store_judged(&database, &table, &crt_listing("60", "vinted", None, 5.0), now)?;
+    if !crate::hunt::decide_pushes(&database, &settings, now)?.is_empty() {
+        return Err("een beeldbuis van vijf euro, onder de bodem, ging toch naar Discord".into());
+    }
+    Ok(())
+}
+
+fn check_discord_message_length(_settings: &Settings) -> Result<(), String> {
+    let settings = settings_with_quiet_crt_deals(None)?;
+    let candidate = crate::db::PushCandidate {
+        key: "vinted:70".to_string(),
+        matched_as: "Beeldbuistelevisie".to_string(),
+        title: "Trinitron ".repeat(400),
+        url: "https://example.invalid/70".to_string(),
+        source: "vinted".to_string(),
+        delivery: Delivery::Unknown,
+        price_euros: 80.0,
+        percent_under_market: 0.0,
+        is_part: true,
+        product: "beeldbuistelevisies".to_string(),
+        level: crate::listing::Level::Deal,
+        warnings: vec!["afstand onbekend".to_string()],
+    };
+    let body = crate::discord::payload(&candidate, &settings);
+    let length = body["content"].as_str().unwrap_or("").chars().count();
+    if length > 2000 {
+        return Err(format!("het bericht is {length} tekens, Discord weigert alles boven de 2000"));
     }
     Ok(())
 }

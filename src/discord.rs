@@ -9,11 +9,14 @@ use std::time::Duration;
 
 /// Discords vlag voor een bericht dat in het kanaal komt zonder melding op de telefoon.
 const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
+const MAX_CONTENT_CHARACTERS: usize = 1900;
 
 pub fn payload(candidate: &PushCandidate, settings: &Settings) -> Value {
     let mention = settings.notify.mention_user_id.as_deref();
     let loud = candidate.level == Level::Top;
     let content = report::render_push(candidate, settings, if loud { mention } else { None });
+    // Discord weigert een bericht boven de tweeduizend tekens in plaats van het af te knippen.
+    let content: String = content.chars().take(MAX_CONTENT_CHARACTERS).collect();
     let mut body = json!({
         "username": "Kaartenjager",
         "content": content,

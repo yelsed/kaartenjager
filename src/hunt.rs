@@ -655,14 +655,15 @@ pub(crate) fn decide_pushes(
     Ok(worth_telling)
 }
 
+/// Discord laat een webhook ongeveer vijf berichten per twee seconden sturen.
+const DISCORD_GAP_MS: u64 = 450;
+
 /// Brengt de vondsten weg en geeft terug wat de ronde zelf nog moet afdrukken.
 ///
 /// Met een webhook gaat alles naar Discord en drukt de ronde niets af. Een vondst die Discord
 /// niet aannam houdt geen stempel, zodat de volgende ronde het opnieuw probeert. Zonder webhook
 /// drukt de ronde de topvondsten af voor Hermes; een goede deal kan die route niet stil sturen,
 /// dus die blijft in de app.
-const DISCORD_GAP_MS: u64 = 450;
-
 pub(crate) fn deliver(
     database: &Database,
     settings: &Settings,
@@ -680,7 +681,6 @@ pub(crate) fn deliver(
     let agent = crate::discord::agent();
     for (index, candidate) in pushes.iter().enumerate() {
         if index > 0 {
-            // Discord laat een webhook ongeveer vijf berichten per twee seconden sturen.
             std::thread::sleep(Duration::from_millis(DISCORD_GAP_MS));
         }
         let stamp = || {
@@ -713,11 +713,20 @@ pub(crate) fn deliver(
 /// melding van de dag. Ze staan gewoon in de app, met de waarschuwing erbij en de
 /// Hermes-knop eronder.
 fn below_the_floor(settings: &Settings, candidate: &PushCandidate) -> bool {
-    settings
-        .cards
-        .iter()
-        .find(|card| card.name == candidate.matched_as)
-        .is_some_and(|card| candidate.price_euros < card.suspicious_below)
+    let floor = if candidate.is_part {
+        settings
+            .parts
+            .iter()
+            .find(|part| part.name == candidate.matched_as)
+            .map(|part| part.suspicious_below)
+    } else {
+        settings
+            .cards
+            .iter()
+            .find(|card| card.name == candidate.matched_as)
+            .map(|card| card.suspicious_below)
+    };
+    floor.is_some_and(|floor| candidate.price_euros < floor)
 }
 
 /// The heartbeat. A watcher that died looks exactly like a market with no bargains, so the app

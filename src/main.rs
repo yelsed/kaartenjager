@@ -491,7 +491,7 @@ fn command_check(arguments: &Arguments) -> ExitCode {
         settings.notify.push_below_market_percent
     );
     let stille_regels =
-        settings.cards_that_can_never_notify(settings.notify.push_below_market_percent);
+        settings.cards_that_can_never_notify();
     if !stille_regels.is_empty() {
         println!(
             "  LET OP             {} kaartregel(s) kunnen nooit een Discord-bericht geven,",

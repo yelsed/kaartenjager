@@ -939,15 +939,12 @@ impl Settings {
     /// een vast bedrag. Kruisen die elkaar, dan is elke advertentie die de meldgrens haalt
     /// per definitie al als oplichterij weggezet en blijft het kanaal stil. Dat is precies
     /// het soort fout dat je pas na weken opvalt, dus `check` hoort het te zeggen.
-    /// `percent` is de drempel uit `[notify]`; een product met een eigen drempel gaat voor.
-    pub fn cards_that_can_never_notify(&self, percent: f64) -> Vec<(&str, f64, f64)> {
+    /// Per kaart met de drempel van zijn product.
+    pub fn cards_that_can_never_notify(&self) -> Vec<(&str, f64, f64)> {
         self.cards
             .iter()
             .filter_map(|card| {
-                let percent = self
-                    .product(card.product.as_deref().unwrap_or(""))
-                    .and_then(|product| product.push_below_market_percent)
-                    .unwrap_or(percent);
+                let percent = self.push_percent_for(card.product.as_deref().unwrap_or(""));
                 let push_below = card.used_price_low * (1.0 - percent / 100.0);
                 (card.suspicious_below >= push_below).then_some((
                     card.name.as_str(),

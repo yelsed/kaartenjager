@@ -75,7 +75,7 @@ export function startRound(): { started: boolean; message: string } {
 			const outliers = stdout.trim();
 			lastResult = outliers
 				? 'De ronde vond een uitschieter; die staat hieronder en is naar Discord gestuurd.'
-				: 'De ronde is klaar. Geen uitschieters.';
+				: 'De ronde is klaar. Nieuwe vondsten staan hieronder, en wat te melden viel staat in Discord.';
 
 			// Wat het programma op stdout zet, gaat bij de cronjob naar Discord. Start jij de
 			// ronde vanuit de app, dan is er geen cronjob die dat doet — en zonder deze regel

@@ -825,7 +825,11 @@ impl Database {
                  JOIN listing l ON l.key = f.key
                  WHERE f.still_a_find = 1
                    AND f.kind IN ('card', 'part')
-                   AND l.gone_since IS NULL",
+                   AND l.gone_since IS NULL
+                   AND (f.pushed_at IS NULL
+                        OR (f.pushed_level = 'deal' AND f.level = 'top')
+                        OR (SELECT price_cents FROM sighting p WHERE p.key = f.key
+                            ORDER BY p.seen_at DESC LIMIT 1) <= f.pushed_at_price * 0.9)",
             )
             .map_err(|error| format!("Uitschieters niet op te vragen: {error}"))?;
 
@@ -876,8 +880,16 @@ impl Database {
         Ok(candidates)
     }
 
+    /// Stempelt met het niveau dat de vondst nu heeft.
     pub fn mark_pushed(&self, key: &str, price_euros: f64, now: i64) -> Result<(), String> {
-        self.mark_pushed_at_level(key, price_euros, Level::Top, now)
+        self.connection
+            .execute(
+                "UPDATE finding SET pushed_at = ?2, pushed_at_price = ?3, pushed_level = level
+                 WHERE key = ?1",
+                params![key, now, to_cents(price_euros)],
+            )
+            .map(|_| ())
+            .map_err(|error| format!("Melding van {key} niet vast te leggen: {error}"))
     }
 
     pub fn mark_pushed_at_level(
