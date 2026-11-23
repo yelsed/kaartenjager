@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meldingen en rondeduur</title>
+<style>
+	:root {
+		--achtergrond: #14161a;
+		--vlak: #1c2027;
+		--rand: #2b323c;
+		--tekst: #e6e9ee;
+		--gedempt: #98a1ae;
+		--accent: #7fd1a8;
+		--alarm: #e5646d;
+		--let-op: #e0a458;
+		--discord-achtergrond: #313338;
+		--discord-tekst: #dbdee1;
+		--discord-vermelding: #3c4270;
+		--discord-link: #00a8fc;
+		color-scheme: dark;
+	}
+
+	body {
+		margin: 0;
+		background: var(--achtergrond);
+		color: var(--tekst);
+		font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+		line-height: 1.5;
+	}
+
+	.schil {
+		max-width: 46rem;
+		margin: 0 auto;
+		padding: 1.5rem 1rem 4rem;
+	}
+
+	h1 {
+		font-size: 1.1rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--gedempt);
+		margin: 0 0 0.75rem;
+	}
+
+	h2 {
+		font-size: 0.85rem;
+		font-weight: 600;
+		margin: 2rem 0 0.5rem;
+	}
+
+	.uitleg {
+		color: var(--gedempt);
+		font-size: 0.9rem;
+		margin: 0 0 0.75rem;
+	}
+
+	.discord {
+		background: var(--discord-achtergrond);
+		color: var(--discord-tekst);
+		border-radius: 8px;
+		padding: 0.75rem 1rem;
+		font-size: 0.95rem;
+	}
+
+	.afzender {
+		font-weight: 600;
+		color: #ffffff;
+	}
+
+	.bot {
+		font-size: 0.65rem;
+		background: #5865f2;
+		color: #ffffff;
+		border-radius: 3px;
+		padding: 0 0.25rem;
+		margin-left: 0.3rem;
+		vertical-align: middle;
+	}
+
+	.stil {
+		font-size: 0.75rem;
+		color: var(--gedempt);
+		margin-left: 0.4rem;
+	}
+
+	.bericht {
+		white-space: pre-line;
+		margin: 0.2rem 0 0;
+	}
+
+	.vermelding {
+		background: var(--discord-vermelding);
+		color: #c9cdfb;
+		border-radius: 3px;
+		padding: 0 0.15rem;
+	}
+
+	.discord a {
+		color: var(--discord-link);
+	}
+
+	.melding {
+		background: #2a2c31;
+		border-radius: 14px;
+		padding: 0.6rem 0.9rem;
+		font-size: 0.85rem;
+		max-width: 22rem;
+	}
+
+	.melding strong {
+		display: block;
+	}
+
+	.waarschuwing {
+		border-radius: 8px;
+		padding: 0.9rem 1rem;
+		background: #2b2418;
+		border: 1px solid var(--let-op);
+	}
+
+	footer {
+		font-size: 0.85rem;
+		color: var(--gedempt);
+	}
+</style>
+</head>
+<body>
+<div class="schil">
+	<h1>Kaartenjager</h1>
+
+	<h2>1. Topvondst in Discord: luid</h2>
+	<p class="uitleg">Het bericht noemt jou, dus je telefoon trilt ook als het kanaal op "alleen vermeldingen" staat.</p>
+	<div class="discord">
+		<span class="afzender">Kaartenjager</span><span class="bot">APP</span>
+		<p class="bericht"><span class="vermelding">@Desley</span> topvondst
+RTX 3090: € 520
+31% onder de markt (€ 750 tot € 925)
+MSI RTX 3090 Gaming X Trio 24GB · alleen ophalen · Marktplaats
+<a href="#">https://www.marktplaats.nl/v/...</a></p>
+	</div>
+
+	<h2>2. Zo ziet het eruit op je telefoon</h2>
+	<div class="melding">
+		<strong>#kaartenjager</strong>
+		Kaartenjager: @Desley topvondst RTX 3090: € 520 31% onder de markt...
+	</div>
+
+	<h2>3. Goede deal in Discord: stil</h2>
+	<p class="uitleg">Alleen voor producten met <code>notify_deals = true</code>, zoals Beeldbuistelevisies. Staat in het kanaal, de telefoon blijft stil.</p>
+	<div class="discord">
+		<span class="afzender">Kaartenjager</span><span class="bot">APP</span><span class="stil">stil bericht</span>
+		<p class="bericht">goede deal
+Beeldbuistelevisie: € 80
+afstand onbekend
+Sony Trinitron KV-21 · Vinted
+<a href="#">https://www.vinted.nl/items/...</a></p>
+	</div>
+
+	<h2>4. Rondeduur in de app, binnen het budget</h2>
+	<p class="uitleg">Onderaan elke pagina, waar nu "Laatste ronde 14:05." staat.</p>
+	<footer>Laatste ronde 14:05, in 48 seconden.</footer>
+
+	<h2>5. Rondeduur boven het budget</h2>
+	<p class="uitleg">Bovenaan, in het oranje blok dat de app al gebruikt voor een ronde met problemen.</p>
+	<div class="waarschuwing">
+		<strong>De laatste ronde duurde 3 minuten en 10 seconden.</strong>
+		Dat is langer dan de helft van de tijd tussen twee rondes (2 minuten en 30 seconden), dus een vondst komt later binnen dan nodig. Zet een paar zoektermen uit, of laat de rondes minder vaak lopen.
+	</div>
+</div>
+</body>
+</html>
