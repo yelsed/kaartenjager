@@ -36,13 +36,6 @@ impl<'settings> PriceTable<'settings> {
     pub fn judge(&self, listing: &Listing) -> Option<Finding> {
         let title = listing.title.to_lowercase();
 
-        // Voor de zeef op accessoires: "incl. adapter" hoort bij een mini-pc gewoon in de titel.
-        if let Some(finding) = self
-            .match_computer(&title)
-            .and_then(|computer| self.judge_computer(listing, computer))
-        {
-            return Some(finding);
-        }
 
         // Water blocks, empty boxes, dead cards and scale models all carry a model number in
         // their title. None of them is the card.
@@ -57,6 +50,14 @@ impl<'settings> PriceTable<'settings> {
             if let Some(card) = self.match_card(&title) {
                 return self.judge_card(listing, card);
             }
+        }
+        // Na de kaarten: "RTX A2000 uit een EliteDesk" is een kaart. Voor de zeef op
+        // accessoires: "incl. adapter" hoort bij een mini-pc gewoon in de titel. Valt hij af,
+        // dan alleen nog de onderdelen ("M720q voedingsadapter"), geen onbekende videokaart.
+        if let Some(computer) = self.match_computer(&title) {
+            return self
+                .judge_computer(listing, computer)
+                .or_else(|| self.match_part(&title).and_then(|part| self.judge_part(listing, part)));
         }
         // Parts are matched even when an accessory word is present, because a riser cable is
         // supposed to say "cable".
@@ -103,13 +104,16 @@ impl<'settings> PriceTable<'settings> {
         if listing.price_euros < computer.min_price || listing.price_euros <= 0.0 {
             return None;
         }
-        let text = listing.searchable_text();
         let mut warnings = listing_warnings(listing);
         let mut reasons = Vec::new();
         let mut confidence = Confidence::Clear;
         let mut queue_note = None;
 
-        match listing.memory_gb.or_else(|| stated_ram_gb(&text)) {
+        let stated = listing
+            .memory_gb
+            .or_else(|| stated_ram_gb(&listing.title))
+            .or_else(|| stated_ram_gb(&listing.description));
+        match stated {
             Some(memory) if memory >= computer.min_memory_gb => {
                 reasons.push(format!("{memory} GB geheugen"));
             }
@@ -134,12 +138,14 @@ impl<'settings> PriceTable<'settings> {
                     0,
                     format!("{name}: CPU Mark {score:.0}, {per_euro:.0} per euro"),
                 );
-                let level = if per_euro >= computer.top_score_per_euro && queue_note.is_none() {
+                let provisional = queue_note.is_some();
+                let level = if per_euro >= computer.top_score_per_euro && !provisional {
                     Level::Top
                 } else {
                     Level::Deal
                 };
-                (format!("{}, {name}", computer.name), level, Some(per_euro))
+                // Zonder bekend geheugen geen score, zodat hij niet bovenaan de lijst staat.
+                (format!("{}, {name}", computer.name), level, (!provisional).then_some(per_euro))
             }
             None => {
                 confidence = Confidence::NeedsReview;
@@ -681,9 +687,10 @@ pub fn stated_watts(title: &str) -> Option<u32> {
     best
 }
 
-/// Werkgeheugen uit vrije tekst: "16GB", "16 GB DDR4", "16 Go", "16gb ram". "8/16GB" is een
-/// keuze en telt als de laagste. "2x8GB" telt als 16. Opslag ("256GB SSD") telt niet, en van wat
-/// overblijft telt het laagste, want "8GB, uit te breiden tot 32GB" heeft er 8.
+/// Werkgeheugen uit vrije tekst: "16GB", "16 GB DDR4", "16 Go", "16gb ram". Het eerste dat
+/// genoemd wordt telt, want "16GB (8GB + 8GB)" en "8GB, uit te breiden tot 32GB" noemen het
+/// geheugen eerst. "8/16GB" is een keuze en telt als de laagste, "2 x 8GB" als 16, en in
+/// "16/256GB SSD" is de 16 het geheugen. Opslag ("256GB SSD") telt niet.
 pub fn stated_ram_gb(text: &str) -> Option<u32> {
     let lowered = text.to_lowercase();
     let bytes = lowered.as_bytes();
@@ -694,7 +701,13 @@ pub fn stated_ram_gb(text: &str) -> Option<u32> {
         }
         (lowered[start..end].parse().unwrap_or(0), end)
     };
-    let mut found = Vec::new();
+    let skip_spaces = |mut position: usize| {
+        while position < bytes.len() && bytes[position] == b' ' {
+            position += 1;
+        }
+        position
+    };
+    let storage_words = ["ssd", "nvme", "hdd", "m.2", "m2", "opslag", "emmc", "schijf", "disk", "harde"];
     let mut index = 0;
     while index < bytes.len() {
         let starts_a_number =
@@ -703,55 +716,57 @@ pub fn stated_ram_gb(text: &str) -> Option<u32> {
             index += 1;
             continue;
         }
-        let (mut amount, mut end) = number_at(index);
+        let (first, mut end) = number_at(index);
         index = end;
-        let skip_spaces = |mut position: usize| {
-            while position < bytes.len() && bytes[position] == b' ' {
-                position += 1;
-            }
-            position
-        };
+        let mut amounts = vec![first];
         let operator = skip_spaces(end);
         let operand = skip_spaces(operator + 1);
         let operand_follows = operand < bytes.len() && bytes[operand].is_ascii_digit();
         if operator < bytes.len() && bytes[operator] == b'x' && operand_follows {
             // "2x8gb", "2 x 8GB": twee repen.
             let (per_module, after) = number_at(operand);
-            amount = amount.saturating_mul(per_module);
+            amounts = vec![first.saturating_mul(per_module)];
             end = after;
-            index = after;
         } else {
-            // "8/16gb", "8 / 16 GB": de laagste van de keuzes.
+            // "8/16gb", "8 / 16 GB", "16/256GB".
             let mut slash = operator;
             while slash < bytes.len() && bytes[slash] == b'/' {
                 let next = skip_spaces(slash + 1);
                 if next >= bytes.len() || !bytes[next].is_ascii_digit() {
                     break;
                 }
-                let (_, after) = number_at(next);
+                let (amount, after) = number_at(next);
+                amounts.push(amount);
                 end = after;
-                index = after;
                 slash = skip_spaces(after);
             }
         }
+        index = index.max(end);
         let rest = lowered[end..].trim_start();
         let Some(after_unit) = rest.strip_prefix("gb").or_else(|| rest.strip_prefix("go")) else {
             continue;
         };
-        // "1gbit" en "10gbps" gaan over het netwerk.
-        if after_unit.starts_with("it") || after_unit.starts_with("ps") {
+        // Een woord dat met "go" of "gb" begint is geen eenheid ("4 goede voetjes"), behalve
+        // "16gbram" en "16gbddr4"; "1gbit" en "10gbps" gaan over het netwerk.
+        let glued_word = after_unit.starts_with(|character: char| character.is_ascii_alphabetic());
+        if glued_word && !(after_unit.starts_with("ram") || after_unit.starts_with("ddr")) {
             continue;
         }
-        let storage = ["ssd", "nvme", "hdd", "m.2", "m2", "opslag", "emmc", "schijf", "disk", "harde"];
-        let next_word = after_unit.trim_start();
-        if storage.iter().any(|word| next_word.starts_with(word)) {
+        let storage_follows = storage_words.iter().any(|word| after_unit.trim_start().starts_with(word));
+        let ram_like: Vec<u32> = amounts.iter().copied().filter(|amount| RAM_SIZES.contains(amount)).collect();
+        if storage_follows {
+            // "16/256GB SSD": het eerste is het geheugen, het laatste de opslag.
+            let last = *amounts.last().unwrap_or(&0);
+            if amounts.len() > 1 && RAM_SIZES.contains(&amounts[0]) && !RAM_SIZES.contains(&last) {
+                return Some(amounts[0]);
+            }
             continue;
         }
-        if RAM_SIZES.contains(&amount) {
-            found.push(amount);
+        if ram_like.len() == amounts.len() {
+            return ram_like.into_iter().min();
         }
     }
-    found.into_iter().min()
+    None
 }
 
 const RAM_SIZES: [u32; 8] = [4, 8, 12, 16, 24, 32, 48, 64];

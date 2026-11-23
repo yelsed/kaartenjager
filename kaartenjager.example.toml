@@ -526,7 +526,10 @@ patterns = [
   "5070 micro", "5080 micro", "7060 micro", "7070 micro", "7080 micro",
   "elitedesk", "prodesk",
 ]
-exclude_patterns = ["sff", "small form factor", "tower", "beugel", "vesa", "adapter los"]
+exclude_patterns = [
+  "sff", "small form factor", "tower", "beugel", "vesa", "adapter los",
+  "defect", "kapot", "for parts", "voor onderdelen", "niet werkend", "lege doos",
+]
 min_memory_gb = 16
 top_score_per_euro = 45
 min_price = 40

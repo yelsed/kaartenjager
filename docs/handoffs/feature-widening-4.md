@@ -12,6 +12,19 @@ het marktonderzoek en de marktcheck in `docs/onderzoek/mini-pcs.md`.
 - Programma: klaar. `kaartenjager selftest`: 95 controles groen, waarvan 6 nieuw.
 - App: klaar. `npm run check` zonder fouten, `npm run smoke` groen, ook de volgorde op score.
 - Echte ronde op Marktplaats met een losse testdatabase: 31 vondsten, 3 topvondsten.
+- Twee reviewrondes. Alle punten opgelost op drie na (hieronder); de punten van de tweede ronde
+  zijn niet opnieuw nagekeken.
+
+## Reviewpunten die bewust blijven
+
+- `stated_ram_gb` en `stated_memory_gb` lezen allebei getallen met een eenheid. Ze verschillen
+  in wat ze zoeken (videogeheugen in een titel tegenover werkgeheugen in een hele advertentie,
+  met keuzes, repen en opslag); één gedeelde lezer zou de regels van beide moeten dragen.
+- `find_processor` maakt de tabel per advertentie opnieuw klaar. Dat is een paar dozijn korte
+  strings voor de handvol computers per ronde; voorberekenen loont pas bij veel meer.
+- Herbeoordelen na de beschrijving is een uitzondering voor voorlopige Vinted-computers. Pas als
+  een tweede soort regel de beschrijving nodig heeft, loont het om alle Vinted-vondsten pas na
+  hun beschrijving te beoordelen.
 
 ## Bij het uitrollen
 

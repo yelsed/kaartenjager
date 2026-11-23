@@ -3222,6 +3222,11 @@ fn check_ram_parsing(_settings: &Settings) -> Result<(), String> {
         ("M720q 16GB (2 x 8GB) DDR4", Some(16)),
         ("8 / 16 GB naar keuze", Some(8)),
         ("70000x70000gb", None),
+        ("16GB (8GB + 8GB) DDR4", Some(16)),
+        ("i5-8500T 16/256GB SSD", Some(16)),
+        ("16/8GB", Some(8)),
+        ("met 4 goede rubber voetjes", None),
+        ("16gbram", Some(16)),
     ];
     for (text, expected) in cases {
         if stated_ram_gb(text) != expected {
@@ -3254,6 +3259,16 @@ fn check_computer_waits_for_description(_settings: &Settings) -> Result<(), Stri
     let provisional = table.judge(&bare).ok_or("een Vinted-mini-pc zonder beschrijving viel meteen weg")?;
     if provisional.level != crate::listing::Level::Deal || provisional.confidence != Confidence::NeedsReview {
         return Err("zonder beschrijving hoort hij voorlopig een goede deal om uit te zoeken te zijn".into());
+    }
+    // Voorlopig betekent ook: niet melden en niet stempelen, tot de beschrijving er is.
+    let (database, _directory) = scratch_database("voorlopige-mini-pc")?;
+    database.sync_products(&settings, 1_000)?;
+    let bare_with_processor = computer_listing("95", "vinted", "Lenovo ThinkCentre M720q i5-9500T", "", 60.0);
+    store_judged(&database, &table, &bare_with_processor, 1_000)?;
+    if !crate::hunt::decide_pushes(&database, &settings, 1_000)?.is_empty()
+        || database.findings_to_push()?.len() != 1
+    {
+        return Err("een voorlopige mini-pc hoort niet te melden en geen stempel te krijgen".into());
     }
     let described = computer_listing("87", "vinted", "Lenovo ThinkCentre M720q", "i5-9500T, 8 Go de RAM", 180.0);
     if table.judge(&described).is_some() {

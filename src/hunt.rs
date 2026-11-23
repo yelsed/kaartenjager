@@ -657,6 +657,11 @@ pub(crate) fn decide_pushes(
 ) -> Result<Vec<PushCandidate>, String> {
     let mut worth_telling = Vec::new();
     for candidate in database.findings_to_push()? {
+        // Een computer van Vinted zonder beschrijving is voorlopig: nog niet melden, en ook geen
+        // stempel, want na zijn beschrijving kan hij alsnog een topvondst zijn of afvallen.
+        if candidate.is_computer && candidate.warnings.iter().any(|warning| warning == "geheugen onbekend") {
+            continue;
+        }
         // Een product dat deals stil meldt, meldt zijn topvondsten minstens zo stil.
         let product_wants_it = settings.product_notifies_deals(&candidate.product)
             || (candidate.level == Level::Top && settings.product_notifies(&candidate.product));
