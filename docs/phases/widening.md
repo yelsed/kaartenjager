@@ -57,3 +57,45 @@ Release-branch: `release/widening`. Elke taak een eigen `feature/widening-<n>`.
 - Geen nieuwe meldkanalen; dat is Widening 2. Topvondsten gaan via de bestaande Discord-route.
 - Geen mini-pc-regels; dat is Widening 4, op deze productlaag.
 - Volglijst en archief krijgen nog geen productfilter; de inbox is waar je focust.
+
+## Widening 2 (TASK-2): snel blijven, en meldingen op de telefoon
+
+### Wat het bouwt
+
+- Vondsten gaan via een eigen Discord-webhook, niet meer via de cron-uitvoer en Hermes (ADR 0004).
+  Discord blijft het enige kanaal (antwoord van de eigenaar, 23 november 2026).
+  - Een topvondst is luid: het bericht noemt de eigenaar (`mention_user_id`), dus de telefoon
+    trilt ook als het kanaal op "alleen vermeldingen" staat.
+  - Een goede deal is stil: hij staat in het kanaal met Discords stille vlag, zonder melding.
+  - Zonder webhook in de configuratie werkt alles zoals nu: de ronde drukt de topvondsten af en
+    Hermes post ze.
+- Elk product kiest zijn eigen drempel (ADR 0005):
+  - `notify`: topvondsten melden, luid (bestond al).
+  - `notify_deals`: goede deals stil in het kanaal.
+  - `push_below_market_percent`: hoeveel onder de markt een kaart van dit product een topvondst
+    is; zonder waarde geldt `[notify]`.
+- Snelheid: elke ronde schrijft hoe lang hij duurde (`last_round_seconds`). Het budget: een ronde
+  duurt hooguit de helft van het gat tussen twee rondes, dus 2,5 minuut bij rondes van vijf
+  minuten. Duurt hij langer, dan zegt de app dat bij de hartslag.
+
+### Checklist (elke regel heeft een controle in `kaartenjager selftest` of in `app/smoke.sh`)
+
+- [ ] Met een webhook gaat een topvondst als bericht met vermelding naar de webhook, en de ronde
+      drukt hem niet meer af
+- [ ] Een goede deal van een product met `notify_deals` gaat stil naar de webhook (vlag 4096),
+      zonder vermelding
+- [ ] Een goede deal van een product zonder `notify_deals` gaat nergens heen
+- [ ] Zonder webhook drukt de ronde de topvondsten af zoals voorheen
+- [ ] Een mislukte webhook laat de vondst ongemeld, zodat de volgende ronde het opnieuw probeert
+- [ ] `push_below_market_percent` op een product gaat voor op die in `[notify]`
+- [ ] `check` toont per product of en hoe het meldt
+- [ ] Een ronde schrijft `last_round_seconds`, en de app waarschuwt als die over het budget gaat
+- [ ] Rondeduur gemeten voor en na Widening 1 en 2, met de uitkomst in dit document
+- [ ] Op de telefoon van de eigenaar getest: een topvondst trilt, een deal niet
+
+### Wat het niet doet
+
+- Geen ntfy, Pushover of mail: de eigenaar koos Discord.
+- Hermes blijft voor de knop "Hermes laten kijken" en de prijsherziening; of Hermes blijft is
+  Widening 3.
+- Geen stille uren; Discord regelt dat op de telefoon zelf.
