@@ -13,6 +13,7 @@ wachtrij af, en de app leest en schrijft wat je aanklikt. Het schema hoort bij h
 | 2 | `sighting` (prijs en belangstelling door de tijd), `gone_reason` en `posted_at` op `listing`. |
 | 3 | Producten: tabel `product`, `finding.product`, `finding.level`, `search_term.product`. |
 | 4 | `finding.pushed_level`: of een vondst als topvondst of als goede deal gestempeld werd. |
+| 5 | `finding.score_per_euro`: CPU Mark per euro van een computer. |
 
 Het programma migreert bij het openen, alle stappen samen in één transactie. Schema 4 komt met Widening 2; de app kent precies één versie, dus programma en app gaan samen. Bij de stap naar 3
 zet het `app_state.terms_from_legacy`. De eerste `sync_products` geeft bestaande zoektermen en
@@ -36,6 +37,7 @@ veranderde of bij een hercontrole.
 - `product`: `product.id` van de regel die hem herkende. NULL bij vondsten van voor schema 3
   die nog geen ronde zagen.
 - `level`: `top` of `deal` (`docs/decisions/0002`).
+- `kind`: ook `computer` (`docs/decisions/0007`), met `score_per_euro` als de processor bekend is.
 - `still_a_find`, `pushed_at`, `pushed_at_price`: of hij nog telt en of hij al gemeld is. Ook een
   vondst die stil blijft krijgt `pushed_at`; met een webhook pas als Discord hem aannam.
 - `pushed_level`: het niveau bij dat stempel. Een goede deal die later topvondst wordt meldt

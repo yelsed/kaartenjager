@@ -1,7 +1,8 @@
 //! Recognises what a listing is, decides whether it is cheap enough to mention, and builds
 //! the plain-language reasons that go with it.
 
-use crate::config::{CardRule, CaseProfile, PartRule, Settings, SystemProfile};
+use crate::config::{CardRule, CaseProfile, ComputerRule, PartRule, Settings, SystemProfile};
+use std::collections::BTreeMap;
 use crate::listing::{Confidence, Finding, FindingKind, Level, Listing};
 use crate::money;
 
@@ -34,6 +35,11 @@ impl<'settings> PriceTable<'settings> {
     /// wanted ads, never for deciding what is being sold.
     pub fn judge(&self, listing: &Listing) -> Option<Finding> {
         let title = listing.title.to_lowercase();
+
+        // Voor de zeef op accessoires: "incl. adapter" hoort bij een mini-pc gewoon in de titel.
+        if let Some(computer) = self.match_computer(&title) {
+            return self.judge_computer(listing, computer);
+        }
 
         // Water blocks, empty boxes, dead cards and scale models all carry a model number in
         // their title. None of them is the card.
@@ -80,6 +86,79 @@ impl<'settings> PriceTable<'settings> {
             .cards
             .iter()
             .find(|card| matches_patterns(title, &card.patterns, &card.exclude_patterns))
+    }
+
+    fn match_computer(&self, title: &str) -> Option<&ComputerRule> {
+        self.settings
+            .computers
+            .iter()
+            .find(|computer| matches_patterns(title, &computer.patterns, &computer.exclude_patterns))
+    }
+
+    /// Het geheugen is een harde eis, de processor bepaalt de waarde (`docs/decisions/0007`).
+    fn judge_computer(&self, listing: &Listing, computer: &ComputerRule) -> Option<Finding> {
+        if listing.price_euros < computer.min_price || listing.price_euros <= 0.0 {
+            return None;
+        }
+        let text = listing.searchable_text();
+        let mut warnings = listing_warnings(listing);
+        let mut reasons = Vec::new();
+        let mut confidence = Confidence::Clear;
+        let mut queue_note = None;
+
+        match listing.memory_gb.or_else(|| stated_ram_gb(&text)) {
+            Some(memory) if memory >= computer.min_memory_gb => {
+                reasons.push(format!("{memory} GB geheugen"));
+            }
+            Some(_) => return None,
+            // Vinted zet geheugen en processor vaak alleen in de beschrijving, en die komt pas
+            // na het zoeken binnen. Tot dan voorlopig; daarna beslist `judge` opnieuw.
+            None if listing.source == "vinted" && listing.description.is_empty() => {
+                confidence = Confidence::NeedsReview;
+                queue_note = Some("Geheugen nog onbekend: de beschrijving is nog niet gelezen.".to_string());
+                warnings.push("geheugen onbekend".to_string());
+            }
+            None => return None,
+        }
+
+        let processor = find_processor(&text, &computer.processors);
+        let (matched_as, level, score_per_euro) = match processor {
+            Some((name, score)) => {
+                let per_euro = score / listing.price_euros;
+                reasons.insert(
+                    0,
+                    format!("{name}: CPU Mark {score:.0}, {per_euro:.0} per euro"),
+                );
+                let level = if per_euro >= computer.top_score_per_euro && queue_note.is_none() {
+                    Level::Top
+                } else {
+                    Level::Deal
+                };
+                (format!("{}, {name}", computer.name), level, Some(per_euro))
+            }
+            None => {
+                confidence = Confidence::NeedsReview;
+                queue_note.get_or_insert_with(|| {
+                    "Processor niet gevonden of niet in de tabel; zoek de CPU Mark op.".to_string()
+                });
+                (format!("{}, processor onbekend", computer.name), Level::Deal, None)
+            }
+        };
+
+        Some(Finding {
+            listing: listing.clone(),
+            matched_as,
+            kind: FindingKind::Computer,
+            product: computer.product.clone(),
+            level,
+            confidence,
+            percent_under_market: None,
+            euros_under_market: None,
+            score_per_euro,
+            reasons,
+            warnings,
+            queue_note,
+        })
     }
 
     fn match_part(&self, title: &str) -> Option<&PartRule> {
@@ -201,6 +280,7 @@ impl<'settings> PriceTable<'settings> {
             confidence,
             percent_under_market,
             euros_under_market: Some(euros_under_market),
+            score_per_euro: None,
             reasons,
             warnings,
             queue_note,
@@ -285,6 +365,7 @@ impl<'settings> PriceTable<'settings> {
             // Onderdelen hebben geen marktbereik, dus er valt niets tegen af te zetten.
             percent_under_market: None,
             euros_under_market: None,
+            score_per_euro: None,
             reasons,
             warnings,
             queue_note,
@@ -324,6 +405,7 @@ impl<'settings> PriceTable<'settings> {
             confidence: Confidence::NeedsReview,
             percent_under_market: None,
             euros_under_market: None,
+            score_per_euro: None,
             reasons: vec![format!(
                 "{stated} GB videogeheugen voor onder {}, maar er staat geen regel voor dit model in de tabel",
                 money::euros(UNKNOWN_CARD_INTERESTING_BELOW)
@@ -592,4 +674,98 @@ pub fn stated_watts(title: &str) -> Option<u32> {
         }
     }
     best
+}
+
+/// Werkgeheugen uit vrije tekst: "16GB", "16 GB DDR4", "16 Go", "16gb ram". "8/16GB" is een
+/// keuze en telt als de laagste. "2x8GB" telt als 16. Opslag ("256GB SSD") telt niet, en van wat
+/// overblijft telt het laagste, want "8GB, uit te breiden tot 32GB" heeft er 8.
+pub fn stated_ram_gb(text: &str) -> Option<u32> {
+    let lowered = text.to_lowercase();
+    let bytes = lowered.as_bytes();
+    let number_at = |start: usize| -> (u32, usize) {
+        let mut end = start;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+        (lowered[start..end].parse().unwrap_or(0), end)
+    };
+    let mut found = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        let starts_a_number =
+            bytes[index].is_ascii_digit() && (index == 0 || !bytes[index - 1].is_ascii_alphanumeric());
+        if !starts_a_number {
+            index += 1;
+            continue;
+        }
+        let (mut amount, mut end) = number_at(index);
+        index = end;
+        // "2x8gb": twee repen.
+        if end < bytes.len() && bytes[end] == b'x' && end + 1 < bytes.len() && bytes[end + 1].is_ascii_digit() {
+            let (per_module, after) = number_at(end + 1);
+            amount *= per_module;
+            end = after;
+        } else {
+            // "8/16gb": de laagste van de keuzes.
+            while end < bytes.len() && bytes[end] == b'/' {
+                let (_, after) = number_at(end + 1);
+                end = after;
+            }
+        }
+        let rest = lowered[end..].trim_start();
+        let Some(after_unit) = rest.strip_prefix("gb").or_else(|| rest.strip_prefix("go")) else {
+            continue;
+        };
+        // "1gbit" en "10gbps" gaan over het netwerk.
+        if after_unit.starts_with("it") || after_unit.starts_with("ps") {
+            continue;
+        }
+        let storage = ["ssd", "nvme", "hdd", "m.2", "m2", "opslag", "emmc", "schijf", "disk", "harde"];
+        let next_word = after_unit.trim_start();
+        if storage.iter().any(|word| next_word.starts_with(word)) {
+            continue;
+        }
+        if RAM_SIZES.contains(&amount) {
+            found.push(amount);
+        }
+    }
+    found.into_iter().min()
+}
+
+const RAM_SIZES: [u32; 8] = [4, 8, 12, 16, 24, 32, 48, 64];
+
+/// De processor uit de tekst, met zijn CPU Mark. Herkend op het typenummer, het laatste woord
+/// van de naam in de tabel: "i5-9500T" op "9500t", ook in "i5 9500T" en "i59500t". Het langste
+/// typenummer eerst, zodat "8500t" wint van "8500".
+pub fn find_processor(text: &str, processors: &BTreeMap<String, f64>) -> Option<(String, f64)> {
+    let words: Vec<String> = text
+        .to_lowercase()
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let glued = word.len() > 2
+                && word.starts_with('i')
+                && matches!(word.as_bytes()[1], b'3' | b'5' | b'7' | b'9')
+                && word.as_bytes()[2].is_ascii_digit()
+                && word.len() >= 6;
+            if glued { word[2..].to_string() } else { word.to_string() }
+        })
+        .collect();
+    let mut candidates: Vec<(&String, &f64, String)> = processors
+        .iter()
+        .filter_map(|(name, score)| {
+            let model = name
+                .to_lowercase()
+                .split(|character: char| !character.is_ascii_alphanumeric())
+                .filter(|word| !word.is_empty())
+                .last()?
+                .to_string();
+            Some((name, score, model))
+        })
+        .collect();
+    candidates.sort_by_key(|(_, _, model)| std::cmp::Reverse(model.len()));
+    candidates
+        .into_iter()
+        .find(|(_, _, model)| words.iter().any(|word| word == model))
+        .map(|(name, score, _)| (name.clone(), *score))
 }

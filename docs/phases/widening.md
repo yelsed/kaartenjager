@@ -153,16 +153,19 @@ Al gedaan op 22 november: het koopadvies, het plan voor de CI-runners en de noti
 
 ### Checklist (elke regel heeft een controle in `kaartenjager selftest` of in `app/smoke.sh`)
 
-- [ ] Een M720q met i5-9500T en 16 GB voor € 175 is een topvondst met 46 per euro
-- [ ] Dezelfde met 8 GB valt af; zonder geheugen in de advertentie ook
-- [ ] "8/16GB" telt als 8, "2x8GB" telt als 16, "16 Go" telt als 16, "256GB SSD" telt niet
-- [ ] Het veld `memoryRAM` van Marktplaats gaat voor op de tekst
-- [ ] Een onbekende processor is een goede deal met "uitzoeken", geen topvondst
-- [ ] Een Vinted-advertentie zonder beschrijving wordt na het ophalen opnieuw beoordeeld
-- [ ] Onder `min_price` is het geen pc
-- [ ] Een topvondst van Mini-pc's meldt luid, met de score in het bericht
-- [ ] De inbox van Mini-pc's staat op score per euro
-- [ ] Een database van schema 4 migreert naar 5
+- [x] Een M720q met i5-9500T en 16 GB voor € 175 is een topvondst met 46 per euro
+- [x] Dezelfde met 8 GB valt af; zonder geheugen in de advertentie ook
+- [x] "8/16GB" telt als 8, "2x8GB" telt als 16, "16 Go" telt als 16, "256GB SSD" telt niet
+- [x] Het veld `memoryRAM` van Marktplaats gaat voor op de tekst
+- [x] Een onbekende processor is een goede deal met "uitzoeken", geen topvondst
+- [x] Een Vinted-advertentie zonder beschrijving wordt na het ophalen opnieuw beoordeeld
+- [x] Onder `min_price` is het geen pc
+- [x] Een topvondst van Mini-pc's meldt luid, met de score in het bericht
+- [x] De inbox van Mini-pc's staat op score per euro
+- [x] Een database van schema 4 migreert naar 5
+
+Echte ronde op Marktplaats (23 november 2026, losse testdatabase, vier zoektermen): 31
+mini-pc-vondsten, 3 topvondsten (EliteDesk 805 G6 met 4650GE voor € 299 tot € 320).
 
 ### Wat het niet doet
 

@@ -23,7 +23,9 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Opti
         money::euros_precise(candidate.price_euros)
     ));
 
-    let reason = if candidate.is_part {
+    let reason = if let Some(score) = candidate.score_per_euro {
+        Some(format!("{score:.0} CPU Mark per euro"))
+    } else if candidate.is_part {
         let limit = settings
             .part_rule(&candidate.matched_as)
             .map(|part| format!("onder {}", money::euros(part.alert_below)));

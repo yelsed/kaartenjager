@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { env } from '$env/dynamic/private';
 
 /** Het schema waar deze app op gebouwd is. Zie PRAGMA user_version in het programma. */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 /** Onder deze fractie van de archiefprijs komt een advertentie terug in de inbox. */
 const RETURN_FROM_ARCHIVE_AT = 0.9;
@@ -33,7 +33,7 @@ const HEARTBEAT_STALE_FALLBACK = 2 * 3600;
 const DAY_STARTS_AT = 8;
 const DAY_ENDS_AT = 22;
 
-export type Kind = 'card' | 'part' | 'unknown';
+export type Kind = 'card' | 'part' | 'computer' | 'unknown';
 export type State = 'inbox' | 'archived' | 'watching';
 /** top: het soort vondst waarvoor je gestoord wilt worden. deal: de rest die de moeite waard is. */
 export type Level = 'top' | 'deal';
@@ -56,6 +56,8 @@ export type Finding = {
 	level: Level;
 	needsReview: boolean;
 	percentUnderMarket: number | null;
+	/** CPU Mark per euro, alleen bij computers met een bekende processor. */
+	scorePerEuro: number | null;
 	eurosUnderMarket: number | null;
 	reasons: string[];
 	warnings: string[];
@@ -279,7 +281,7 @@ export function undoEverythingSeen(): void {
 // ------------------------------------------------------------------ vondsten
 
 const FINDING_COLUMNS = `
-	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, f.confidence, f.percent_under_market, f.euros_under_market,
+	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, f.confidence, f.percent_under_market, f.euros_under_market, f.score_per_euro,
 	f.reasons, f.warnings, f.queue_note, f.became_a_find_at, f.judged_at, f.still_a_find,
 	l.title, l.url, l.source, l.delivery, l.location, l.seller, l.condition, l.photo_count,
 	l.description, l.gone_since, l.gone_reason, l.posted_at, l.first_seen, l.last_seen,
@@ -334,6 +336,7 @@ function toFinding(row: Row, visitedAt: number): Finding {
 		level: row.level === 'top' ? 'top' : 'deal',
 		needsReview: row.confidence === 'review',
 		percentUnderMarket: row.percent_under_market === null ? null : Number(row.percent_under_market),
+		scorePerEuro: row.score_per_euro === null ? null : Number(row.score_per_euro),
 		eurosUnderMarket: row.euros_under_market === null ? null : Number(row.euros_under_market),
 		reasons: parseList(row.reasons),
 		warnings: parseList(row.warnings),
@@ -466,9 +469,15 @@ export function inbox(limit: number, offset: number, productId: string | null = 
 	if (productId === null) {
 		return query(INBOX_WHERE, 'f.became_a_find_at DESC', limit, offset);
 	}
-	return query(`${INBOX_WHERE} AND f.product = ?`, 'f.became_a_find_at DESC', limit, offset, [
-		productId
-	]);
+	// Binnen een product met scores (mini-pc's) wint de meeste rekenkracht per euro; zonder
+	// scores is dit de gewone volgorde.
+	return query(
+		`${INBOX_WHERE} AND f.product = ?`,
+		'f.score_per_euro IS NULL, f.score_per_euro DESC, f.became_a_find_at DESC',
+		limit,
+		offset,
+		[productId]
+	);
 }
 
 export function watching(limit: number, offset: number): Finding[] {

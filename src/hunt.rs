@@ -291,6 +291,22 @@ pub fn run_round(
         ));
     }
 
+    // Een computer van Vinted werd voorlopig beoordeeld zonder beschrijving; nu die er is,
+    // beslissen geheugen en processor. Geen 16 GB in de beschrijving: dan valt hij af.
+    let mut findings: Vec<Finding> = findings
+        .into_iter()
+        .filter_map(|finding| {
+            if finding.kind != crate::listing::FindingKind::Computer || finding.listing.description.is_empty() {
+                return Some(finding);
+            }
+            let rejudged = table.judge(&finding.listing);
+            if rejudged.is_none() {
+                judged_to_nothing.push((finding.listing.key(), finding.listing.price_euros));
+            }
+            rejudged
+        })
+        .collect();
+
     // Now that the descriptions are in, the seller's own words decide delivery.
     for finding in findings.iter_mut() {
         apply_pickup_words(finding, settings);

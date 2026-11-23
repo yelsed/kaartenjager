@@ -18,6 +18,9 @@
   Zonder webhook blijft de route via Hermes (`docs/decisions/0004`).
 - Een product kan een eigen `push_below_market_percent` hebben (`docs/decisions/0005`), en
   `check` zegt per product hoe het meldt.
+- Mini-pc's als product met een `[[computer]]`-regel: 16 GB in de advertentie als harde eis,
+  CPU Mark per euro als score, topvondst vanaf 45. Schema 5 (`finding.score_per_euro`); de
+  inbox van een product met scores staat op score per euro (`docs/decisions/0007`).
 - Elke ronde onthoudt hoe lang hij duurde. De app toont dat onderaan en waarschuwt als een ronde
   langer duurt dan de helft van de tijd tussen twee rondes.
 

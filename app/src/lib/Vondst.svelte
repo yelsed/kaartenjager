@@ -66,6 +66,9 @@
 			{#if vondst.productName}<span class="merk">{vondst.productName}</span>{/if}
 			{#if distanceUnknown}<span class="merk uitzoeken">afstand onbekend</span>{/if}
 			{#if vondst.needsReview}<span class="merk uitzoeken">uitzoeken</span>{/if}
+			{#if vondst.scorePerEuro !== null}
+				<span class="merk">{Math.round(vondst.scorePerEuro)} CPU Mark per euro</span>
+			{/if}
 			{#if vondst.percentUnderMarket !== null && vondst.percentUnderMarket > 0}
 				<span class="merk">{percent(vondst.percentUnderMarket)} onder de markt</span>
 			{/if}

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// Opgehoogd bij elke schemawijziging. De Svelte-app controleert dit bij het starten en
 /// weigert bij een versie die hij niet kent, in plaats van half te werken op een schema dat
 /// hij verkeerd begrijpt.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 const SCHEMA: &str = r#"
 CREATE TABLE listing (
@@ -69,7 +69,8 @@ CREATE TABLE finding (
   left_find_at_price   INTEGER,
   pushed_at            INTEGER,
   pushed_at_price      INTEGER,
-  pushed_level         TEXT                  -- top | deal: wat hij was toen hij zijn stempel kreeg
+  pushed_level         TEXT,                 -- top | deal: wat hij was toen hij zijn stempel kreeg
+  score_per_euro       REAL                  -- CPU Mark per euro, alleen bij computers
 );
 
 CREATE TABLE decision (
@@ -182,6 +183,11 @@ UPDATE finding
  WHERE pushed_at IS NULL;
 "#;
 
+/// Van schema 4 naar 5: de score per euro van een computer.
+const MIGRATION_4_TO_5: &str = r#"
+ALTER TABLE finding ADD COLUMN score_per_euro REAL;
+"#;
+
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
 pub const STALE_AFTER_SECONDS: i64 = 3600;
 
@@ -214,6 +220,8 @@ pub struct PushCandidate {
     pub product: String,
     pub level: Level,
     pub warnings: Vec<String>,
+    /// CPU Mark per euro, alleen bij computers met een bekende processor.
+    pub score_per_euro: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -278,9 +286,12 @@ impl Database {
             // In één transactie, zodat een halve migratie geen database achterlaat die
             // nergens meer op lijkt.
             let steps = match version {
-                1 => format!("{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4}"),
-                2 => format!("{MIGRATION_2_TO_3} {MIGRATION_3_TO_4}"),
-                _ => MIGRATION_3_TO_4.to_string(),
+                1 => format!(
+                    "{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5}"
+                ),
+                2 => format!("{MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5}"),
+                3 => format!("{MIGRATION_3_TO_4} {MIGRATION_4_TO_5}"),
+                _ => MIGRATION_4_TO_5.to_string(),
             };
             connection
                 .execute_batch(&format!(
@@ -710,13 +721,14 @@ impl Database {
                 "INSERT INTO finding (
                     key, matched_as, kind, confidence, percent_under_market, euros_under_market,
                     reasons, warnings, queue_note, became_a_find_at, judged_at, still_a_find,
-                    left_find_at_price, product, level
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL,?12,?13)
+                    left_find_at_price, product, level, score_per_euro
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL,?12,?13,?14)
                  ON CONFLICT(key) DO UPDATE SET
                     matched_as           = excluded.matched_as,
                     kind                 = excluded.kind,
                     product              = excluded.product,
                     level                = excluded.level,
+                    score_per_euro       = excluded.score_per_euro,
                     confidence           = excluded.confidence,
                     percent_under_market = excluded.percent_under_market,
                     euros_under_market   = excluded.euros_under_market,
@@ -742,6 +754,7 @@ impl Database {
                     renew_became,
                     if finding.product.is_empty() { None } else { Some(finding.product.as_str()) },
                     finding.level.name(),
+                    finding.score_per_euro,
                 ],
             )
             .map_err(|error| format!("Vondst {key} niet op te slaan: {error}"))?;
@@ -819,11 +832,12 @@ impl Database {
             .connection
             .prepare(
                 "SELECT key, matched_as, percent_under_market, title, url, source, delivery,
-                        price_cents, kind, product, level, warnings
+                        price_cents, kind, product, level, warnings, score_per_euro
                  FROM (SELECT finding.key, finding.matched_as, finding.percent_under_market,
                               listing.title, listing.url, listing.source, listing.delivery,
                               finding.kind, COALESCE(finding.product, '') AS product,
-                              finding.level, finding.warnings, finding.pushed_at,
+                              finding.level, finding.warnings, finding.score_per_euro,
+                              finding.pushed_at,
                               finding.pushed_at_price,
                               COALESCE(finding.pushed_level, 'top') AS pushed_level,
                               (SELECT price_cents FROM sighting WHERE sighting.key = finding.key
@@ -831,7 +845,7 @@ impl Database {
                        FROM finding
                        JOIN listing ON listing.key = finding.key
                        WHERE finding.still_a_find = 1
-                         AND finding.kind IN ('card', 'part')
+                         AND finding.kind IN ('card', 'part', 'computer')
                          AND listing.gone_since IS NULL)
                  WHERE pushed_at IS NULL
                     OR (pushed_level = 'deal' AND level = 'top')
@@ -855,6 +869,7 @@ impl Database {
                     product: row.get(9)?,
                     level: if row.get::<_, String>(10)? == "top" { Level::Top } else { Level::Deal },
                     warnings: json_list(row.get::<_, Option<String>>(11)?),
+                    score_per_euro: row.get(12)?,
                 })
             })
             .map_err(|error| format!("Uitschieters niet te lezen: {error}"))?;
@@ -1302,6 +1317,7 @@ impl FindingKind {
         match self {
             FindingKind::Card => "card",
             FindingKind::Part => "part",
+            FindingKind::Computer => "computer",
             FindingKind::Unknown => "unknown",
         }
     }
