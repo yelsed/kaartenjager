@@ -12,6 +12,14 @@
   te zetten, zoektermen per product (`docs/decisions/0003`).
 - Schema 3 (`docs/database.md`). Het programma migreert zelf; **werk de app tegelijk bij**,
   want de app weigert een schema dat hij niet kent.
+- Meldingen via een eigen Discord-webhook (`[notify] discord_webhook`): topvondsten noemen je
+  (`mention_user_id`) zodat je telefoon trilt, goede deals van een product met `notify_deals`
+  komen stil. Een vondst die Discord niet aannam wordt de volgende ronde opnieuw geprobeerd.
+  Zonder webhook blijft de route via Hermes (`docs/decisions/0004`).
+- Een product kan een eigen `push_below_market_percent` hebben (`docs/decisions/0005`), en
+  `check` zegt per product hoe het meldt.
+- Elke ronde onthoudt hoe lang hij duurde. De app toont dat onderaan en waarschuwt als een ronde
+  langer duurt dan de helft van de tijd tussen twee rondes.
 
 ## 2.0.0 — 18 september 2026
 

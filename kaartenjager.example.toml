@@ -34,6 +34,13 @@ delay_between_requests_ms = 2500
 # een onderdeel is het een advertentie onder alert_below, binnen bereik als de
 # regel op afstand zeeft. Al het andere staat alleen in de app.
 #
+# notify_deals = true: goede deals van dit product komen ook in Discord, als
+# stil bericht (geen melding op de telefoon). Werkt alleen met discord_webhook
+# onder [notify].
+#
+# push_below_market_percent: voor kaarten van dit product een eigen drempel;
+# zonder waarde geldt die onder [notify].
+#
 # Let op de grens: alle zoektermen samen x bronnen mag niet boven de 60.
 # Zoektermen: ook de verkeerd gespelde, want daar zit het koopje.
 # ---------------------------------------------------------------------------
@@ -70,6 +77,7 @@ id = "beeldbuistelevisies"
 name = "Beeldbuistelevisies"
 search_terms = ["crt tv", "crt televisie", "trinitron"]
 notify = true
+notify_deals = true
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +99,16 @@ notify = true
 
 [notify]
 push_below_market_percent = 25
+
+# De webhook van je Discord-kanaal (kanaal bewerken, Integraties, Webhooks).
+# Met webhook post het programma zelf: een topvondst noemt mention_user_id,
+# zodat je telefoon trilt, en een goede deal gaat stil. Zonder webhook drukt
+# de ronde de topvondsten af en post Hermes ze, zoals voorheen; dan komen
+# goede deals niet in Discord. KAARTENJAGER_DISCORD_WEBHOOK gaat voor.
+# discord_webhook = "https://discord.com/api/webhooks/..."
+# Je eigen Discord-gebruikers-ID (Ontwikkelaarsmodus aan, lang drukken op je
+# naam, Gebruikers-ID kopiëren).
+# mention_user_id = "123456789012345678"
 
 
 # ---------------------------------------------------------------------------

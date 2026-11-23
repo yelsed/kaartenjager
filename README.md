@@ -38,7 +38,10 @@ meldt.
 
 Discord houdt alleen uitschieters over: meer dan `push_below_market_percent` onder de
 onderkant van het marktbereik, en dan één bericht per advertentie in plaats van één per
-ronde. De rest staat in de app. Zonder die regels krijg je vijftien meldingen per dag en zet
+ronde. Met `discord_webhook` onder `[notify]` post het programma zelf: een topvondst noemt je
+(`mention_user_id`), zodat je telefoon trilt, en goede deals van een product met
+`notify_deals = true` komen stil in het kanaal (`docs/decisions/0004`). Zonder webhook post
+Hermes wat de ronde afdrukt. De rest staat in de app. Zonder die regels krijg je vijftien meldingen per dag en zet
 je het na een week uit.
 
 **Hoe lang stond het er al?** Het programma legt per advertentie vast wanneer wij hem vonden,
@@ -275,7 +278,9 @@ zet het weghalen van je laatste zoekterm de hele lijst niet terug.
 
 **Producten.** Kaartenjager zoekt per product: videokaarten, voedingen, risers,
 beeldbuistelevisies. Een product is een `[[product]]`-blok met een `id`, een `name`, de
-`search_terms` waarmee hij begint en `notify` (melden topvondsten van dit product in Discord).
+`search_terms` waarmee hij begint, `notify` (topvondsten van dit product in Discord, luid),
+`notify_deals` (goede deals stil in Discord) en eventueel een eigen `push_below_market_percent`
+voor zijn kaarten (`docs/decisions/0005`).
 Elke `[[card]]` en `[[part]]` wijst met `product = "<id>"` naar zijn product. Een product
 toevoegen gaat zo:
 

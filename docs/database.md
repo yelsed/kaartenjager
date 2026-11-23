@@ -35,7 +35,8 @@ veranderde of bij een hercontrole.
 - `product`: `product.id` van de regel die hem herkende. NULL bij vondsten van voor schema 3
   die nog geen ronde zagen.
 - `level`: `top` of `deal` (`docs/decisions/0002`).
-- `still_a_find`, `pushed_at`, `pushed_at_price`: of hij nog telt en of hij al gemeld is.
+- `still_a_find`, `pushed_at`, `pushed_at_price`: of hij nog telt en of hij al gemeld is. Ook een
+  vondst die stil blijft krijgt `pushed_at`; met een webhook pas als Discord hem aannam.
 
 **decision**: wat jij ermee deed: `state` inbox, watching of archived, en de prijs bij het
 archiveren, zodat een daling van meer dan tien procent hem terug in de inbox brengt.
@@ -59,8 +60,8 @@ advertentie.
 - `seeded_at`: wanneer zijn `search_terms` in `search_term` gezet zijn. Dat gebeurt één keer.
 
 **app_state**: losse waarden als naam en tekst.
-- `last_round_at`, `last_round_problems`, `round_gap_seconds`, `round_running_since`: de
-  hartslag van de wachter.
+- `last_round_at`, `last_round_problems`, `round_gap_seconds`, `round_running_since`,
+  `last_round_seconds`: de hartslag van de wachter, en hoe lang de laatste ronde duurde.
 - `last_visit`, `previous_visit`: wat de app als nieuw toont.
 - `terms_seeded`, `terms_from_legacy`: of de zoektermen al gezaaid zijn (zie Versies).
 - `max_search_terms`: hoeveel zoektermen er aan mogen; het programma rekent het uit de bronnen.
