@@ -130,6 +130,12 @@ Er is bewust **geen** cronjob voor het beoordelen. Die zou 144 keer per dag een 
 kosten voor een wachtrij die vrijwel altijd leeg is. In plaats daarvan stuurt de app een kort
 bericht in het kanaal zodra je op de knop drukt, en dat is het sein voor Hermes.
 
+Hermes negeert berichten van een webhook, tenzij ze hem noemen. Zet daarom in de app-dienst
+`Environment=KAARTENJAGER_HERMES_BOT_ID=<ID van de Hermes-bot>` en in `~/.hermes/.env`
+`DISCORD_ALLOW_BOTS=mentions`. Niet `all`: dan reageert Hermes ook op elke topvondst die het
+programma in het kanaal zet. Zonder bot-ID komt het bericht er wel, maar moet je er zelf op
+reageren voordat Hermes begint.
+
 ### Alles in één keer
 
 ```sh
