@@ -1,5 +1,10 @@
 # Wat er veranderde
 
+## 2.1.3, 24 november 2026: een OptiPlex is geen videokaart
+
+- Een titel die een mini-pc-model noemt ("Dell OptiPlex 3060 Micro") is alleen een videokaart als
+  er ook een kaartwoord als RTX of GeForce in staat. Eerder werd hij een topvondst RTX 3060.
+
 ## 2.1.2, 24 november 2026: doctor naast een lopende ronde
 
 - `kaartenjager doctor` start Chromium op een eigen, tijdelijk profiel. Liep er tegelijk een ronde,
