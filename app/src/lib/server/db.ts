@@ -8,9 +8,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { env } from '$env/dynamic/private';
+import { PRODUCT_COLORS, productColor } from '$lib/format';
 
 /** Het schema waar deze app op gebouwd is. Zie PRAGMA user_version in het programma. */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 6;
 
 /** Onder deze fractie van de archiefprijs komt een advertentie terug in de inbox. */
 const RETURN_FROM_ARCHIVE_AT = 0.9;
@@ -33,7 +34,7 @@ const HEARTBEAT_STALE_FALLBACK = 2 * 3600;
 const DAY_STARTS_AT = 8;
 const DAY_ENDS_AT = 22;
 
-export type Kind = 'card' | 'part' | 'unknown';
+export type Kind = 'card' | 'part' | 'computer' | 'unknown';
 export type State = 'inbox' | 'archived' | 'watching';
 /** top: het soort vondst waarvoor je gestoord wilt worden. deal: de rest die de moeite waard is. */
 export type Level = 'top' | 'deal';
@@ -53,9 +54,13 @@ export type Finding = {
 	kind: Kind;
 	product: string;
 	productName: string;
+	/** De kleur van het product: gekozen in de app, of die van zijn plaats. */
+	productColor: string;
 	level: Level;
 	needsReview: boolean;
 	percentUnderMarket: number | null;
+	/** CPU Mark per euro, alleen bij computers met een bekende processor. */
+	scorePerEuro: number | null;
 	eurosUnderMarket: number | null;
 	reasons: string[];
 	warnings: string[];
@@ -115,6 +120,7 @@ export type SearchTerm = {
 export type Product = {
 	id: string;
 	name: string;
+	color: string;
 	enabled: boolean;
 	/** Zoektermen die aan staan; bij een uitgezet product tellen ze pas mee als hij weer aan gaat. */
 	enabledTermCount: number;
@@ -128,6 +134,10 @@ export type Heartbeat = {
 	withinDayWindow: boolean;
 	/** Hoe lang stilte nog normaal is, afgeleid van het waargenomen tempo. */
 	allowedSilence: number;
+	lastRoundSeconds: number | null;
+	/** De helft van het gat tussen twee rondes; daarboven komt een vondst later binnen dan nodig. */
+	roundBudgetSeconds: number | null;
+	overBudget: boolean;
 };
 
 /**
@@ -236,7 +246,23 @@ export function heartbeat(): Heartbeat {
 	const stale =
 		withinDayWindow && (lastRoundAt === null || nowSeconds() - lastRoundAt > allowed);
 
-	return { lastRoundAt, problems, stale, withinDayWindow, allowedSilence: allowed };
+	const rawSeconds = readState('last_round_seconds');
+	const parsedSeconds = rawSeconds === null || rawSeconds === '' ? NaN : Number(rawSeconds);
+	const lastRoundSeconds = Number.isFinite(parsedSeconds) ? parsedSeconds : null;
+	const roundBudgetSeconds = gap ? Math.round(gap / 2) : null;
+	const overBudget =
+		lastRoundSeconds !== null && roundBudgetSeconds !== null && lastRoundSeconds > roundBudgetSeconds;
+
+	return {
+		lastRoundAt,
+		problems,
+		stale,
+		withinDayWindow,
+		allowedSilence: allowed,
+		lastRoundSeconds,
+		roundBudgetSeconds,
+		overBudget
+	};
 }
 
 // -------------------------------------------------------------------- bezoek
@@ -259,7 +285,7 @@ export function undoEverythingSeen(): void {
 // ------------------------------------------------------------------ vondsten
 
 const FINDING_COLUMNS = `
-	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, f.confidence, f.percent_under_market, f.euros_under_market,
+	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, pr.position AS product_position, pr.color AS product_color, f.confidence, f.percent_under_market, f.euros_under_market, f.score_per_euro,
 	f.reasons, f.warnings, f.queue_note, f.became_a_find_at, f.judged_at, f.still_a_find,
 	l.title, l.url, l.source, l.delivery, l.location, l.seller, l.condition, l.photo_count,
 	l.description, l.gone_since, l.gone_reason, l.posted_at, l.first_seen, l.last_seen,
@@ -311,9 +337,14 @@ function toFinding(row: Row, visitedAt: number): Finding {
 		kind: String(row.kind) as Kind,
 		product: String(row.product ?? ''),
 		productName: String(row.product_name ?? row.product ?? ''),
+		productColor: productColor(
+			row.product_color === null ? null : String(row.product_color),
+			row.product_position === null ? null : Number(row.product_position)
+		),
 		level: row.level === 'top' ? 'top' : 'deal',
 		needsReview: row.confidence === 'review',
 		percentUnderMarket: row.percent_under_market === null ? null : Number(row.percent_under_market),
+		scorePerEuro: row.score_per_euro === null ? null : Number(row.score_per_euro),
 		eurosUnderMarket: row.euros_under_market === null ? null : Number(row.euros_under_market),
 		reasons: parseList(row.reasons),
 		warnings: parseList(row.warnings),
@@ -446,9 +477,15 @@ export function inbox(limit: number, offset: number, productId: string | null = 
 	if (productId === null) {
 		return query(INBOX_WHERE, 'f.became_a_find_at DESC', limit, offset);
 	}
-	return query(`${INBOX_WHERE} AND f.product = ?`, 'f.became_a_find_at DESC', limit, offset, [
-		productId
-	]);
+	// Binnen een product met scores (mini-pc's) wint de meeste rekenkracht per euro; zonder
+	// scores is dit de gewone volgorde.
+	return query(
+		`${INBOX_WHERE} AND f.product = ?`,
+		'f.score_per_euro IS NULL, f.score_per_euro DESC, f.became_a_find_at DESC',
+		limit,
+		offset,
+		[productId]
+	);
 }
 
 export function watching(limit: number, offset: number): Finding[] {
@@ -536,7 +573,7 @@ export function openReviewCount(): number {
 export function products(): Product[] {
 	const rows = db()
 		.prepare(
-			`SELECT p.id, p.name, p.enabled,
+			`SELECT p.id, p.name, p.position, p.color, p.enabled,
 			   (SELECT COUNT(*) FROM search_term t WHERE t.product = p.id AND t.enabled = 1)
 			     AS enabled_term_count
 			 FROM product p ORDER BY p.position, p.id`
@@ -556,6 +593,7 @@ export function products(): Product[] {
 	return rows.map((row) => ({
 		id: String(row.id),
 		name: String(row.name),
+		color: productColor(row.color === null ? null : String(row.color), Number(row.position)),
 		enabled: Number(row.enabled) === 1,
 		enabledTermCount: Number(row.enabled_term_count),
 		inboxCount: counts.get(String(row.id)) ?? 0
@@ -589,6 +627,13 @@ export function setProductEnabled(id: string, enabled: boolean): string | null {
 	}
 	db().prepare('UPDATE product SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
 	return null;
+}
+
+/** Alleen een kleur uit het palet; de app toont hem als tekst op een donkere achtergrond. */
+export function setProductColor(id: string, color: string): string | null {
+	if (!PRODUCT_COLORS.some((choice) => choice.value === color)) return 'Die kleur staat niet in het palet.';
+	const result = db().prepare('UPDATE product SET color = ? WHERE id = ?').run(color, id);
+	return result.changes === 0 ? 'Dat product bestaat niet (meer).' : null;
 }
 
 // ---------------------------------------------------------------- zoektermen

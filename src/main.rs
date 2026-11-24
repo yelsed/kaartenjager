@@ -2,6 +2,7 @@ mod browser;
 mod config;
 mod db;
 mod detail;
+mod discord;
 mod doctor;
 mod dossier;
 mod filter;
@@ -446,17 +447,26 @@ fn command_check(arguments: &Arguments) -> ExitCode {
     println!("  bronnen            {}", settings.sources.join(", "));
     for product in &settings.products {
         println!(
-            "  product            {} ({}): {} zoektermen{}",
+            "  product            {} ({}): {} zoektermen, {}",
             product.name,
             product.id,
             product.search_terms.len(),
-            if product.notify { ", meldt topvondsten" } else { "" }
+            settings.describe_notify(product)
         );
     }
     println!(
-        "  regels             {} kaarten, {} onderdelen",
+        "  meldingen          {}",
+        if settings.notify.webhook().is_some() {
+            "via de eigen Discord-webhook"
+        } else {
+            "via de cron-uitvoer (geen discord_webhook)"
+        }
+    );
+    println!(
+        "  regels             {} kaarten, {} onderdelen, {} computers",
         settings.cards.len(),
-        settings.parts.len()
+        settings.parts.len(),
+        settings.computers.len()
     );
     println!(
         "  paginabezoeken     {} (grens {})",
@@ -477,12 +487,12 @@ fn command_check(arguments: &Arguments) -> ExitCode {
         println!("  browser            {browser_line}");
     }
     println!(
-        "  uitschieter        meer dan {:.0}% onder de markt gaat naar Discord, \
+        "  uitschieter        meer dan {:.0}% onder de markt gaat naar Discord (of de drempel van het product), \
          behalve onder suspicious_below",
         settings.notify.push_below_market_percent
     );
     let stille_regels =
-        settings.cards_that_can_never_notify(settings.notify.push_below_market_percent);
+        settings.cards_that_can_never_notify();
     if !stille_regels.is_empty() {
         println!(
             "  LET OP             {} kaartregel(s) kunnen nooit een Discord-bericht geven,",

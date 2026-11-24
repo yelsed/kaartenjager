@@ -137,6 +137,31 @@ pub struct PartRule {
     pub product: Option<String>,
 }
 
+/// Een computer waarvan de processor de waarde bepaalt, niet het model (`docs/decisions/0007`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ComputerRule {
+    pub name: String,
+    pub product: String,
+    /// De doelmodellen, gezocht in de titel.
+    pub patterns: Vec<String>,
+    #[serde(default)]
+    pub exclude_patterns: Vec<String>,
+    /// Harde eis: zoveel geheugen moet in de advertentie zelf staan.
+    #[serde(default = "default_min_memory_gb")]
+    pub min_memory_gb: u32,
+    /// CPU Mark per processor, met de naam zoals hij in de app staat ("i5-9500T").
+    pub processors: BTreeMap<String, f64>,
+    /// Vanaf hoeveel CPU Mark per euro het een topvondst is.
+    pub top_score_per_euro: f64,
+    /// Daaronder is het een beugel, adapter of kap, geen computer.
+    #[serde(default)]
+    pub min_price: f64,
+}
+
+fn default_min_memory_gb() -> u32 {
+    16
+}
+
 /// Iets waar je naar zoekt: videokaarten, beeldbuistelevisies, mini-pc's. Een product heeft zijn
 /// eigen zoektermen en regels, en in de app zijn eigen overzicht.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -146,9 +171,16 @@ pub struct Product {
     /// Waar hij mee begint. Komt één keer in de database; daarna beheert de app de zoektermen.
     #[serde(default)]
     pub search_terms: Vec<String>,
-    /// Of topvondsten van dit product een melding opleveren.
+    /// Of topvondsten van dit product een melding opleveren, een die de telefoon laat trillen.
     #[serde(default = "default_notify")]
     pub notify: bool,
+    /// Of goede deals van dit product stil in het kanaal komen.
+    #[serde(default)]
+    pub notify_deals: bool,
+    /// Hoe ver onder de markt een kaart van dit product een topvondst is. Zonder waarde geldt
+    /// die uit `[notify]`.
+    #[serde(default)]
+    pub push_below_market_percent: Option<f64>,
 }
 
 fn default_notify() -> bool {
@@ -432,6 +464,26 @@ pub struct Notify {
     /// bereik, dus onderdelen halen deze drempel per definitie nooit.
     #[serde(default = "default_push_percent")]
     pub push_below_market_percent: f64,
+    /// Waar vondsten heen gaan. Zonder webhook drukt de ronde de topvondsten af en post Hermes
+    /// ze; `KAARTENJAGER_DISCORD_WEBHOOK` gaat voor op deze waarde.
+    #[serde(default)]
+    pub discord_webhook: Option<String>,
+    /// Wie een topvondst noemt, zodat de telefoon trilt.
+    #[serde(default)]
+    pub mention_user_id: Option<String>,
+}
+
+impl Notify {
+    pub fn webhook(&self) -> Option<String> {
+        let given = |url: String| {
+            let url = url.trim().to_string();
+            (!url.is_empty()).then_some(url)
+        };
+        std::env::var("KAARTENJAGER_DISCORD_WEBHOOK")
+            .ok()
+            .and_then(given)
+            .or_else(|| self.discord_webhook.clone().and_then(given))
+    }
 }
 
 fn default_push_percent() -> f64 {
@@ -442,6 +494,8 @@ impl Default for Notify {
     fn default() -> Self {
         Notify {
             push_below_market_percent: default_push_percent(),
+            discord_webhook: None,
+            mention_user_id: None,
         }
     }
 }
@@ -480,6 +534,8 @@ pub struct Settings {
     pub cards: Vec<CardRule>,
     #[serde(default, rename = "part")]
     pub parts: Vec<PartRule>,
+    #[serde(default, rename = "computer")]
+    pub computers: Vec<ComputerRule>,
     #[serde(default, rename = "product")]
     pub products: Vec<Product>,
     /// The products were made from `card_search_terms` and `part_search_terms`, not written
@@ -618,6 +674,8 @@ impl Settings {
                 name: CARD_PRODUCT_NAME.to_string(),
                 search_terms: self.card_search_terms.clone(),
                 notify: true,
+                notify_deals: false,
+                push_below_market_percent: None,
             });
         }
         for part in &self.parts {
@@ -634,6 +692,8 @@ impl Settings {
                 name: part.name.clone(),
                 search_terms: Vec::new(),
                 notify: false,
+                notify_deals: false,
+                push_below_market_percent: None,
             });
         }
         for term in &self.part_search_terms {
@@ -718,12 +778,64 @@ impl Settings {
             .unwrap_or_else(|| CARD_PRODUCT_ID.to_string())
     }
 
-    pub fn product_notifies(&self, id: &str) -> bool {
+    fn product(&self, id: &str) -> Option<&Product> {
         let id = if id.is_empty() { self.card_product_id() } else { id.to_string() };
-        self.products
-            .iter()
-            .find(|product| product.id == id)
-            .is_some_and(|product| product.notify)
+        self.products.iter().find(|product| product.id == id)
+    }
+
+    pub fn product_notifies(&self, id: &str) -> bool {
+        self.product(id).is_some_and(|product| product.notify)
+    }
+
+    pub fn product_notifies_deals(&self, id: &str) -> bool {
+        self.product(id).is_some_and(|product| product.notify_deals)
+    }
+
+    pub fn card_rule(&self, name: &str) -> Option<&CardRule> {
+        self.cards.iter().find(|card| card.name == name)
+    }
+
+    pub fn part_rule(&self, name: &str) -> Option<&PartRule> {
+        self.parts.iter().find(|part| part.name == name)
+    }
+
+    /// Wat `check` per product zegt over melden.
+    pub fn describe_notify(&self, product: &Product) -> String {
+        let has_cards = self.cards.iter().any(|card| {
+            self.product(card.product.as_deref().unwrap_or(""))
+                .is_some_and(|owner| owner.id == product.id)
+        });
+        let mut parts = Vec::new();
+        if product.notify {
+            parts.push(if has_cards {
+                format!(
+                    "meldt topvondsten vanaf {:.0}% onder de markt",
+                    self.push_percent_for(&product.id)
+                )
+            } else {
+                "meldt topvondsten".to_string()
+            });
+        }
+        if product.notify_deals {
+            let what = if parts.is_empty() { "meldt alles stil" } else { "goede deals stil" };
+            parts.push(if self.notify.webhook().is_some() {
+                what.to_string()
+            } else {
+                format!("{what} zodra er een discord_webhook is")
+            });
+        }
+        if parts.is_empty() {
+            "meldt niets".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
+
+    /// Hoe ver onder de markt een kaart van dit product een topvondst is.
+    pub fn push_percent_for(&self, id: &str) -> f64 {
+        self.product(id)
+            .and_then(|product| product.push_below_market_percent)
+            .unwrap_or(self.notify.push_below_market_percent)
     }
 
     /// Hoeveel paginabezoeken een ronde kost bij dit aantal zoektermen.
@@ -754,11 +866,31 @@ impl Settings {
             ));
         }
 
-        if self.cards.is_empty() && self.parts.is_empty() {
+        if self.cards.is_empty() && self.parts.is_empty() && self.computers.is_empty() {
             return Err(ConfigError::Rejected(
-                "Geen [[card]]- of [[part]]-regels ingesteld, dus er valt niets te beoordelen."
+                "Geen [[card]]-, [[part]]- of [[computer]]-regels ingesteld, dus er valt niets te beoordelen."
                     .into(),
             ));
+        }
+
+        for product in &self.products {
+            if let Some(percent) = product.push_below_market_percent {
+                if !(0.0..100.0).contains(&percent) {
+                    return Err(ConfigError::Rejected(format!(
+                        "Product \"{}\": push_below_market_percent ({percent}) moet tussen 0 en 100 \
+                         liggen.",
+                        product.name
+                    )));
+                }
+            }
+        }
+        if let Some(user) = &self.notify.mention_user_id {
+            if user.is_empty() || !user.chars().all(|character| character.is_ascii_digit()) {
+                return Err(ConfigError::Rejected(format!(
+                    "mention_user_id (\"{user}\") hoort je Discord-gebruikers-ID te zijn, alleen \
+                     cijfers. Zet in Discord Ontwikkelaarsmodus aan en kies Gebruikers-ID kopiëren."
+                )));
+            }
         }
 
         let requests = self.requests_per_round();
@@ -776,6 +908,7 @@ impl Settings {
         for (soort, namen) in [
             ("Kaart", self.cards.iter().map(|card| &card.name).collect::<Vec<_>>()),
             ("Onderdeel", self.parts.iter().map(|part| &part.name).collect::<Vec<_>>()),
+            ("Computer", self.computers.iter().map(|computer| &computer.name).collect::<Vec<_>>()),
         ] {
             let mut gezien = std::collections::BTreeSet::new();
             for naam in namen {
@@ -808,7 +941,10 @@ impl Settings {
             .iter()
             .map(|card| (&card.name, &card.product))
             .chain(self.parts.iter().map(|part| (&part.name, &part.product)));
-        for (name, product) in rules {
+        let computer_products: Vec<Option<String>> =
+            self.computers.iter().map(|computer| Some(computer.product.clone())).collect();
+        let computer_rules = self.computers.iter().map(|computer| &computer.name).zip(&computer_products);
+        for (name, product) in rules.chain(computer_rules) {
             if let Some(id) = product {
                 if !product_ids.contains(id.as_str()) {
                     return Err(ConfigError::Rejected(format!(
@@ -821,6 +957,32 @@ impl Settings {
 
         for card in &self.cards {
             validate_card(card)?;
+        }
+        for computer in &self.computers {
+            if computer.processors.is_empty()
+                || computer.top_score_per_euro <= 0.0
+                || computer.min_price < 0.0
+                || computer.min_memory_gb == 0
+                || computer.processors.values().any(|score| *score <= 0.0)
+            {
+                return Err(ConfigError::Rejected(format!(
+                    "Computer \"{}\" heeft processors met een CPU Mark boven nul nodig, een \
+                     top_score_per_euro boven nul, een min_memory_gb en geen negatieve min_price.",
+                    computer.name
+                )));
+            }
+            // Twee processors met hetzelfde typenummer: dan wint stil steeds dezelfde.
+            let mut models = std::collections::BTreeMap::new();
+            for name in computer.processors.keys() {
+                let model = crate::pricing::processor_words(name).last().cloned().unwrap_or_default();
+                if let Some(earlier) = models.insert(model.clone(), name) {
+                    return Err(ConfigError::Rejected(format!(
+                        "Computer \"{}\": \"{earlier}\" en \"{name}\" hebben hetzelfde typenummer \
+                         \"{model}\". Houd er een.",
+                        computer.name
+                    )));
+                }
+            }
         }
         for part in &self.parts {
             if part.suspicious_below >= part.alert_below {
@@ -850,10 +1012,12 @@ impl Settings {
     /// een vast bedrag. Kruisen die elkaar, dan is elke advertentie die de meldgrens haalt
     /// per definitie al als oplichterij weggezet en blijft het kanaal stil. Dat is precies
     /// het soort fout dat je pas na weken opvalt, dus `check` hoort het te zeggen.
-    pub fn cards_that_can_never_notify(&self, percent: f64) -> Vec<(&str, f64, f64)> {
+    /// Per kaart met de drempel van zijn product.
+    pub fn cards_that_can_never_notify(&self) -> Vec<(&str, f64, f64)> {
         self.cards
             .iter()
             .filter_map(|card| {
+                let percent = self.push_percent_for(card.product.as_deref().unwrap_or(""));
                 let push_below = card.used_price_low * (1.0 - percent / 100.0);
                 (card.suspicious_below >= push_below).then_some((
                     card.name.as_str(),

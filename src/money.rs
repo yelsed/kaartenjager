@@ -1,7 +1,12 @@
 //! Euro formatting in Dutch convention: thousands with a dot, decimals with a comma.
 
 pub fn euros(amount: f64) -> String {
-    format!("€{}", group_thousands(&format!("{:.0}", amount.round())))
+    format!("€{}", whole_number(amount))
+}
+
+/// "15.300": een rond getal met een punt per duizendtal.
+pub fn whole_number(amount: f64) -> String {
+    group_thousands(&format!("{:.0}", amount.round()))
 }
 
 pub fn euros_precise(amount: f64) -> String {

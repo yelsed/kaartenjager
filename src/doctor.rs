@@ -115,10 +115,10 @@ fn check_config(report: &mut Report, explicit: Option<&Path>) -> Option<config::
                 format!("{} kaarten, {} onderdelen", settings.cards.len(), settings.parts.len()),
             );
             let stil = settings
-                .cards_that_can_never_notify(settings.notify.push_below_market_percent);
+                .cards_that_can_never_notify();
             if stil.is_empty() {
                 report.ok("meldgrens", format!(
-                    "{:.0}% — elke kaartregel kan melden",
+                    "{:.0}%, of de drempel van het product: elke kaartregel kan melden",
                     settings.notify.push_below_market_percent
                 ));
             } else {

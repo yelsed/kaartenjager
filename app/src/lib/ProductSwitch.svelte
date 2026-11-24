@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { Product } from '$lib/server/db';
+	import ProductLabel from '$lib/ProductLabel.svelte';
+	import ProductColorPicker from '$lib/ProductColorPicker.svelte';
 
 	let { product }: { product: Product } = $props();
 
@@ -10,13 +12,14 @@
 
 <li class:uit={!product.enabled}>
 	<div class="omschrijving">
-		<strong>{product.name}</strong>
+		<strong><ProductLabel name={product.name} color={product.color} /></strong>
 		<span class="gedempt">
 			{product.enabledTermCount === 1 ? '1 zoekterm' : `${product.enabledTermCount} zoektermen`}
 			· {product.inboxCount}
 			{product.enabled ? 'in de inbox' : 'bewaard voor als hij weer aan gaat'}
 		</span>
 		{#if error}<span class="fout">{error}</span>{/if}
+		<ProductColorPicker {product} />
 	</div>
 	<form
 		method="POST"
@@ -42,7 +45,7 @@
 <style>
 	li {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: space-between;
 		gap: 1rem;
 		padding: 0.75rem 0;
@@ -55,7 +58,7 @@
 	}
 
 	li.uit strong {
-		color: var(--gedempt);
+		opacity: 0.55;
 	}
 
 	.gedempt {

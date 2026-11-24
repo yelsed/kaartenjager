@@ -144,3 +144,23 @@ noemt het; dat vraag je de verkoper.
   [i5-8500T](https://www.cpubenchmark.net/cpu.php?id=3231),
   [i5-9500T](https://www.cpubenchmark.net/cpu.php?id=3454),
   [i5-10500T](https://www.cpubenchmark.net/cpu.php?id=3768).
+
+## Marktcheck voor de topvondstgrens, 23 november 2026
+
+Op verzoek van de eigenaar opnieuw gekeken, om de grens voor een topvondst te kiezen: 12
+zoekopdrachten op Marktplaats (modelnamen, "i5-9500t", "i5-10500t", "4650ge", "mini pc 16gb"),
+367 advertenties van een doelmodel. Daarvan noemen er 123 de processor en 231 het geheugen; 38
+hebben 16 GB of meer, een bekende processor en een vaste prijs of bod.
+
+CPU Mark per euro van die 38: de mediaan is 34, het negende deciel 48.
+
+| Grens | Topvondsten nu | Wat erboven zit |
+|---|---|---|
+| 40 | 8 | ook een OptiPlex 3070 Micro met i5-9500T voor € 195 en € 200 |
+| **45** | **6** | drie keer een EliteDesk 805 G6 met 4650GE voor € 300 tot € 320, een ProDesk 400 G5 met i5-9500T voor € 175, een ProDesk 405 G6 met 3400GE voor € 169, en één bod vanaf € 95 |
+| 50 | 2 | |
+| 55 | 1 | alleen het bod vanaf € 95 |
+
+**Gekozen: 45** (de eigenaar liet de keuze aan de sessie). Dat zijn precies de machines uit het
+koopadvies, en ongeveer één op de zes geschikte advertenties: zeldzaam genoeg om je telefoon voor
+te laten trillen. Een prijs die een startbod is (`MIN_BID`) telt zoals hij er staat.
