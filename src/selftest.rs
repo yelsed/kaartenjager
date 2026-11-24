@@ -218,6 +218,7 @@ pub fn run() -> bool {
         ("doctor stopt niet bij de eerste fout", check_doctor_keeps_going),
         ("een oude configuratie wordt producten", check_legacy_config_becomes_products),
         ("een regel naar een onbekend product wordt geweigerd", check_unknown_product_is_refused),
+        ("een oude configuratie met één [[product]] erbij houdt haar producten", check_legacy_config_with_one_product),
         ("een beeldbuis: topvondst, goede deal of weg", check_crt_levels),
         ("een topvondst meldt alleen als zijn product dat zegt", check_part_top_find_notifies_per_product),
         ("een uitgezet product zoekt en meldt niets", check_disabled_product_is_quiet),
@@ -2481,6 +2482,38 @@ fn check_legacy_config_becomes_products(settings: &Settings) -> Result<(), Strin
             "verwacht Videokaarten plus één product per onderdeel, kreeg {}",
             settings.products.len()
         ));
+    }
+    Ok(())
+}
+
+fn check_legacy_config_with_one_product(_settings: &Settings) -> Result<(), String> {
+    let mixed = format!(
+        "{TEST_CONFIG}\n[[product]]\nid = \"mini-pcs\"\nname = \"Mini-pc's\"\nsearch_terms = [\"mini pc\"]\n"
+    );
+    let mut settings =
+        parse_settings(&mixed, Path::new("<gemengd>")).map_err(|error| error.to_string())?;
+    settings.resolve_products();
+    settings.validate().map_err(|error| format!("geweigerd: {error}"))?;
+    let cards = settings
+        .products
+        .iter()
+        .find(|product| product.id == "videokaarten")
+        .ok_or("Videokaarten verdween toen er één [[product]] bij kwam")?;
+    if cards.search_terms != ["rtx 3090"] {
+        return Err(format!("card_search_terms raakten kwijt: {cards:?}"));
+    }
+    if settings.cards.iter().any(|card| card.product.as_deref() != Some("videokaarten")) {
+        return Err("kaarten kwamen bij een ander product dan Videokaarten".into());
+    }
+    if !settings
+        .products
+        .iter()
+        .any(|product| product.search_terms.iter().any(|term| term == "voeding"))
+    {
+        return Err("de zoekterm \"voeding\" kwam bij geen enkel product terecht".into());
+    }
+    if settings.products_from_legacy_lists {
+        return Err("een configuratie met [[product]] telt niet als helemaal oud".into());
     }
     Ok(())
 }
