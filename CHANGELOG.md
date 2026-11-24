@@ -1,6 +1,6 @@
 # Wat er veranderde
 
-## Nog niet uitgegeven: producten
+## 2.1.0, 24 november 2026: producten
 
 - Zoeken per product (`[[product]]` in de configuratie). Elke regel hoort bij een product; een
   bestand zonder producten blijft werken (`docs/decisions/0001`).
@@ -23,6 +23,10 @@
   inbox van een product met scores staat op score per euro (`docs/decisions/0007`).
 - Elke ronde onthoudt hoe lang hij duurde. De app toont dat onderaan en waarschuwt als een ronde
   langer duurt dan de helft van de tijd tussen twee rondes.
+- Elk product heeft een kleur, onder Producten zelf te kiezen. Schema 6 (`product.color`).
+- De hele kaart in de inbox opent de advertentie.
+- Een processor die niet in de tabel staat heet bij naam, en de voorbeeldregel voor
+  beeldbuizen vangt geen losse handleiding of zwart-wit-tv meer.
 
 ## 2.0.0 — 18 september 2026
 
