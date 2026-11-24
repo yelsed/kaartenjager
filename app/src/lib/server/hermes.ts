@@ -24,7 +24,7 @@ export async function wakeHermes(key: string): Promise<WakeResult> {
 		const response = await fetch(webhook, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ content: `review gevraagd: ${key}` }),
+			body: JSON.stringify(wakeMessage(key, env.KAARTENJAGER_HERMES_BOT_ID)),
 			signal: AbortSignal.timeout(5000)
 		});
 		if (!response.ok) {
@@ -35,4 +35,17 @@ export async function wakeHermes(key: string): Promise<WakeResult> {
 		// Het verzoek staat al in de wachtrij, dus dit is geen reden om de klik te laten falen.
 		return { sent: false, reason: `Wekbericht mislukte: ${(error as Error).message}` };
 	}
+}
+
+// Hermes negeert berichten van webhooks, tenzij ze hem noemen (DISCORD_ALLOW_BOTS=mentions).
+// Zonder bot-ID blijft het een bericht waar de gebruiker zelf op moet reageren.
+export function wakeMessage(key: string, botId: string | undefined) {
+	const mention = botId?.trim();
+	if (!mention) {
+		return { content: `review gevraagd: ${key}` };
+	}
+	return {
+		content: `<@${mention}> review gevraagd: ${key}`,
+		allowed_mentions: { users: [mention] }
+	};
 }
