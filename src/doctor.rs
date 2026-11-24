@@ -342,14 +342,12 @@ fn check_browser(report: &mut Report, settings: Option<&config::Settings>) {
         }
     };
 
-    let profile = if settings.browser.profile_dir.trim().is_empty() {
-        crate::browser::default_profile()
-    } else {
-        std::path::PathBuf::from(settings.browser.profile_dir.trim())
-    };
+    // Een eigen profiel: een ronde die op hetzelfde moment loopt houdt het gewone profiel bezet,
+    // en Chromium weigert een tweede browser op een profiel dat al open is.
+    let profile = TemporaryProfile::new();
 
     let mut browser =
-        match crate::browser::Browser::launch(&executable, &profile, settings.browser.no_sandbox) {
+        match crate::browser::Browser::launch(&executable, &profile.path, settings.browser.no_sandbox) {
             Ok(started) => {
                 report.ok("browser start", started.product().to_string());
                 started
@@ -400,5 +398,22 @@ fn check_browser(report: &mut Report, settings: Option<&config::Settings>) {
             "cataloguspagina",
             format!("de opmaak klopt niet meer: {what}. Hier moet iemand naar kijken."),
         ),
+    }
+}
+
+struct TemporaryProfile {
+    path: std::path::PathBuf,
+}
+
+impl TemporaryProfile {
+    fn new() -> TemporaryProfile {
+        let path = std::env::temp_dir().join(format!("kaartenjager-doctor-{}", std::process::id()));
+        TemporaryProfile { path }
+    }
+}
+
+impl Drop for TemporaryProfile {
+    fn drop(&mut self) {
+        crate::browser::forget_profile(&self.path);
     }
 }
