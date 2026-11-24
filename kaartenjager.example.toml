@@ -514,6 +514,9 @@ note = "Alleen PCIe 4.0 x16 is bruikbaar; 3.0 halveert de bandbreedte. Recht (18
 #   een topvondst; een processor die hier niet staat is een goede deal om uit
 #   te zoeken. In de app staan de mini-pc's op score per euro.
 # - Onder min_price is het een beugel of een adapter, geen pc.
+# - Met min_score_per_euro is een computer daaronder geen vondst, en een zonder
+#   bekende processor ook niet (behalve op Vinted zolang de beschrijving nog niet
+#   gelezen is). Zonder deze regel telt elke computer met genoeg geheugen.
 #
 # De grens van 45 komt uit een marktcheck van 23 november 2026: ongeveer een op
 # de zes geschikte advertenties (docs/onderzoek/mini-pcs.md). De CPU Marks zijn

@@ -1,5 +1,11 @@
 # Wat er veranderde
 
+## 2.1.5, 24 november 2026: een ondergrens voor computers
+
+- `min_score_per_euro` op een `[[computer]]`: daaronder is het geen vondst, en zonder bekende
+  processor ook niet. Een Vinted-advertentie blijft voorlopig staan tot de beschrijving gelezen
+  is. Zonder deze regel verandert er niets.
+
 ## 2.1.4, 24 november 2026: minder rommel tussen de kaarten
 
 - Koelers, lege dozen, adapters en kabels in het Frans, Duits, Italiaans, Spaans en Portugees
