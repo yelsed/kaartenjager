@@ -156,6 +156,10 @@ pub struct ComputerRule {
     /// Daaronder is het een beugel, adapter of kap, geen computer.
     #[serde(default)]
     pub min_price: f64,
+    /// Daaronder is het geen vondst, en zonder bekende processor ook niet. Leeg: elke computer
+    /// met genoeg geheugen telt.
+    #[serde(default)]
+    pub min_score_per_euro: Option<f64>,
 }
 
 fn default_min_memory_gb() -> u32 {
@@ -1010,11 +1014,13 @@ impl Settings {
                 || computer.top_score_per_euro <= 0.0
                 || computer.min_price < 0.0
                 || computer.min_memory_gb == 0
+                || computer.min_score_per_euro.is_some_and(|minimum| minimum < 0.0)
                 || computer.processors.values().any(|score| *score <= 0.0)
             {
                 return Err(ConfigError::Rejected(format!(
                     "Computer \"{}\" heeft processors met een CPU Mark boven nul nodig, een \
-                     top_score_per_euro boven nul, een min_memory_gb en geen negatieve min_price.",
+                     top_score_per_euro boven nul, een min_memory_gb en geen negatieve min_price of \
+                     min_score_per_euro.",
                     computer.name
                 )));
             }

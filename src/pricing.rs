@@ -142,6 +142,9 @@ impl<'settings> PriceTable<'settings> {
         let (matched_as, level, score_per_euro) = match processor {
             Some((name, score)) => {
                 let per_euro = score / listing.price_euros;
+                if computer.min_score_per_euro.is_some_and(|minimum| per_euro < minimum) {
+                    return None;
+                }
                 reasons.insert(
                     0,
                     format!("{name}: CPU Mark {}, {per_euro:.0} per euro", crate::money::whole_number(score)),
@@ -156,6 +159,11 @@ impl<'settings> PriceTable<'settings> {
                 (format!("{}, {name}", computer.name), level, (!provisional).then_some(per_euro))
             }
             None => {
+                // Op Vinted staat de processor vaak pas in de beschrijving: dan voorlopig houden.
+                let description_unread = listing.source == "vinted" && listing.description.is_empty();
+                if computer.min_score_per_euro.is_some() && !description_unread {
+                    return None;
+                }
                 confidence = Confidence::NeedsReview;
                 let named = named_processor(&listing.title).or_else(|| named_processor(&listing.description));
                 let matched_as = match &named {

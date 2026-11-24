@@ -237,6 +237,7 @@ pub fn run() -> bool {
         ("een Discord-bericht blijft onder de tweeduizend tekens", check_discord_message_length),
         ("een product dat alleen stil meldt, meldt ook zijn topvondsten stil", check_quiet_product_keeps_top_finds),
         ("een mini-pc met 16 GB en een sterke processor is een topvondst", check_computer_top_find),
+        ("min_score_per_euro houdt zwakke en onbekende computers buiten de vondsten", check_computer_min_score),
         ("een OptiPlex 3060 Micro is een mini-pc, geen RTX 3060", check_computer_model_is_no_card),
         ("buitenlandse koelers, dozen en adapters zijn geen kaart", check_foreign_accessories_are_no_card),
         ("een horloge van 9 karaat is geen beeldbuis", check_carat_gold_is_no_crt),
@@ -3214,6 +3215,37 @@ fn check_computer_top_find(_settings: &Settings) -> Result<(), String> {
     twice.computers[0].processors.insert("Ryzen 5 4650GE".to_string(), 15000.0);
     if twice.validate().is_ok() {
         return Err("twee processors met hetzelfde typenummer horen geweigerd te worden".into());
+    }
+    Ok(())
+}
+
+fn check_computer_min_score(_settings: &Settings) -> Result<(), String> {
+    let mut settings = computer_settings()?;
+    settings.computers[0].min_score_per_euro = Some(30.0);
+    settings.validate().map_err(|error| format!("geweigerd: {error}"))?;
+    let table = PriceTable::new(&settings);
+    // i5-9500T heeft 8.100: voor €300 is dat 27 per euro, onder de 30.
+    let weak = computer_listing("83", "marktplaats", "Lenovo ThinkCentre M720q i5-9500T 16GB", "", 300.0);
+    if let Some(finding) = table.judge(&weak) {
+        return Err(format!("27 per euro hoort onder de grens te vallen, werd {}", finding.matched_as));
+    }
+    let fair = computer_listing("84", "marktplaats", "Lenovo ThinkCentre M720q i5-9500T 16GB", "", 250.0);
+    if table.judge(&fair).is_none() {
+        return Err("32 per euro hoort een vondst te blijven".into());
+    }
+    let unknown = computer_listing("85", "marktplaats", "Lenovo ThinkCentre M720q 16GB", "", 100.0);
+    if let Some(finding) = table.judge(&unknown) {
+        return Err(format!("zonder bekende processor hoort het geen vondst te zijn, werd {}", finding.matched_as));
+    }
+    // Vinted noemt de processor vaak pas in de beschrijving; die is bij het zoeken nog niet gelezen.
+    let unread = computer_listing("86", "vinted", "Lenovo ThinkCentre M720q", "", 100.0);
+    if table.judge(&unread).is_none() {
+        return Err("een Vinted-advertentie zonder gelezen beschrijving hoort voorlopig te blijven".into());
+    }
+    let mut negative = settings.clone();
+    negative.computers[0].min_score_per_euro = Some(-1.0);
+    if negative.validate().is_ok() {
+        return Err("een negatieve min_score_per_euro hoort geweigerd te worden".into());
     }
     Ok(())
 }
