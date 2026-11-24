@@ -1,5 +1,11 @@
 # Wat er veranderde
 
+## 2.1.2, 24 november 2026: doctor naast een lopende ronde
+
+- `kaartenjager doctor` start Chromium op een eigen, tijdelijk profiel. Liep er tegelijk een ronde,
+  dan faalde de browsertest met "Failed to create a ProcessSingleton", en haalde doctor het slot
+  van de browser van die ronde weg.
+
 ## 2.1.1, 24 november 2026: oude configuratie met één product
 
 - Een configuratie zonder `[[product]]` waar één `[[product]]` bij komt (bijvoorbeeld mini-pcs)
