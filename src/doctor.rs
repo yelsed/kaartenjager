@@ -102,22 +102,23 @@ fn check_config(report: &mut Report, explicit: Option<&Path>) -> Option<config::
         Ok((settings, path)) => {
             report.ok("configuratie", path.display().to_string());
             report.note(
-                "zoektermen in TOML",
-                format!(
-                    "{} kaarten, {} onderdelen",
-                    settings.card_search_terms.len(),
-                    settings.part_search_terms.len()
-                ),
+                "producten",
+                settings
+                    .products
+                    .iter()
+                    .map(|product| format!("{} ({} zoektermen)", product.name, product.search_terms.len()))
+                    .collect::<Vec<_>>()
+                    .join(", "),
             );
             report.note(
                 "regels",
                 format!("{} kaarten, {} onderdelen", settings.cards.len(), settings.parts.len()),
             );
             let stil = settings
-                .cards_that_can_never_notify(settings.notify.push_below_market_percent);
+                .cards_that_can_never_notify();
             if stil.is_empty() {
                 report.ok("meldgrens", format!(
-                    "{:.0}% — elke kaartregel kan melden",
+                    "{:.0}%, of de drempel van het product: elke kaartregel kan melden",
                     settings.notify.push_below_market_percent
                 ));
             } else {

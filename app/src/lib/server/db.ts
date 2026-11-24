@@ -8,9 +8,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { env } from '$env/dynamic/private';
+import { PRODUCT_COLORS, productColor } from '$lib/format';
 
 /** Het schema waar deze app op gebouwd is. Zie PRAGMA user_version in het programma. */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 6;
 
 /** Onder deze fractie van de archiefprijs komt een advertentie terug in de inbox. */
 const RETURN_FROM_ARCHIVE_AT = 0.9;
@@ -33,8 +34,10 @@ const HEARTBEAT_STALE_FALLBACK = 2 * 3600;
 const DAY_STARTS_AT = 8;
 const DAY_ENDS_AT = 22;
 
-export type Kind = 'card' | 'part' | 'unknown';
+export type Kind = 'card' | 'part' | 'computer' | 'unknown';
 export type State = 'inbox' | 'archived' | 'watching';
+/** top: het soort vondst waarvoor je gestoord wilt worden. deal: de rest die de moeite waard is. */
+export type Level = 'top' | 'deal';
 
 export type Finding = {
 	key: string;
@@ -49,8 +52,15 @@ export type Finding = {
 	description: string;
 	matchedAs: string;
 	kind: Kind;
+	product: string;
+	productName: string;
+	/** De kleur van het product: gekozen in de app, of die van zijn plaats. */
+	productColor: string;
+	level: Level;
 	needsReview: boolean;
 	percentUnderMarket: number | null;
+	/** CPU Mark per euro, alleen bij computers met een bekende processor. */
+	scorePerEuro: number | null;
 	eurosUnderMarket: number | null;
 	reasons: string[];
 	warnings: string[];
@@ -101,10 +111,20 @@ export type Review = {
 
 export type SearchTerm = {
 	term: string;
-	kind: 'card' | 'part';
+	product: string;
 	enabled: boolean;
 	addedAt: number;
 	addedBy: string;
+};
+
+export type Product = {
+	id: string;
+	name: string;
+	color: string;
+	enabled: boolean;
+	/** Zoektermen die aan staan; bij een uitgezet product tellen ze pas mee als hij weer aan gaat. */
+	enabledTermCount: number;
+	inboxCount: number;
 };
 
 export type Heartbeat = {
@@ -114,6 +134,10 @@ export type Heartbeat = {
 	withinDayWindow: boolean;
 	/** Hoe lang stilte nog normaal is, afgeleid van het waargenomen tempo. */
 	allowedSilence: number;
+	lastRoundSeconds: number | null;
+	/** De helft van het gat tussen twee rondes; daarboven komt een vondst later binnen dan nodig. */
+	roundBudgetSeconds: number | null;
+	overBudget: boolean;
 };
 
 /**
@@ -222,7 +246,23 @@ export function heartbeat(): Heartbeat {
 	const stale =
 		withinDayWindow && (lastRoundAt === null || nowSeconds() - lastRoundAt > allowed);
 
-	return { lastRoundAt, problems, stale, withinDayWindow, allowedSilence: allowed };
+	const rawSeconds = readState('last_round_seconds');
+	const parsedSeconds = rawSeconds === null || rawSeconds === '' ? NaN : Number(rawSeconds);
+	const lastRoundSeconds = Number.isFinite(parsedSeconds) ? parsedSeconds : null;
+	const roundBudgetSeconds = gap ? Math.round(gap / 2) : null;
+	const overBudget =
+		lastRoundSeconds !== null && roundBudgetSeconds !== null && lastRoundSeconds > roundBudgetSeconds;
+
+	return {
+		lastRoundAt,
+		problems,
+		stale,
+		withinDayWindow,
+		allowedSilence: allowed,
+		lastRoundSeconds,
+		roundBudgetSeconds,
+		overBudget
+	};
 }
 
 // -------------------------------------------------------------------- bezoek
@@ -245,7 +285,7 @@ export function undoEverythingSeen(): void {
 // ------------------------------------------------------------------ vondsten
 
 const FINDING_COLUMNS = `
-	f.key, f.matched_as, f.kind, f.confidence, f.percent_under_market, f.euros_under_market,
+	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, pr.position AS product_position, pr.color AS product_color, f.confidence, f.percent_under_market, f.euros_under_market, f.score_per_euro,
 	f.reasons, f.warnings, f.queue_note, f.became_a_find_at, f.judged_at, f.still_a_find,
 	l.title, l.url, l.source, l.delivery, l.location, l.seller, l.condition, l.photo_count,
 	l.description, l.gone_since, l.gone_reason, l.posted_at, l.first_seen, l.last_seen,
@@ -258,6 +298,14 @@ const FINDING_COLUMNS = `
 `;
 
 type Row = Record<string, string | number | null>;
+
+/** Vondsten met de tabellen die elke weergave nodig heeft. */
+const FINDING_TABLES = `
+	finding f
+	JOIN listing l ON l.key = f.key
+	LEFT JOIN decision d ON d.key = f.key
+	LEFT JOIN product pr ON pr.id = f.product
+`;
 
 function parseList(stored: unknown): string[] {
 	if (typeof stored !== 'string') return [];
@@ -287,8 +335,16 @@ function toFinding(row: Row, visitedAt: number): Finding {
 		description: String(row.description ?? ''),
 		matchedAs: String(row.matched_as),
 		kind: String(row.kind) as Kind,
+		product: String(row.product ?? ''),
+		productName: String(row.product_name ?? row.product ?? ''),
+		productColor: productColor(
+			row.product_color === null ? null : String(row.product_color),
+			row.product_position === null ? null : Number(row.product_position)
+		),
+		level: row.level === 'top' ? 'top' : 'deal',
 		needsReview: row.confidence === 'review',
 		percentUnderMarket: row.percent_under_market === null ? null : Number(row.percent_under_market),
+		scorePerEuro: row.score_per_euro === null ? null : Number(row.score_per_euro),
 		eurosUnderMarket: row.euros_under_market === null ? null : Number(row.euros_under_market),
 		reasons: parseList(row.reasons),
 		warnings: parseList(row.warnings),
@@ -372,19 +428,23 @@ export function latestReview(key: string): Review | null {
 	};
 }
 
-function query(where: string, order: string, limit: number, offset: number): Finding[] {
+function query(
+	where: string,
+	order: string,
+	limit: number,
+	offset: number,
+	parameters: (string | number)[] = []
+): Finding[] {
 	const visitedAt = lastVisit();
 	const rows = db()
 		.prepare(
 			`SELECT ${FINDING_COLUMNS}
-			 FROM finding f
-			 JOIN listing l ON l.key = f.key
-			 LEFT JOIN decision d ON d.key = f.key
+			 FROM ${FINDING_TABLES}
 			 WHERE ${where}
 			 ORDER BY ${order}
 			 LIMIT ? OFFSET ?`
 		)
-		.all(limit, offset) as Row[];
+		.all(...parameters, limit, offset) as Row[];
 	return rows.map((row) => toFinding(row, visitedAt));
 }
 
@@ -395,21 +455,36 @@ function query(where: string, order: string, limit: number, offset: number): Fin
  * Die terugkeer is met opzet een leesregel en geen statuswijziging: `decision.state` blijft
  * `archived` tot jij er iets mee doet, zodat de app en de scanner nooit allebei aan dezelfde
  * beslissing schrijven.
+ *
+ * Een uitgezet product staat er niet in; zijn vondsten blijven bewaard voor als hij terugkomt.
  */
-export function inbox(limit: number, offset: number): Finding[] {
+const INBOX_STATE_WHERE = `
+	f.still_a_find = 1
+	AND l.gone_since IS NULL
+	AND (f.product IS NULL OR pr.id IS NOT NULL)
+	AND (
+	  COALESCE(d.state, 'inbox') = 'inbox'
+	  OR (d.state = 'archived'
+	      AND d.price_when_archived IS NOT NULL
+	      AND (SELECT price_cents FROM sighting p WHERE p.key = f.key
+	           ORDER BY p.seen_at DESC LIMIT 1) < d.price_when_archived * ${RETURN_FROM_ARCHIVE_AT})
+	)
+`;
+
+const INBOX_WHERE = `${INBOX_STATE_WHERE} AND COALESCE(pr.enabled, 1) = 1`;
+
+export function inbox(limit: number, offset: number, productId: string | null = null): Finding[] {
+	if (productId === null) {
+		return query(INBOX_WHERE, 'f.became_a_find_at DESC', limit, offset);
+	}
+	// Binnen een product met scores (mini-pc's) wint de meeste rekenkracht per euro; zonder
+	// scores is dit de gewone volgorde.
 	return query(
-		`f.still_a_find = 1
-		 AND l.gone_since IS NULL
-		 AND (
-		   COALESCE(d.state, 'inbox') = 'inbox'
-		   OR (d.state = 'archived'
-		       AND d.price_when_archived IS NOT NULL
-		       AND (SELECT price_cents FROM sighting p WHERE p.key = f.key
-		            ORDER BY p.seen_at DESC LIMIT 1) < d.price_when_archived * ${RETURN_FROM_ARCHIVE_AT})
-		 )`,
-		'f.became_a_find_at DESC',
+		`${INBOX_WHERE} AND f.product = ?`,
+		'f.score_per_euro IS NULL, f.score_per_euro DESC, f.became_a_find_at DESC',
 		limit,
-		offset
+		offset,
+		[productId]
 	);
 }
 
@@ -430,10 +505,10 @@ export function archive(limit: number, offset: number): Finding[] {
 export function countInbox(): number {
 	const row = db()
 		.prepare(
-			`SELECT COUNT(*) AS n FROM finding f
-			 JOIN listing l ON l.key = f.key
-			 LEFT JOIN decision d ON d.key = f.key
+			`SELECT COUNT(*) AS n FROM ${FINDING_TABLES}
 			 WHERE f.still_a_find = 1 AND l.gone_since IS NULL
+			   AND (f.product IS NULL OR pr.id IS NOT NULL)
+			   AND COALESCE(pr.enabled, 1) = 1
 			   AND COALESCE(d.state, 'inbox') = 'inbox'
 			   AND f.became_a_find_at > ?`
 		)
@@ -492,18 +567,88 @@ export function openReviewCount(): number {
 	return Number(row.n);
 }
 
+// ----------------------------------------------------------------- producten
+
+/** Wat er bestaat schrijft het programma uit de configuratie; aan of uit is van de app. */
+export function products(): Product[] {
+	const rows = db()
+		.prepare(
+			`SELECT p.id, p.name, p.position, p.color, p.enabled,
+			   (SELECT COUNT(*) FROM search_term t WHERE t.product = p.id AND t.enabled = 1)
+			     AS enabled_term_count
+			 FROM product p ORDER BY p.position, p.id`
+		)
+		.all() as Row[];
+	// Ook bij een uitgezet product: dan zegt het hoeveel er terugkomt als hij weer aan gaat.
+	const counts = new Map(
+		(
+			db()
+				.prepare(
+					`SELECT f.product AS product, COUNT(*) AS n FROM ${FINDING_TABLES}
+					 WHERE ${INBOX_STATE_WHERE} GROUP BY f.product`
+				)
+				.all() as Row[]
+		).map((row) => [String(row.product), Number(row.n)])
+	);
+	return rows.map((row) => ({
+		id: String(row.id),
+		name: String(row.name),
+		color: productColor(row.color === null ? null : String(row.color), Number(row.position)),
+		enabled: Number(row.enabled) === 1,
+		enabledTermCount: Number(row.enabled_term_count),
+		inboxCount: counts.get(String(row.id)) ?? 0
+	}));
+}
+
+/** Alles wat de inbox zonder keuze toont, ook vondsten die nog geen product hebben. */
+export function inboxTotal(): number {
+	const row = db()
+		.prepare(`SELECT COUNT(*) AS n FROM ${FINDING_TABLES} WHERE ${INBOX_WHERE}`)
+		.get() as { n: number };
+	return Number(row.n);
+}
+
+/**
+ * Aanzetten brengt de zoektermen van het product terug in de ronde, dus de grens geldt hier
+ * net zo goed als bij een losse zoekterm.
+ */
+export function setProductEnabled(id: string, enabled: boolean): string | null {
+	const product = db()
+		.prepare(
+			`SELECT p.enabled,
+			   (SELECT COUNT(*) FROM search_term t WHERE t.product = p.id AND t.enabled = 1) AS terms
+			 FROM product p WHERE p.id = ?`
+		)
+		.get(id) as { enabled: number; terms: number } | undefined;
+	if (!product) return 'Dat product bestaat niet (meer).';
+	if (enabled && Number(product.enabled) === 0) {
+		const overTheLimit = tooManyTerms(Number(product.terms));
+		if (overTheLimit) return overTheLimit;
+	}
+	db().prepare('UPDATE product SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
+	return null;
+}
+
+/** Alleen een kleur uit het palet; de app toont hem als tekst op een donkere achtergrond. */
+export function setProductColor(id: string, color: string): string | null {
+	if (!PRODUCT_COLORS.some((choice) => choice.value === color)) return 'Die kleur staat niet in het palet.';
+	const result = db().prepare('UPDATE product SET color = ? WHERE id = ?').run(color, id);
+	return result.changes === 0 ? 'Dat product bestaat niet (meer).' : null;
+}
+
 // ---------------------------------------------------------------- zoektermen
 
 export function searchTerms(): SearchTerm[] {
 	const rows = db()
 		.prepare(
-			`SELECT term, kind, enabled, added_at, added_by FROM search_term
-			 ORDER BY CASE kind WHEN 'card' THEN 0 ELSE 1 END, term`
+			`SELECT t.term, COALESCE(t.product, '') AS product, t.enabled, t.added_at, t.added_by
+			 FROM search_term t LEFT JOIN product p ON p.id = t.product
+			 ORDER BY COALESCE(p.position, 0), t.term`
 		)
 		.all() as Row[];
 	return rows.map((row) => ({
 		term: String(row.term),
-		kind: String(row.kind) as 'card' | 'part',
+		product: String(row.product),
 		enabled: Number(row.enabled) === 1,
 		addedAt: Number(row.added_at),
 		addedBy: String(row.added_by)
@@ -520,7 +665,10 @@ export function maxEnabledTerms(): number {
 
 export function enabledTermCount(): number {
 	const row = db()
-		.prepare('SELECT COUNT(*) AS n FROM search_term WHERE enabled = 1')
+		.prepare(
+			`SELECT COUNT(*) AS n FROM search_term t LEFT JOIN product p ON p.id = t.product
+			 WHERE t.enabled = 1 AND (t.product IS NULL OR p.enabled = 1)`
+		)
 		.get() as { n: number };
 	return Number(row.n);
 }
@@ -529,28 +677,40 @@ export function enabledTermCount(): number {
  * De grens valt hier, in het formulier, en niet pas in de ronde. Alleen daar weigeren zou
  * betekenen dat één extra term de wachter elk uur stilletjes laat weigeren.
  */
-export function addTerm(term: string, kind: 'card' | 'part'): string | null {
+export function addTerm(term: string, productId: string): string | null {
 	const cleaned = term.trim().toLowerCase();
 	if (!cleaned) return 'Een lege zoekterm gaat niet.';
 	if (cleaned.length > 60) return 'Die zoekterm is onwaarschijnlijk lang.';
 
+	const product = db().prepare('SELECT enabled FROM product WHERE id = ?').get(productId) as
+		| { enabled: number }
+		| undefined;
+	if (!product) return 'Kies een product dat bestaat.';
+
 	const exists = db().prepare('SELECT 1 FROM search_term WHERE term = ?').get(cleaned);
 	if (exists) return `"${cleaned}" staat er al.`;
 
-	const overTheLimit = tooManyTerms(1);
+	const overTheLimit = Number(product.enabled) === 1 ? tooManyTerms(1) : null;
 	if (overTheLimit) return overTheLimit;
 
 	db()
 		.prepare(
-			`INSERT INTO search_term (term, kind, enabled, added_at, added_by)
-			 VALUES (?, ?, 1, ?, 'app')`
+			`INSERT INTO search_term (term, kind, enabled, added_at, added_by, product)
+			 VALUES (?, 'product', 1, ?, 'app', ?)`
 		)
-		.run(cleaned, kind, nowSeconds());
+		.run(cleaned, nowSeconds(), productId);
 	return null;
 }
 
 export function toggleTerm(term: string, enabled: boolean): string | null {
-	if (enabled) {
+	// Een term van een uitgezet of verdwenen product kost geen verzoeken; die telt niet mee.
+	const counts = db()
+		.prepare(
+			`SELECT t.product IS NULL OR p.enabled = 1 AS counts FROM search_term t
+			 LEFT JOIN product p ON p.id = t.product WHERE t.term = ?`
+		)
+		.get(term) as { counts: number } | undefined;
+	if (enabled && Number(counts?.counts ?? 1) === 1) {
 		const overTheLimit = tooManyTerms(1);
 		if (overTheLimit) return overTheLimit;
 	}

@@ -59,8 +59,8 @@ INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen)
 INSERT INTO sighting (key, seen_at, price_cents, asking_cents, favourite_count)
   VALUES ('vinted:1', 1000, 60000, 60000, 3);
 INSERT INTO finding (key, matched_as, kind, confidence, reasons, warnings,
-                     became_a_find_at, judged_at)
-  VALUES ('vinted:1', 'RTX 3090', 'card', 'clear', '[]', '[]', 1000, 1000);
+                     became_a_find_at, judged_at, product, level)
+  VALUES ('vinted:1', 'RTX 3090', 'card', 'clear', '[]', '[]', 1000, 1000, 'videokaarten', 'top');
 INSERT INTO decision (key, state, changed_at) VALUES ('vinted:1', 'inbox', 1000);
 SQL
 
@@ -150,14 +150,40 @@ probeer "/" allesGezien 200 --data 'x=1'
   || fout "alles gezien legde het bezoek niet vast"
 
 say "==> De zoektermen"
-probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=rtx 4090 test' --data-urlencode 'kind=card'
-[ "$(sqlite3 "$DB" "SELECT COUNT(*) FROM search_term WHERE term='rtx 4090 test';")" = "1" ] \
-  || fout "de zoekterm werd niet toegevoegd"
-probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=rtx 4090 test' --data-urlencode 'kind=card'
+probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=rtx 4090 test' --data-urlencode 'product=videokaarten'
+[ "$(sqlite3 "$DB" "SELECT product FROM search_term WHERE term='rtx 4090 test';")" = "videokaarten" ] \
+  || fout "de zoekterm werd niet bij zijn product toegevoegd"
+probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=iets anders' --data-urlencode 'product=bestaat-niet'
+zegt "Kies een product dat bestaat"
+probeer "/zoektermen" toevoegen 200 --data-urlencode 'term=rtx 4090 test' --data-urlencode 'product=videokaarten'
 zegt "staat er al"
 [ "$(sqlite3 "$DB" "SELECT COUNT(*) FROM search_term WHERE term='rtx 4090 test';")" = "1" ] \
   || fout "een dubbele zoekterm kwam er toch bij"
 probeer "/zoektermen" verwijderen 200 --data-urlencode 'term=rtx 4090 test'
+
+say "==> De producten"
+curl -sS "http://localhost:$PORT/" -o "$WORK/inbox.html"
+grep -qF "topvondst" "$WORK/inbox.html" || fout "de inbox toont de topvondst niet als topvondst"
+curl -sS "http://localhost:$PORT/producten" -o "$WORK/producten.html"
+grep -qF "Videokaarten" "$WORK/producten.html" || fout "de productenpagina toont Videokaarten niet"
+probeer "/producten" aanzetten 200 --data-urlencode 'id=videokaarten' --data-urlencode 'enabled=nee'
+zegt "Videokaarten staat uit."
+probeer "/producten" kleur 200 --data-urlencode 'id=videokaarten' --data-urlencode 'color=#a9d672'
+[ "$(sqlite3 "$DB" "SELECT color FROM product WHERE id='videokaarten';")" = "#a9d672" ] \
+  || fout "een gekozen kleur werd niet bewaard"
+probeer "/producten" kleur 200 --data-urlencode 'id=videokaarten' --data-urlencode 'color=#000000'
+zegt "Die kleur staat niet in het palet."
+[ "$(sqlite3 "$DB" "SELECT color FROM product WHERE id='videokaarten';")" = "#a9d672" ] \
+  || fout "een kleur buiten het palet overschreef de gekozen kleur"
+[ "$(sqlite3 "$DB" "SELECT enabled FROM product WHERE id='videokaarten';")" = "0" ] \
+  || fout "uitzetten zette het product niet uit"
+curl -sS "http://localhost:$PORT/" -o "$WORK/inbox.html"
+! grep -qF "RTX 3090 test" "$WORK/inbox.html" || fout "een uitgezet product staat nog in de inbox"
+probeer "/producten" aanzetten 200 --data-urlencode 'id=videokaarten' --data-urlencode 'enabled=ja'
+[ "$(sqlite3 "$DB" "SELECT enabled FROM product WHERE id='videokaarten';")" = "1" ] \
+  || fout "aanzetten zette het product niet weer aan"
+curl -sS "http://localhost:$PORT/?product=videokaarten" -o "$WORK/inbox.html"
+grep -qF "RTX 3090 test" "$WORK/inbox.html" || fout "de inbox per product toont zijn vondst niet"
 
 say "==> Zelf een ronde starten"
 probeer "/" nuZoeken 200 --data 'x=1'
@@ -220,6 +246,40 @@ if [ "$status" = "403" ]; then
 else
   fout "zonder Origin-kop gaf $status, verwacht 403"
 fi
+
+say "==> De rondeduur"
+rondeduur() {
+  sqlite3 "$DB" "INSERT OR REPLACE INTO app_state (name, value) VALUES
+    ('last_round_at', strftime('%s','now')), ('round_gap_seconds', '300'),
+    ('last_round_problems', '[]'), ('last_round_seconds', '$1');"
+  curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/"
+}
+rondeduur 48
+zegt "in 48 seconden"
+grep -qF "De laatste ronde duurde" "$WORK/antwoord.html" \
+  && fout "een ronde binnen het budget gaf toch een waarschuwing"
+rondeduur 190
+zegt "De laatste ronde duurde 3 minuten en 10 seconden."
+zegt "2 minuten en 30 seconden"
+
+say "==> Mini-pc's op score per euro"
+sqlite3 "$DB" <<'SQL'
+INSERT OR IGNORE INTO product (id, name, position, enabled) VALUES ('mini-pcs', 'Mini-pc''s', 9, 1);
+INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen) VALUES
+  ('marktplaats:91', 'marktplaats', '91', 'ProDesk 400 G6 i5-10500T 16GB', 'https://example.invalid/91', 1000, 1000),
+  ('marktplaats:92', 'marktplaats', '92', 'EliteDesk 805 G6 4650GE 16GB', 'https://example.invalid/92', 1000, 1000);
+INSERT INTO sighting (key, seen_at, price_cents, asking_cents) VALUES
+  ('marktplaats:91', 1000, 30000, 30000), ('marktplaats:92', 1000, 30000, 30000);
+INSERT INTO finding (key, matched_as, kind, confidence, reasons, warnings, became_a_find_at,
+                     judged_at, product, level, score_per_euro) VALUES
+  ('marktplaats:91', 'Mini-pc, i5-10500T', 'computer', 'clear', '[]', '[]', 2000, 2000, 'mini-pcs', 'deal', 34.0),
+  ('marktplaats:92', 'Mini-pc, Ryzen 5 PRO 4650GE', 'computer', 'clear', '[]', '[]', 1000, 1000, 'mini-pcs', 'top', 51.0);
+SQL
+curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/?product=mini-pcs"
+zegt "51 CPU Mark per euro"
+eerste=$(grep -o "Mini-pc, [A-Za-z0-9 -]*" "$WORK/antwoord.html" | head -1)
+[ "$eerste" = "Mini-pc, Ryzen 5 PRO 4650GE" ] \
+  || fout "de hoogste score per euro hoort bovenaan te staan, bovenaan stond: $eerste"
 
 # --------------------------------------------------------------------- slot
 

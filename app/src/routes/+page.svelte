@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Lijst from '$lib/Lijst.svelte';
+	import ProductFilter from '$lib/ProductFilter.svelte';
 
 	let { data, form } = $props();
 
@@ -11,6 +12,8 @@
 {#if form?.message}
 	<p class="melding">{form.message}</p>
 {/if}
+
+<ProductFilter products={data.producten} selected={data.gekozenProduct} totalCount={data.totaal} />
 
 {#if nieuwe.length > 0}
 	<div class="blokkop">

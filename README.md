@@ -38,7 +38,10 @@ meldt.
 
 Discord houdt alleen uitschieters over: meer dan `push_below_market_percent` onder de
 onderkant van het marktbereik, en dan één bericht per advertentie in plaats van één per
-ronde. De rest staat in de app. Zonder die regels krijg je vijftien meldingen per dag en zet
+ronde. Met `discord_webhook` onder `[notify]` post het programma zelf: een topvondst noemt je
+(`mention_user_id`), zodat je telefoon trilt, en goede deals van een product met
+`notify_deals = true` komen stil in het kanaal (`docs/decisions/0004`). Zonder webhook post
+Hermes wat de ronde afdrukt. De rest staat in de app. Zonder die regels krijg je vijftien meldingen per dag en zet
 je het na een week uit.
 
 **Hoe lang stond het er al?** Het programma legt per advertentie vast wanneer wij hem vonden,
@@ -272,6 +275,34 @@ Zet je een drempel met de hand, dan blijft die staan wat de herziening ook voors
 **Zoektermen staan niet meer in TOML.** De lijst uit het bestand wordt bij de allereerste
 start één keer in de database gezet; daarna beheer je hem in de app, onder Zoektermen. Zo
 zet het weghalen van je laatste zoekterm de hele lijst niet terug.
+
+**Producten.** Kaartenjager zoekt per product: videokaarten, voedingen, risers,
+beeldbuistelevisies. Een product is een `[[product]]`-blok met een `id`, een `name`, de
+`search_terms` waarmee hij begint, `notify` (topvondsten van dit product in Discord, luid),
+`notify_deals` (goede deals stil in Discord) en eventueel een eigen `push_below_market_percent`
+voor zijn kaarten (`docs/decisions/0005`).
+Elke `[[card]]` en `[[part]]` wijst met `product = "<id>"` naar zijn product. Een product
+toevoegen gaat zo:
+
+1. Zet onder Instellingen een `[[product]]`-blok in het bestand, met zijn zoektermen.
+2. Zet er een of meer regels onder met `product = "<dat id>"`.
+3. Bewaren. `check` weigert een regel die naar een onbekend product wijst.
+
+De volgende ronde zet zijn zoektermen één keer in de database. Daarna staan ze onder
+Zoektermen, en onder Producten zet je hem aan of uit. Uit betekent: niet zoeken, niet melden,
+niet in de inbox; zijn vondsten blijven bewaard. Een bestand zonder `[[product]]` werkt ook nog:
+dan worden alle kaarten samen Videokaarten en elk onderdeel een eigen product.
+
+**Computers** zijn een eigen soort regel, `[[computer]]`: het model staat in de titel, maar de
+processor bepaalt de waarde. Geheugen onder `min_memory_gb` valt af, de CPU Mark van de
+processor gedeeld door de prijs is de score per euro, en vanaf `top_score_per_euro` is het een
+topvondst. In de app staan ze op score per euro (`docs/decisions/0007`).
+
+Elke vondst is een **topvondst** of een **goede deal**. Een kaart is top als hij ver genoeg
+onder de markt zit (`push_below_market_percent`), een onderdeel als hij onder `alert_below`
+zit en, als de regel op afstand zeeft, binnen `max_pickup_km`. Met `show_without_distance =
+true` op een onderdeelregel verschijnt een advertentie zonder afstand (Vinted) toch, als
+goede deal met het label "afstand onbekend".
 
 **De rest van het bestand bewerk je onder Instellingen.** Daar staat de echte TOML in een
 tekstvak. Bewaren draait eerst `kaartenjager check` op de nieuwe versie en vervangt pas als

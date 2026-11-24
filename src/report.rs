@@ -6,36 +6,66 @@
 
 use crate::config::Settings;
 use crate::db::PushCandidate;
-use crate::listing::Delivery;
+use crate::listing::{Delivery, Level};
 use crate::money;
 
-/// The four-line message from the design: what, how much under, which one, where. Everything
-/// else lives in the app.
-pub fn render_push(candidate: &PushCandidate, settings: &Settings) -> String {
-    let mut out = format!(
-        "{} — {}\n",
+/// Het bericht uit het ontwerp: wat voor vondst, wat en hoeveel, waarom, welke, waar. De rest
+/// staat in de app. Een topvondst noemt de eigenaar als `mention` gegeven is.
+pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Option<&str>) -> String {
+    let mut out = match (candidate.level, mention) {
+        (Level::Top, Some(user)) => format!("<@{user}> topvondst\n"),
+        (Level::Top, None) => "topvondst\n".to_string(),
+        (Level::Deal, _) => "goede deal\n".to_string(),
+    };
+    out.push_str(&format!(
+        "{}: {}\n",
         candidate.matched_as,
         money::euros_precise(candidate.price_euros)
-    );
-
-    let market = settings
-        .cards
-        .iter()
-        .find(|card| card.name == candidate.matched_as)
-        .map(|card| {
-            format!(
-                " ({}–{})",
-                money::euros(card.used_price_low),
-                money::euros(card.used_price_high)
-            )
-        })
-        .unwrap_or_default();
-    out.push_str(&format!(
-        "{:.0}% onder de markt{market}\n",
-        candidate.percent_under_market
     ));
 
-    let mut parts = vec![candidate.title.clone()];
+    let reason = if let Some(score) = candidate.score_per_euro {
+        Some(format!("{score:.0} CPU Mark per euro"))
+    } else if candidate.is_computer {
+        Some(shortened(
+            &[vec!["geen CPU Mark bekend".to_string()], candidate.warnings.clone()].concat().join(" · "),
+            MAX_LINE_CHARACTERS,
+        ))
+    } else if candidate.is_part {
+        let limit = settings
+            .part_rule(&candidate.matched_as)
+            .map(|part| format!("onder {}", money::euros(part.alert_below)));
+        match candidate.level {
+            // Een onderdeel heeft geen marktbereik; het meldt omdat het onder zijn topvondstprijs zit.
+            Level::Top => limit,
+            Level::Deal => (!candidate.warnings.is_empty())
+                .then(|| shortened(&candidate.warnings.join(" · "), MAX_LINE_CHARACTERS)),
+        }
+    } else {
+        let card = settings.card_rule(&candidate.matched_as);
+        let market = card
+            .map(|card| {
+                format!(
+                    " ({} tot {})",
+                    money::euros(card.used_price_low),
+                    money::euros(card.used_price_high)
+                )
+            })
+            .unwrap_or_default();
+        if candidate.percent_under_market > 0.0 {
+            Some(format!("{:.0}% onder de markt{market}", candidate.percent_under_market))
+        } else {
+            // Onder je koopgrens, maar niet onder de onderkant van het marktbereik.
+            card.map(|card| format!("onder je grens van {}", money::euros(card.alert_below)))
+        }
+    };
+    if let Some(reason) = reason {
+        out.push_str(&reason);
+        out.push('\n');
+    }
+
+    // Discord weigert een bericht boven de tweeduizend tekens; ingekort wordt alleen wat lang
+    // kan worden, zodat de link onderaan altijd blijft.
+    let mut parts = vec![shortened(&candidate.title, MAX_LINE_CHARACTERS)];
     if matches!(candidate.delivery, Delivery::PickupOnly) {
         parts.push("alleen ophalen".to_string());
     }
@@ -61,7 +91,7 @@ pub fn render_round(
         if index > 0 {
             out.push('\n');
         }
-        out.push_str(&render_push(candidate, settings));
+        out.push_str(&render_push(candidate, settings, None));
     }
 
     // Het vangnet onder het wekbericht naar Hermes. Blijft de wachtrij staan, dan is dat een
@@ -81,6 +111,17 @@ pub fn render_round(
     }
 
     out
+}
+
+const MAX_LINE_CHARACTERS: usize = 300;
+
+fn shortened(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let mut short: String = text.chars().take(limit).collect();
+    short.push_str("...");
+    short
 }
 
 fn source_name(source: &str) -> String {

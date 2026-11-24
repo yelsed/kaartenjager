@@ -2,6 +2,7 @@ mod browser;
 mod config;
 mod db;
 mod detail;
+mod discord;
 mod doctor;
 mod dossier;
 mod filter;
@@ -226,13 +227,9 @@ fn today() -> String {
 fn open_database(settings: &Settings, now: i64, allow_migration: bool) -> Result<db::Database, String> {
     let database = db::Database::open_default()?;
 
-    // Bij de allereerste start komen de termen uit TOML. De markering zorgt dat het weghalen
-    // van je laatste zoekterm de lijst daarna niet opnieuw terugzet.
-    database.seed_terms(
-        &settings.card_search_terms,
-        &settings.part_search_terms,
-        now,
-    )?;
+    // De producten uit TOML, en bij een nieuw product één keer zijn zoektermen. De markering per
+    // product zorgt dat het weghalen van je laatste zoekterm de lijst niet opnieuw terugzet.
+    database.sync_products(settings, now)?;
 
     // Niet aan "de database is net aangemaakt" ophangen: `check` en `run --dry-run` maken hem
     // ook aan, en dan zou de overgang uit de oude bestanden er nooit meer van komen. De
@@ -448,15 +445,28 @@ fn command_check(arguments: &Arguments) -> ExitCode {
 
     println!("Configuratie in orde: {}", path.display());
     println!("  bronnen            {}", settings.sources.join(", "));
+    for product in &settings.products {
+        println!(
+            "  product            {} ({}): {} zoektermen, {}",
+            product.name,
+            product.id,
+            product.search_terms.len(),
+            settings.describe_notify(product)
+        );
+    }
     println!(
-        "  zoektermen         {} voor kaarten, {} voor onderdelen",
-        settings.card_search_terms.len(),
-        settings.part_search_terms.len()
+        "  meldingen          {}",
+        if settings.notify.webhook().is_some() {
+            "via de eigen Discord-webhook"
+        } else {
+            "via de cron-uitvoer (geen discord_webhook)"
+        }
     );
     println!(
-        "  regels             {} kaarten, {} onderdelen",
+        "  regels             {} kaarten, {} onderdelen, {} computers",
         settings.cards.len(),
-        settings.parts.len()
+        settings.parts.len(),
+        settings.computers.len()
     );
     println!(
         "  paginabezoeken     {} (grens {})",
@@ -477,12 +487,12 @@ fn command_check(arguments: &Arguments) -> ExitCode {
         println!("  browser            {browser_line}");
     }
     println!(
-        "  uitschieter        meer dan {:.0}% onder de markt gaat naar Discord, \
+        "  uitschieter        meer dan {:.0}% onder de markt gaat naar Discord (of de drempel van het product), \
          behalve onder suspicious_below",
         settings.notify.push_below_market_percent
     );
     let stille_regels =
-        settings.cards_that_can_never_notify(settings.notify.push_below_market_percent);
+        settings.cards_that_can_never_notify();
     if !stille_regels.is_empty() {
         println!(
             "  LET OP             {} kaartregel(s) kunnen nooit een Discord-bericht geven,",
