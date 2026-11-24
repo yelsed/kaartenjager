@@ -149,6 +149,10 @@ impl<'settings> PriceTable<'settings> {
                     0,
                     format!("{name}: CPU Mark {}, {per_euro:.0} per euro", crate::money::whole_number(score)),
                 );
+                if let Some(machine) = &self.settings.reference_machine {
+                    let times = format!("{:.1}", score / machine.cpu_mark).replace('.', ",");
+                    reasons.insert(1, format!("{times}× zo snel als {}", machine.name));
+                }
                 let provisional = queue_note.is_some();
                 let level = if per_euro >= computer.top_score_per_euro && !provisional {
                     Level::Top

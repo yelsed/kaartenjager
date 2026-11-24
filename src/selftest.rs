@@ -238,6 +238,7 @@ pub fn run() -> bool {
         ("een product dat alleen stil meldt, meldt ook zijn topvondsten stil", check_quiet_product_keeps_top_finds),
         ("een mini-pc met 16 GB en een sterke processor is een topvondst", check_computer_top_find),
         ("min_score_per_euro houdt zwakke en onbekende computers buiten de vondsten", check_computer_min_score),
+        ("een computer wordt vergeleken met de eigen machine", check_reference_machine),
         ("een OptiPlex 3060 Micro is een mini-pc, geen RTX 3060", check_computer_model_is_no_card),
         ("buitenlandse koelers, dozen en adapters zijn geen kaart", check_foreign_accessories_are_no_card),
         ("een horloge van 9 karaat is geen beeldbuis", check_carat_gold_is_no_crt),
@@ -3246,6 +3247,27 @@ fn check_computer_min_score(_settings: &Settings) -> Result<(), String> {
     negative.computers[0].min_score_per_euro = Some(-1.0);
     if negative.validate().is_ok() {
         return Err("een negatieve min_score_per_euro hoort geweigerd te worden".into());
+    }
+    Ok(())
+}
+
+fn check_reference_machine(_settings: &Settings) -> Result<(), String> {
+    let config = format!("{COMPUTER_CONFIG}\n[reference_machine]\nname = \"ZenBook (i7-8565U)\"\ncpu_mark = 5934\n");
+    let settings = parse_settings(&config, Path::new("<vergelijking>")).map_err(|error| error.to_string())?;
+    settings.validate().map_err(|error| format!("geweigerd: {error}"))?;
+    let table = PriceTable::new(&settings);
+    let listing = computer_listing("87", "marktplaats", "Lenovo ThinkCentre M720q i5-9500T 16GB", "", 175.0);
+    let finding = table.judge(&listing).ok_or("de M720q werd geen vondst")?;
+    // 8.100 tegen 5.934 is 1,37 keer: afgerond 1,4.
+    if !finding.reasons.iter().any(|reason| reason == "1,4× zo snel als ZenBook (i7-8565U)") {
+        return Err(format!("de vergelijking ontbreekt of klopt niet: {:?}", finding.reasons));
+    }
+    let mut zero = settings.clone();
+    if let Some(machine) = zero.reference_machine.as_mut() {
+        machine.cpu_mark = 0.0;
+    }
+    if zero.validate().is_ok() {
+        return Err("een eigen machine zonder CPU Mark hoort geweigerd te worden".into());
     }
     Ok(())
 }

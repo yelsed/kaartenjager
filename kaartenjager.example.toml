@@ -541,28 +541,35 @@ top_score_per_euro = 45
 min_price = 40
 
 [computer.processors]
-"i3-8100T" = 4100
-"i3-9100T" = 4300
-"i3-10100T" = 5800
-"i5-6500T" = 4700
-"i5-7500T" = 5200
-"i5-8400T" = 7300
-"i5-8500T" = 7700
-"i5-8500" = 9500
-"i5-9400T" = 7900
-"i5-9500T" = 8100
-"i5-9500" = 9600
-"i5-10400T" = 9300
-"i5-10500T" = 10200
-"i5-10500" = 12100
-"i5-11500T" = 13000
-"i7-8700T" = 9700
-"i7-9700T" = 10500
-"i7-10700T" = 13000
-"Ryzen 3 PRO 3200GE" = 4500
-"Ryzen 5 PRO 2400GE" = 7500
-"Ryzen 5 PRO 3400GE" = 7760
-"Ryzen 3 PRO 5350GE" = 12600
-"Ryzen 5 PRO 4650GE" = 15300
-"Ryzen 7 PRO 4750GE" = 19000
-"Ryzen 5 PRO 5650GE" = 19500
+"i3-8100T" = 5250
+"i3-9100T" = 5636
+"i3-10100T" = 7351
+"i5-6500T" = 4763
+"i5-7500T" = 5236
+"i5-8400T" = 7396
+"i5-8500T" = 7717
+"i5-8500" = 9499
+"i5-9400T" = 8084
+"i5-9500T" = 8012
+"i5-9500" = 9841
+"i5-10400T" = 9773
+"i5-10500T" = 10236
+"i5-10500" = 12865
+"i5-11500T" = 12796
+"i7-8700T" = 10214
+"i7-9700T" = 10581
+"i7-10700T" = 12799
+"Ryzen 3 PRO 3200GE" = 6714
+"Ryzen 5 PRO 2400GE" = 7806
+"Ryzen 5 PRO 3400GE" = 7771
+"Ryzen 3 PRO 5350GE" = 12619
+"Ryzen 5 PRO 4650GE" = 15306
+"Ryzen 7 PRO 4750GE" = 18434
+"Ryzen 5 PRO 5650GE" = 17964
+
+# De machine die je al hebt. Elke gevonden mini-pc of laptop met een bekende
+# processor zegt dan hoeveel sneller hij is: "1,4× zo snel als ...".
+# CPU Mark van cpubenchmark.net.
+[reference_machine]
+name = "ZenBook (i7-8565U)"
+cpu_mark = 5934
