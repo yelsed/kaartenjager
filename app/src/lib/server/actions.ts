@@ -116,6 +116,18 @@ export const termActions: Actions = {
 export const productActions: Actions = {
 	...runActions,
 
+	kleur: async ({ request }) => {
+		const form = await request.formData();
+		const id = form.get('id');
+		const color = form.get('color');
+		if (typeof id !== 'string' || typeof color !== 'string') {
+			return fail(400, { success: false, message: 'Geen product of kleur meegegeven.' });
+		}
+		const refused = store.setProductColor(id, color);
+		if (refused) return fail(400, { success: false, message: refused });
+		return { success: true, message: null };
+	},
+
 	aanzetten: async ({ request }) => {
 		const form = await request.formData();
 		const id = form.get('id');
@@ -123,11 +135,12 @@ export const productActions: Actions = {
 		if (typeof id !== 'string') return fail(400, { success: false, message: 'Geen product meegegeven.' });
 		const refused = store.setProductEnabled(id, enabled);
 		if (refused) return fail(400, { success: false, message: refused });
+		const name = store.products().find((product) => product.id === id)?.name ?? id;
 		return {
 			success: true,
 			message: enabled
-				? 'Staat weer aan. De volgende ronde zoekt hij mee.'
-				: 'Staat uit. Niet meer zoeken, niet meer melden, niet in de inbox; de vondsten blijven bewaard.'
+				? `${name} staat weer aan. De volgende ronde zoekt hij mee.`
+				: `${name} staat uit. Niet meer zoeken, niet meer melden, niet in de inbox; de vondsten blijven bewaard.`
 		};
 	}
 };

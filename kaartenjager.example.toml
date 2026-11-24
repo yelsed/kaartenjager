@@ -73,6 +73,12 @@ search_terms = ["pcie riser", "riser kabel"]
 notify = false
 
 [[product]]
+id = "mini-pcs"
+name = "Mini-pc's"
+search_terms = ["mini pc 16gb", "optiplex micro"]
+notify = true
+
+[[product]]
 id = "beeldbuistelevisies"
 name = "Beeldbuistelevisies"
 search_terms = ["crt tv", "crt televisie", "trinitron"]
@@ -476,11 +482,13 @@ patterns = ["crt", "beeldbuis", "trinitron"]
 exclude_patterns = [
   "lcd", "led", "oled", "plasma",
   "afstandsbediening", "kabel", "beugel", "onderdelen",
+  "handleiding", "manual", "zwart-wit", "zwart wit",
 ]
 max_pickup_km = 45
 show_without_distance = true
 alert_below = 150
-suspicious_below = 1
+# Onder de vijf euro is het een losse handleiding of een lokprijs, geen televisie.
+suspicious_below = 5
 note = "Vraag om een foto van een aan staand scherm: inbranden en een scheve geometrie zie je niet op een foto van een uit toestel. Let op de aansluitingen — SCART of component is bruikbaar, alleen coax niet. En vraag hoe zwaar hij is voordat je de auto pakt."
 
 [[part]]
@@ -491,3 +499,66 @@ exclude_patterns = ["usb", "riser board", "riser card", "proliant", "poweredge"]
 alert_below = 25
 suspicious_below = 6
 note = "Alleen PCIe 4.0 x16 is bruikbaar; 3.0 halveert de bandbreedte. Recht (180 graden), niet haaks."
+
+
+# ---------------------------------------------------------------------------
+# Computers: de processor bepaalt de waarde, niet het model (docs/decisions/0007).
+#
+# Een [[computer]] past op een model in de titel. Daarna:
+# - min_memory_gb is een harde eis: zoveel geheugen moet in de advertentie staan
+#   (het veld van Marktplaats, of de tekst; "8/16GB" telt als 8). Minder of
+#   onbekend valt af. Een Vinted-advertentie wacht eerst op zijn beschrijving.
+# - De processor wordt gezocht op zijn typenummer ("9500T"). Zijn CPU Mark
+#   gedeeld door de prijs is de score per euro. Vanaf top_score_per_euro is het
+#   een topvondst; een processor die hier niet staat is een goede deal om uit
+#   te zoeken. In de app staan de mini-pc's op score per euro.
+# - Onder min_price is het een beugel of een adapter, geen pc.
+#
+# De grens van 45 komt uit een marktcheck van 23 november 2026: ongeveer een op
+# de zes geschikte advertenties (docs/onderzoek/mini-pcs.md). De CPU Marks zijn
+# gemiddelden van cpubenchmark.net; vul aan wat je tegenkomt.
+# ---------------------------------------------------------------------------
+
+[[computer]]
+product = "mini-pcs"
+name = "Mini-pc"
+patterns = [
+  "m720q", "m920q", "m920x", "m70q", "m75q", "m90q", "thinkcentre tiny",
+  "optiplex micro", "3060 micro", "3070 micro", "3080 micro", "5060 micro",
+  "5070 micro", "5080 micro", "7060 micro", "7070 micro", "7080 micro",
+  "elitedesk", "prodesk",
+]
+exclude_patterns = [
+  "sff", "small form factor", "tower", "beugel", "vesa", "adapter los",
+  "defect", "kapot", "for parts", "voor onderdelen", "niet werkend", "lege doos",
+]
+min_memory_gb = 16
+top_score_per_euro = 45
+min_price = 40
+
+[computer.processors]
+"i3-8100T" = 4100
+"i3-9100T" = 4300
+"i3-10100T" = 5800
+"i5-6500T" = 4700
+"i5-7500T" = 5200
+"i5-8400T" = 7300
+"i5-8500T" = 7700
+"i5-8500" = 9500
+"i5-9400T" = 7900
+"i5-9500T" = 8100
+"i5-9500" = 9600
+"i5-10400T" = 9300
+"i5-10500T" = 10200
+"i5-10500" = 12100
+"i5-11500T" = 13000
+"i7-8700T" = 9700
+"i7-9700T" = 10500
+"i7-10700T" = 13000
+"Ryzen 3 PRO 3200GE" = 4500
+"Ryzen 5 PRO 2400GE" = 7500
+"Ryzen 5 PRO 3400GE" = 7760
+"Ryzen 3 PRO 5350GE" = 12600
+"Ryzen 5 PRO 4650GE" = 15300
+"Ryzen 7 PRO 4750GE" = 19000
+"Ryzen 5 PRO 5650GE" = 19500

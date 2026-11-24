@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// Opgehoogd bij elke schemawijziging. De Svelte-app controleert dit bij het starten en
 /// weigert bij een versie die hij niet kent, in plaats van half te werken op een schema dat
 /// hij verkeerd begrijpt.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA: &str = r#"
 CREATE TABLE listing (
@@ -35,7 +35,8 @@ CREATE TABLE listing (
   gone_checks    INTEGER NOT NULL DEFAULT 0,
   gone_since     INTEGER,
   gone_reason    TEXT,                       -- sold | removed
-  posted_at      INTEGER                     -- wanneer de verkoper hem plaatste, indien bekend
+  posted_at      INTEGER,                    -- wanneer de verkoper hem plaatste, indien bekend
+  memory_gb      INTEGER                     -- werkgeheugen uit een veld van de bron (Marktplaats)
 );
 
 -- Eén regel per waarneming waarin iets veranderde: de prijs, het aantal kijkers of het
@@ -69,7 +70,8 @@ CREATE TABLE finding (
   left_find_at_price   INTEGER,
   pushed_at            INTEGER,
   pushed_at_price      INTEGER,
-  pushed_level         TEXT                  -- top | deal: wat hij was toen hij zijn stempel kreeg
+  pushed_level         TEXT,                 -- top | deal: wat hij was toen hij zijn stempel kreeg
+  score_per_euro       REAL                  -- CPU Mark per euro, alleen bij computers
 );
 
 CREATE TABLE decision (
@@ -107,7 +109,8 @@ CREATE TABLE product (
   name       TEXT NOT NULL,
   position   INTEGER NOT NULL,
   enabled    INTEGER NOT NULL DEFAULT 1,
-  seeded_at  INTEGER
+  seeded_at  INTEGER,
+  color      TEXT
 );
 
 CREATE TABLE app_state (
@@ -182,6 +185,18 @@ UPDATE finding
  WHERE pushed_at IS NULL;
 "#;
 
+/// Van schema 4 naar 5: de score per euro van een computer, en het geheugen uit het veld van
+/// de bron, zodat een hercontrole hem met hetzelfde geheugen beoordeelt.
+const MIGRATION_4_TO_5: &str = r#"
+ALTER TABLE finding ADD COLUMN score_per_euro REAL;
+ALTER TABLE listing ADD COLUMN memory_gb INTEGER;
+"#;
+
+/// De kleur die de eigenaar in de app koos. Leeg betekent de kleur die bij zijn plaats hoort.
+const MIGRATION_5_TO_6: &str = r#"
+ALTER TABLE product ADD COLUMN color TEXT;
+"#;
+
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
 pub const STALE_AFTER_SECONDS: i64 = 3600;
 
@@ -214,6 +229,9 @@ pub struct PushCandidate {
     pub product: String,
     pub level: Level,
     pub warnings: Vec<String>,
+    /// CPU Mark per euro, alleen bij computers met een bekende processor.
+    pub score_per_euro: Option<f64>,
+    pub is_computer: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -278,9 +296,13 @@ impl Database {
             // In één transactie, zodat een halve migratie geen database achterlaat die
             // nergens meer op lijkt.
             let steps = match version {
-                1 => format!("{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4}"),
-                2 => format!("{MIGRATION_2_TO_3} {MIGRATION_3_TO_4}"),
-                _ => MIGRATION_3_TO_4.to_string(),
+                1 => format!(
+                    "{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"
+                ),
+                2 => format!("{MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
+                3 => format!("{MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
+                4 => format!("{MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
+                _ => MIGRATION_5_TO_6.to_string(),
             };
             connection
                 .execute_batch(&format!(
@@ -555,8 +577,8 @@ impl Database {
                 "INSERT INTO listing (
                     key, source, listing_id, title, url, description, location, seller,
                     condition, delivery, photo_count, first_seen, last_seen, found_by_terms,
-                    posted_at
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13,?14)
+                    posted_at, memory_gb
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13,?14,?15)
                  ON CONFLICT(key) DO UPDATE SET
                     title       = excluded.title,
                     url         = excluded.url,
@@ -572,6 +594,7 @@ impl Database {
                     -- kunnen hem niet beter weten, en een bron die hem een keer weglaat mag
                     -- hem niet wissen.
                     posted_at   = COALESCE(listing.posted_at, excluded.posted_at),
+                    memory_gb   = COALESCE(excluded.memory_gb, listing.memory_gb),
                     -- Teruggezien betekent: hij bestaat nog. Een eerdere twijfel vervalt.
                     gone_checks = 0,
                     gone_since  = NULL,
@@ -592,6 +615,7 @@ impl Database {
                     now,
                     terms_json,
                     listing.posted_at,
+                    listing.memory_gb,
                 ],
             )
             .map_err(|error| format!("{key} niet op te slaan: {error}"))?;
@@ -710,13 +734,14 @@ impl Database {
                 "INSERT INTO finding (
                     key, matched_as, kind, confidence, percent_under_market, euros_under_market,
                     reasons, warnings, queue_note, became_a_find_at, judged_at, still_a_find,
-                    left_find_at_price, product, level
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL,?12,?13)
+                    left_find_at_price, product, level, score_per_euro
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL,?12,?13,?14)
                  ON CONFLICT(key) DO UPDATE SET
                     matched_as           = excluded.matched_as,
                     kind                 = excluded.kind,
                     product              = excluded.product,
                     level                = excluded.level,
+                    score_per_euro       = excluded.score_per_euro,
                     confidence           = excluded.confidence,
                     percent_under_market = excluded.percent_under_market,
                     euros_under_market   = excluded.euros_under_market,
@@ -742,6 +767,7 @@ impl Database {
                     renew_became,
                     if finding.product.is_empty() { None } else { Some(finding.product.as_str()) },
                     finding.level.name(),
+                    finding.score_per_euro,
                 ],
             )
             .map_err(|error| format!("Vondst {key} niet op te slaan: {error}"))?;
@@ -819,11 +845,12 @@ impl Database {
             .connection
             .prepare(
                 "SELECT key, matched_as, percent_under_market, title, url, source, delivery,
-                        price_cents, kind, product, level, warnings
+                        price_cents, kind, product, level, warnings, score_per_euro
                  FROM (SELECT finding.key, finding.matched_as, finding.percent_under_market,
                               listing.title, listing.url, listing.source, listing.delivery,
                               finding.kind, COALESCE(finding.product, '') AS product,
-                              finding.level, finding.warnings, finding.pushed_at,
+                              finding.level, finding.warnings, finding.score_per_euro,
+                              finding.pushed_at,
                               finding.pushed_at_price,
                               COALESCE(finding.pushed_level, 'top') AS pushed_level,
                               (SELECT price_cents FROM sighting WHERE sighting.key = finding.key
@@ -831,7 +858,7 @@ impl Database {
                        FROM finding
                        JOIN listing ON listing.key = finding.key
                        WHERE finding.still_a_find = 1
-                         AND finding.kind IN ('card', 'part')
+                         AND finding.kind IN ('card', 'part', 'computer')
                          AND listing.gone_since IS NULL)
                  WHERE pushed_at IS NULL
                     OR (pushed_level = 'deal' AND level = 'top')
@@ -855,6 +882,8 @@ impl Database {
                     product: row.get(9)?,
                     level: if row.get::<_, String>(10)? == "top" { Level::Top } else { Level::Deal },
                     warnings: json_list(row.get::<_, Option<String>>(11)?),
+                    score_per_euro: row.get(12)?,
+                    is_computer: row.get::<_, String>(8)? == "computer",
                 })
             })
             .map_err(|error| format!("Uitschieters niet te lezen: {error}"))?;
@@ -1227,7 +1256,8 @@ impl Database {
                         (SELECT price_cents FROM sighting p WHERE p.key = l.key
                          ORDER BY p.seen_at DESC LIMIT 1),
                         (SELECT asking_cents FROM sighting p WHERE p.key = l.key
-                         ORDER BY p.seen_at DESC LIMIT 1)
+                         ORDER BY p.seen_at DESC LIMIT 1),
+                        l.memory_gb
                  FROM listing l WHERE l.key = ?1",
                 params![key],
                 |row| {
@@ -1244,6 +1274,7 @@ impl Database {
                         photo_count: row.get::<_, i64>(9)? as usize,
                         price_euros: from_cents(row.get::<_, Option<i64>>(10)?.unwrap_or(0)),
                         asking_price_euros: from_cents(row.get::<_, Option<i64>>(11)?.unwrap_or(0)),
+                        memory_gb: row.get(12)?,
                         ..Listing::default()
                     })
                 },
@@ -1302,6 +1333,7 @@ impl FindingKind {
         match self {
             FindingKind::Card => "card",
             FindingKind::Part => "part",
+            FindingKind::Computer => "computer",
             FindingKind::Unknown => "unknown",
         }
     }

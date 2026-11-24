@@ -11,6 +11,7 @@
 		sourceName,
 		deliveryName
 	} from '$lib/format';
+	import ProductLabel from '$lib/ProductLabel.svelte';
 
 	let { vondst, toon = 'inbox' }: { vondst: Finding; toon?: 'inbox' | 'volglijst' | 'archief' } =
 		$props();
@@ -21,7 +22,6 @@
 	// dat is het verschil met Discord, waar alles altijd openstond.
 	const kenmerken = $derived(
 		[
-			vondst.title,
 			vondst.condition,
 			vondst.location,
 			deliveryName(vondst.delivery),
@@ -54,18 +54,31 @@
 	);
 </script>
 
-<article class:nieuw={vondst.isNew}>
+<article class:top={vondst.level === 'top'}>
 	<header>
-		<div class="kop">
-			<h3>{vondst.matchedAs}</h3>
+		<div class="bovenregel">
+			{#if vondst.productName}
+				<ProductLabel name={vondst.productName} color={vondst.productColor} filled />
+			{/if}
 			<span class="prijs">{money(vondst.priceEuros)}</span>
 		</div>
+		<!-- De link dekt met zijn ::after de hele kaart, zodat een tik op de kaart de advertentie
+		     opent; de knoppen liggen erboven en blijven gewoon knoppen. -->
+		<h3>
+			<a class="kaartlink" href={vondst.url} target="_blank" rel="noreferrer noopener">
+				{vondst.matchedAs}<span class="pijl" aria-hidden="true">↗</span>
+			</a>
+		</h3>
+		<p class="titel">{vondst.title}</p>
+		<p class="kenmerken">{kenmerken.join(' · ')}</p>
 		<div class="merken">
 			{#if vondst.isNew}<span class="merk nieuw-merk">nieuw</span>{/if}
 			{#if vondst.level === 'top'}<span class="merk top-merk">topvondst</span>{/if}
-			{#if vondst.productName}<span class="merk">{vondst.productName}</span>{/if}
 			{#if distanceUnknown}<span class="merk uitzoeken">afstand onbekend</span>{/if}
 			{#if vondst.needsReview}<span class="merk uitzoeken">uitzoeken</span>{/if}
+			{#if vondst.scorePerEuro !== null}
+				<span class="merk">{Math.round(vondst.scorePerEuro)} CPU Mark per euro</span>
+			{/if}
 			{#if vondst.percentUnderMarket !== null && vondst.percentUnderMarket > 0}
 				<span class="merk">{percent(vondst.percentUnderMarket)} onder de markt</span>
 			{/if}
@@ -80,8 +93,6 @@
 			{#if !vondst.stillAFind}<span class="merk weg">niet langer interessant</span>{/if}
 		</div>
 	</header>
-
-	<p class="kenmerken">{kenmerken.join(' · ')}</p>
 
 	{#if terugUitArchief && vondst.priceWhenArchived !== null}
 		<p class="terug">
@@ -209,49 +220,95 @@
 				<button class:uitgelicht={vondst.needsReview}>Hermes laten kijken</button>
 			</form>
 		{/if}
-		<button type="button" onclick={() => (uitgeklapt = !uitgeklapt)}>
+		<button type="button" aria-expanded={uitgeklapt} onclick={() => (uitgeklapt = !uitgeklapt)}>
 			{uitgeklapt ? 'inklappen' : 'uitklappen'}
 		</button>
-		<a class="link" href={vondst.url} target="_blank" rel="noreferrer noopener">openen →</a>
 	</div>
 </article>
 
 <style>
 	article {
+		position: relative;
 		border: 1px solid var(--rand);
-		border-radius: 10px;
+		border-radius: 12px;
 		padding: 1rem;
 		margin-bottom: 0.9rem;
 		background: var(--vlak);
+		transition: border-color 120ms ease-out;
 	}
 
-	article.nieuw {
-		border-left: 3px solid var(--accent);
+	article:has(.kaartlink:hover) {
+		border-color: #3d4653;
 	}
 
-	.kop {
+	.bovenregel {
 		display: flex;
 		justify-content: space-between;
 		align-items: baseline;
 		gap: 1rem;
-	}
-
-	h3 {
-		margin: 0;
-		font-size: 1.05rem;
+		font-size: 0.85rem;
 	}
 
 	.prijs {
+		font-size: 1.15rem;
 		font-variant-numeric: tabular-nums;
-		font-weight: 600;
+		font-weight: 650;
 		white-space: nowrap;
+		color: var(--tekst);
+	}
+
+	article.top .prijs {
+		color: var(--accent);
+	}
+
+	h3 {
+		margin: 0.2rem 0 0;
+		font-size: 1.05rem;
+		line-height: 1.3;
+	}
+
+	.kaartlink {
+		color: var(--tekst);
+		text-decoration: none;
+	}
+
+	.kaartlink::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: 12px;
+	}
+
+	.kaartlink:focus-visible {
+		outline: none;
+	}
+
+	.kaartlink:focus-visible::after {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+
+	.pijl {
+		margin-left: 0.35rem;
+		color: var(--gedempt);
+		font-weight: 400;
+	}
+
+	.titel {
+		margin: 0.3rem 0 0;
+		font-size: 0.95rem;
+		overflow-wrap: anywhere;
 	}
 
 	.merken {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.35rem;
-		margin-top: 0.4rem;
+		margin-top: 0.6rem;
+	}
+
+	.merken:empty {
+		display: none;
 	}
 
 	.merk {
@@ -285,9 +342,9 @@
 	}
 
 	.kenmerken {
-		margin: 0.6rem 0 0;
+		margin: 0.15rem 0 0;
 		color: var(--gedempt);
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 	}
 
 	.terug {
@@ -311,30 +368,40 @@
 	}
 
 	.oordeel {
+		--oordeel-kleur: var(--gedempt);
 		margin-top: 0.75rem;
 		padding: 0.6rem 0.8rem;
 		border-radius: 8px;
-		border-left: 3px solid var(--gedempt);
-		background: #191d24;
+		border: 1px solid color-mix(in srgb, var(--oordeel-kleur) 45%, transparent);
+		background: color-mix(in srgb, var(--oordeel-kleur) 8%, var(--vlak));
 		font-size: 0.9rem;
 	}
 
-	.oordeel[data-aanbeveling='kijken'] {
-		border-left-color: var(--accent);
+	.oordeel strong {
+		color: var(--oordeel-kleur);
 	}
 
-	.oordeel[data-aanbeveling='overslaan'] {
-		border-left-color: var(--gedempt);
+	.oordeel[data-aanbeveling='kijken'] {
+		--oordeel-kleur: var(--accent);
 	}
 
 	.oordeel[data-aanbeveling='oplichterij'],
 	.oordeel.mislukt {
-		border-left-color: var(--alarm);
+		--oordeel-kleur: var(--alarm);
 	}
 
 	.oordeel p {
 		margin: 0.35rem 0 0;
 		white-space: pre-wrap;
+	}
+
+	.dossier,
+	.knoppen,
+	.oordeel,
+	.notitie,
+	.terug {
+		position: relative;
+		z-index: 1;
 	}
 
 	.dossier {
@@ -425,9 +492,13 @@
 	.knoppen {
 		display: flex;
 		flex-wrap: wrap;
-		align-items: center;
 		gap: 0.4rem;
 		margin-top: 0.9rem;
+	}
+
+	.knoppen button {
+		min-height: 2.5rem;
+		font-size: 0.9rem;
 	}
 
 	.knoppen form {
@@ -439,9 +510,4 @@
 		color: var(--let-op);
 	}
 
-	.link {
-		margin-left: auto;
-		font-size: 0.9rem;
-		text-decoration: none;
-	}
 </style>

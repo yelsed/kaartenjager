@@ -293,6 +293,11 @@ Zoektermen, en onder Producten zet je hem aan of uit. Uit betekent: niet zoeken,
 niet in de inbox; zijn vondsten blijven bewaard. Een bestand zonder `[[product]]` werkt ook nog:
 dan worden alle kaarten samen Videokaarten en elk onderdeel een eigen product.
 
+**Computers** zijn een eigen soort regel, `[[computer]]`: het model staat in de titel, maar de
+processor bepaalt de waarde. Geheugen onder `min_memory_gb` valt af, de CPU Mark van de
+processor gedeeld door de prijs is de score per euro, en vanaf `top_score_per_euro` is het een
+topvondst. In de app staan ze op score per euro (`docs/decisions/0007`).
+
 Elke vondst is een **topvondst** of een **goede deal**. Een kaart is top als hij ver genoeg
 onder de markt zit (`push_below_market_percent`), een onderdeel als hij onder `alert_below`
 zit en, als de regel op afstand zeeft, binnen `max_pickup_km`. Met `show_without_distance =

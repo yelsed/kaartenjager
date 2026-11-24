@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Product } from '$lib/server/db';
+	import ProductLabel from '$lib/ProductLabel.svelte';
 
 	let {
 		products,
@@ -8,6 +9,14 @@
 	}: { products: Product[]; selected: string | null; totalCount: number } = $props();
 
 	const enabledProducts = $derived(products.filter((product) => product.enabled));
+
+	// Op een smal scherm staat het gekozen product anders buiten beeld, rechts van de rij.
+	function scrollIntoRowWhenSelected(link: HTMLAnchorElement, isSelected: boolean) {
+		if (!isSelected) return;
+		const row = link.parentElement;
+		if (!row) return;
+		row.scrollLeft = link.offsetLeft - (row.clientWidth - link.offsetWidth) / 2;
+	}
 </script>
 
 {#if enabledProducts.length > 1}
@@ -20,8 +29,10 @@
 				href="/?product={encodeURIComponent(product.id)}"
 				class:actief={selected === product.id}
 				aria-current={selected === product.id ? 'page' : undefined}
+				use:scrollIntoRowWhenSelected={selected === product.id}
+				style:--product-kleur={product.color}
 			>
-				{product.name} <span class="aantal">{product.inboxCount}</span>
+				<ProductLabel name={product.name} color={product.color} count={product.inboxCount} />
 			</a>
 		{/each}
 	</nav>
@@ -29,6 +40,7 @@
 
 <style>
 	.product-filter {
+		position: relative;
 		display: flex;
 		gap: 0.4rem;
 		overflow-x: auto;
@@ -48,7 +60,8 @@
 	}
 
 	a.actief {
-		border-color: var(--accent);
+		border-color: var(--product-kleur, var(--accent));
+		background: color-mix(in srgb, var(--product-kleur, var(--accent)) 14%, transparent);
 		color: var(--tekst);
 	}
 

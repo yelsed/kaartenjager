@@ -1,6 +1,6 @@
 # Wat er veranderde
 
-## Nog niet uitgegeven: producten
+## 2.1.0, 24 november 2026: producten
 
 - Zoeken per product (`[[product]]` in de configuratie). Elke regel hoort bij een product; een
   bestand zonder producten blijft werken (`docs/decisions/0001`).
@@ -18,8 +18,15 @@
   Zonder webhook blijft de route via Hermes (`docs/decisions/0004`).
 - Een product kan een eigen `push_below_market_percent` hebben (`docs/decisions/0005`), en
   `check` zegt per product hoe het meldt.
+- Mini-pc's als product met een `[[computer]]`-regel: 16 GB in de advertentie als harde eis,
+  CPU Mark per euro als score, topvondst vanaf 45. Schema 5 (`finding.score_per_euro`); de
+  inbox van een product met scores staat op score per euro (`docs/decisions/0007`).
 - Elke ronde onthoudt hoe lang hij duurde. De app toont dat onderaan en waarschuwt als een ronde
   langer duurt dan de helft van de tijd tussen twee rondes.
+- Elk product heeft een kleur, onder Producten zelf te kiezen. Schema 6 (`product.color`).
+- De hele kaart in de inbox opent de advertentie.
+- Een processor die niet in de tabel staat heet bij naam, en de voorbeeldregel voor
+  beeldbuizen vangt geen losse handleiding of zwart-wit-tv meer.
 
 ## 2.0.0 — 18 september 2026
 

@@ -42,6 +42,9 @@ pub struct Listing {
     pub favourite_count: Option<i64>,
     /// Source-specific category labels, used to drop listings that are not the thing we want.
     pub categories: Vec<String>,
+    /// Het werkgeheugen zoals de bron het in een eigen veld zet (Marktplaats `memoryRAM`).
+    #[serde(default)]
+    pub memory_gb: Option<u32>,
     pub reserved: bool,
 }
 
@@ -84,6 +87,7 @@ impl Default for Listing {
             favourite_count: None,
             categories: Vec::new(),
             reserved: false,
+            memory_gb: None,
         }
     }
 }
@@ -125,6 +129,7 @@ pub enum Confidence {
 pub enum FindingKind {
     Card,
     Part,
+    Computer,
     #[default]
     Unknown,
 }
@@ -167,6 +172,9 @@ pub struct Finding {
     pub percent_under_market: Option<f64>,
     #[serde(default)]
     pub euros_under_market: Option<f64>,
+    /// CPU Mark per euro, alleen bij computers met een bekende processor.
+    #[serde(default)]
+    pub score_per_euro: Option<f64>,
     /// Plain-language reasons this is worth looking at, already formatted.
     pub reasons: Vec<String>,
     /// Things that should give pause, already formatted.

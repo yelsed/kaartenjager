@@ -463,9 +463,10 @@ fn command_check(arguments: &Arguments) -> ExitCode {
         }
     );
     println!(
-        "  regels             {} kaarten, {} onderdelen",
+        "  regels             {} kaarten, {} onderdelen, {} computers",
         settings.cards.len(),
-        settings.parts.len()
+        settings.parts.len(),
+        settings.computers.len()
     );
     println!(
         "  paginabezoeken     {} (grens {})",

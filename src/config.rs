@@ -137,6 +137,31 @@ pub struct PartRule {
     pub product: Option<String>,
 }
 
+/// Een computer waarvan de processor de waarde bepaalt, niet het model (`docs/decisions/0007`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ComputerRule {
+    pub name: String,
+    pub product: String,
+    /// De doelmodellen, gezocht in de titel.
+    pub patterns: Vec<String>,
+    #[serde(default)]
+    pub exclude_patterns: Vec<String>,
+    /// Harde eis: zoveel geheugen moet in de advertentie zelf staan.
+    #[serde(default = "default_min_memory_gb")]
+    pub min_memory_gb: u32,
+    /// CPU Mark per processor, met de naam zoals hij in de app staat ("i5-9500T").
+    pub processors: BTreeMap<String, f64>,
+    /// Vanaf hoeveel CPU Mark per euro het een topvondst is.
+    pub top_score_per_euro: f64,
+    /// Daaronder is het een beugel, adapter of kap, geen computer.
+    #[serde(default)]
+    pub min_price: f64,
+}
+
+fn default_min_memory_gb() -> u32 {
+    16
+}
+
 /// Iets waar je naar zoekt: videokaarten, beeldbuistelevisies, mini-pc's. Een product heeft zijn
 /// eigen zoektermen en regels, en in de app zijn eigen overzicht.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -509,6 +534,8 @@ pub struct Settings {
     pub cards: Vec<CardRule>,
     #[serde(default, rename = "part")]
     pub parts: Vec<PartRule>,
+    #[serde(default, rename = "computer")]
+    pub computers: Vec<ComputerRule>,
     #[serde(default, rename = "product")]
     pub products: Vec<Product>,
     /// The products were made from `card_search_terms` and `part_search_terms`, not written
@@ -839,9 +866,9 @@ impl Settings {
             ));
         }
 
-        if self.cards.is_empty() && self.parts.is_empty() {
+        if self.cards.is_empty() && self.parts.is_empty() && self.computers.is_empty() {
             return Err(ConfigError::Rejected(
-                "Geen [[card]]- of [[part]]-regels ingesteld, dus er valt niets te beoordelen."
+                "Geen [[card]]-, [[part]]- of [[computer]]-regels ingesteld, dus er valt niets te beoordelen."
                     .into(),
             ));
         }
@@ -881,6 +908,7 @@ impl Settings {
         for (soort, namen) in [
             ("Kaart", self.cards.iter().map(|card| &card.name).collect::<Vec<_>>()),
             ("Onderdeel", self.parts.iter().map(|part| &part.name).collect::<Vec<_>>()),
+            ("Computer", self.computers.iter().map(|computer| &computer.name).collect::<Vec<_>>()),
         ] {
             let mut gezien = std::collections::BTreeSet::new();
             for naam in namen {
@@ -913,7 +941,10 @@ impl Settings {
             .iter()
             .map(|card| (&card.name, &card.product))
             .chain(self.parts.iter().map(|part| (&part.name, &part.product)));
-        for (name, product) in rules {
+        let computer_products: Vec<Option<String>> =
+            self.computers.iter().map(|computer| Some(computer.product.clone())).collect();
+        let computer_rules = self.computers.iter().map(|computer| &computer.name).zip(&computer_products);
+        for (name, product) in rules.chain(computer_rules) {
             if let Some(id) = product {
                 if !product_ids.contains(id.as_str()) {
                     return Err(ConfigError::Rejected(format!(
@@ -926,6 +957,32 @@ impl Settings {
 
         for card in &self.cards {
             validate_card(card)?;
+        }
+        for computer in &self.computers {
+            if computer.processors.is_empty()
+                || computer.top_score_per_euro <= 0.0
+                || computer.min_price < 0.0
+                || computer.min_memory_gb == 0
+                || computer.processors.values().any(|score| *score <= 0.0)
+            {
+                return Err(ConfigError::Rejected(format!(
+                    "Computer \"{}\" heeft processors met een CPU Mark boven nul nodig, een \
+                     top_score_per_euro boven nul, een min_memory_gb en geen negatieve min_price.",
+                    computer.name
+                )));
+            }
+            // Twee processors met hetzelfde typenummer: dan wint stil steeds dezelfde.
+            let mut models = std::collections::BTreeMap::new();
+            for name in computer.processors.keys() {
+                let model = crate::pricing::processor_words(name).last().cloned().unwrap_or_default();
+                if let Some(earlier) = models.insert(model.clone(), name) {
+                    return Err(ConfigError::Rejected(format!(
+                        "Computer \"{}\": \"{earlier}\" en \"{name}\" hebben hetzelfde typenummer \
+                         \"{model}\". Houd er een.",
+                        computer.name
+                    )));
+                }
+            }
         }
         for part in &self.parts {
             if part.suspicious_below >= part.alert_below {

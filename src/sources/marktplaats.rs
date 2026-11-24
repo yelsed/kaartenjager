@@ -109,6 +109,13 @@ fn parse_listing(item: &Value) -> Option<Listing> {
         .find(|(key, _)| key == "condition")
         .map(|(_, value)| value.clone())
         .unwrap_or_default();
+    // "16 GB": de verkoper koos het uit een lijst, dus betrouwbaarder dan de vrije tekst.
+    let memory_gb = attributes
+        .iter()
+        .find(|(key, _)| key == "memoryRAM")
+        .and_then(|(_, value)| {
+            value.split(|character: char| !character.is_ascii_digit()).find(|part| !part.is_empty())?.parse().ok()
+        });
 
     let categories = item
         .get("verticals")
@@ -169,6 +176,7 @@ fn parse_listing(item: &Value) -> Option<Listing> {
             .get("reserved")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        memory_gb,
     })
 }
 

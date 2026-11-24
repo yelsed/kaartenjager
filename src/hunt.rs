@@ -291,6 +291,26 @@ pub fn run_round(
         ));
     }
 
+    // Een computer van Vinted werd voorlopig beoordeeld zonder beschrijving; nu die er is,
+    // beslissen geheugen en processor. Geen 16 GB in de beschrijving: dan valt hij af.
+    let mut findings: Vec<Finding> = findings
+        .into_iter()
+        .filter_map(|finding| {
+            let provisional = finding.kind == crate::listing::FindingKind::Computer
+                && finding.listing.source == "vinted"
+                && finding.confidence == Confidence::NeedsReview
+                && !finding.listing.description.is_empty();
+            if !provisional {
+                return Some(finding);
+            }
+            let rejudged = sieve.check(&finding.listing).ok().and_then(|()| table.judge(&finding.listing));
+            if rejudged.is_none() {
+                judged_to_nothing.push((finding.listing.key(), finding.listing.price_euros));
+            }
+            rejudged
+        })
+        .collect();
+
     // Now that the descriptions are in, the seller's own words decide delivery.
     for finding in findings.iter_mut() {
         apply_pickup_words(finding, settings);
@@ -637,6 +657,11 @@ pub(crate) fn decide_pushes(
 ) -> Result<Vec<PushCandidate>, String> {
     let mut worth_telling = Vec::new();
     for candidate in database.findings_to_push()? {
+        // Een computer van Vinted zonder beschrijving is voorlopig: nog niet melden, en ook geen
+        // stempel, want na zijn beschrijving kan hij alsnog een topvondst zijn of afvallen.
+        if candidate.is_computer && candidate.warnings.iter().any(|warning| warning == "geheugen onbekend") {
+            continue;
+        }
         // Een product dat deals stil meldt, meldt zijn topvondsten minstens zo stil.
         let product_wants_it = settings.product_notifies_deals(&candidate.product)
             || (candidate.level == Level::Top && settings.product_notifies(&candidate.product));
