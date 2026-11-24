@@ -1,7 +1,7 @@
 ---
 name: kaartenjager
-description: Beoordeelt gevonden videokaarten en houdt de prijstabel bij
-version: 1.0.0
+description: Beoordeelt gevonden advertenties (kaarten, onderdelen, mini-pc's, laptops) met een prijscheck en houdt de prijstabel bij
+version: 1.1.0
 platforms: [linux]
 metadata:
   hermes:
@@ -50,6 +50,7 @@ kaartenjager reviews answer <id> --recommendation <kijken|overslaan|oplichterij>
                                 # het oordeel zelf gaat via stdin
 kaartenjager reviews fail <id> --reason <tekst>
 kaartenjager dossier <sleutel>
+kaartenjager probe "<zoekterm>"  # vergelijkbare advertenties op Vinted, voor de prijscheck
 kaartenjager config apply --from <bestand> [--check]
 kaartenjager config rollback [--to JJJJ-MM-DD]
 kaartenjager check

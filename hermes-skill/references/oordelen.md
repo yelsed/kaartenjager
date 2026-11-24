@@ -46,7 +46,32 @@ Voor Marktplaats staat de volledige beschrijving daar al in. Voor Vinted staat e
 `(niet opgehaald)` als het programma er deze ronde niet aan toe kwam — gebruik dan
 `web_extract` op de URL om de beschrijving en de foto's te zien.
 
-**3. Beoordeel.**
+**3. Check de prijs. Altijd, bij elk verzoek.**
+
+Een oordeel zonder prijscheck is geen oordeel: de gebruiker drukt op de knop juist om te weten of
+de vraagprijs klopt. Zoek dus eerst wat hetzelfde ding nu elders kost.
+
+- **Vinted:** `kaartenjager probe "<model>"`, met de zoekterm zo precies als de advertentie het
+  toelaat ("thinkpad t14 gen 1", "rtx 3060 12gb", "elitedesk 800 g4 mini"). Dat geeft per
+  advertentie de vraagprijs en het totaal met kopersbescherming, en schrijft niets weg.
+- **Marktplaats:** zoek met `web_search` of `web_extract` op `marktplaats.nl` naar hetzelfde
+  model.
+- **Haal alles weg wat niet vergelijkbaar is:** onderdelen (een klep, een kabel, een touchpad),
+  een andere uitvoering (8 GB tegen 16 GB, een andere processor, een Ti), defecte exemplaren.
+  Wat overblijft moet echt hetzelfde ding zijn.
+- **Vergelijk het totaal dat de koper betaalt:** op Vinted met kopersbescherming, plus verzending
+  als die er is.
+
+Zet de uitkomst altijd bovenaan je oordeel, in deze vorm:
+
+```
+Prijscheck: €205 tegen €230 tot €315 voor 5 vergelijkbare (Vinted 3, Marktplaats 2), 11% onder de goedkoopste.
+```
+
+Vind je minder dan drie vergelijkbare advertenties, zeg dat dan ("maar 1 vergelijkbare
+gevonden") in plaats van een range te verzinnen.
+
+**4. Beoordeel.**
 
 Drie soorten twijfel komen langs, elk met een eigen vraag:
 
@@ -73,15 +98,31 @@ Waar je bij alle gevallen naar kijkt:
   dat meteen: een kaart van 16 GB is voor dit doel onbruikbaar hoe goed hij verder ook is.
   En hoe verhoudt hij zich tot de 3090 Ti van €945,70 die het ijkpunt is?
 - **De prijs zelf.** Een kaart op een derde van de marktprijs is bijna nooit echt. Een kaart
-  op tachtig procent kan heel goed een verhuizing zijn.
+  op tachtig procent kan heel goed een verhuizing zijn. Leg dit naast je prijscheck uit stap 3.
 
-**4. Schrijf het antwoord terug.**
+### Mini-pc's en laptops
+
+Daar bepaalt de processor de waarde, en het geheugen is een harde eis (16 GB). Verkopers zetten
+die vaak alleen op een foto: een schermafbeelding van "Systeeminfo" of "About", of een sticker
+op het toestel. **Bekijk dus de foto's** voordat je zegt dat de processor onbekend is.
+
+- Noem processor, geheugen en opslag zoals je ze vond, en waar ("op foto 1").
+- Reken de CPU Mark per euro uit: de CPU Mark van cpubenchmark.net gedeeld door het totaal.
+  Ook de tabel in `kaartenjager.toml` onder `[computer.processors]` heeft er een paar.
+  Vanaf 45 is het een topvondst, onder 30 niet de moeite.
+- Vergelijk met een nieuwere generatie voor bijna hetzelfde geld: dat is vaak het beste advies
+  ("voor €17 meer heb je de Gen 2 met 50% meer rekenkracht").
+- Een buitenlands toetsenbord, een kras op de klep of een zwakke accu maakt voor een machine die
+  thuis aan de stroom staat weinig uit. Een BIOS-wachtwoord of een Computrace-slot wel.
+
+**5. Schrijf het antwoord terug.**
 
 Per verzoek één opdracht. Het oordeel zelf gaat via stdin, want een meerregelige tekst door
 een shell-argument persen loopt vast op aanhalingstekens:
 
 ```bash
 kaartenjager reviews answer 12 --recommendation kijken <<'EOF'
+Prijscheck: €240 tegen €320 tot €380 voor 6 vergelijkbare (Vinted 4, Marktplaats 2), 25% onder de goedkoopste.
 Foto's zijn van de kaart zelf, serienummer zichtbaar, geen mining genoemd.
 Verkoper heeft veertig beoordelingen en verkoopt vaker hardware.
 Gaat normaal voor €320-380, dus €240 is scherp maar niet te mooi.
@@ -107,7 +148,7 @@ Een verzoek dat je oppakt maar nooit beantwoordt komt na een uur vanzelf terug i
 wachtrij, en na drie van die rondes sluit het programma het zelf als mislukt af. Dat is een
 vangnet, geen werkwijze: elke terugkeer kost opnieuw een aanroep.
 
-**5. Meld kort terug.**
+**6. Meld kort terug.**
 
 Het uitgebreide oordeel staat al in de app, onder de advertentie. In het kanaal volstaat een
 paar regels:
@@ -115,8 +156,8 @@ paar regels:
 ```
 Drie beoordeeld.
 
-· Sapphire RX 6800 XT 16GB, €240 — kijken. Foto's van de kaart zelf,
-  verkoper met veertig beoordelingen. Gaat normaal voor €320-380.
+· Sapphire RX 6800 XT 16GB, €240 — kijken. 25% onder de goedkoopste van 6
+  vergelijkbare (€320-380). Foto's van de kaart zelf, verkoper met veertig beoordelingen.
 · "videokaart nvidia", €90 — oplichterij. Alleen fabrikantfoto's,
   verkoper zonder beoordelingen.
 · RTX 3060, €130 — overslaan. Beschrijving noemt 8GB, dus de goedkope uitvoering.
