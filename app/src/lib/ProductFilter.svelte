@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Product } from '$lib/server/db';
 	import ProductLabel from '$lib/ProductLabel.svelte';
-	import { productColor } from '$lib/format';
 
 	let {
 		products,
@@ -31,9 +30,9 @@
 				class:actief={selected === product.id}
 				aria-current={selected === product.id ? 'page' : undefined}
 				use:scrollIntoRowWhenSelected={selected === product.id}
-				style:--product-kleur={productColor(product.position)}
+				style:--product-kleur={product.color}
 			>
-				<ProductLabel name={product.name} position={product.position} count={product.inboxCount} />
+				<ProductLabel name={product.name} color={product.color} count={product.inboxCount} />
 			</a>
 		{/each}
 	</nav>

@@ -168,6 +168,13 @@ curl -sS "http://localhost:$PORT/producten" -o "$WORK/producten.html"
 grep -qF "Videokaarten" "$WORK/producten.html" || fout "de productenpagina toont Videokaarten niet"
 probeer "/producten" aanzetten 200 --data-urlencode 'id=videokaarten' --data-urlencode 'enabled=nee'
 zegt "Videokaarten staat uit."
+probeer "/producten" kleur 200 --data-urlencode 'id=videokaarten' --data-urlencode 'color=#a9d672'
+[ "$(sqlite3 "$DB" "SELECT color FROM product WHERE id='videokaarten';")" = "#a9d672" ] \
+  || fout "een gekozen kleur werd niet bewaard"
+probeer "/producten" kleur 200 --data-urlencode 'id=videokaarten' --data-urlencode 'color=#000000'
+zegt "Die kleur staat niet in het palet."
+[ "$(sqlite3 "$DB" "SELECT color FROM product WHERE id='videokaarten';")" = "#a9d672" ] \
+  || fout "een kleur buiten het palet overschreef de gekozen kleur"
 [ "$(sqlite3 "$DB" "SELECT enabled FROM product WHERE id='videokaarten';")" = "0" ] \
   || fout "uitzetten zette het product niet uit"
 curl -sS "http://localhost:$PORT/" -o "$WORK/inbox.html"

@@ -89,11 +89,24 @@ export function roundDuration(seconds: number): string {
 	return rest === 0 ? minutesText : `${minutesText} en ${secondsText}`;
 }
 
-/** Zoveel kleuren staan er als --product-0 tot en met --product-5 in de layout. */
-const PRODUCT_COLOR_COUNT = 6;
+/**
+ * De kleuren waaruit je een product een kleur geeft. Allemaal licht genoeg om als tekst op de
+ * donkere achtergrond leesbaar te blijven; een vrije kleurkiezer zou ook zwart toelaten.
+ */
+export const PRODUCT_COLORS = [
+	{ name: 'blauw', value: '#86b0f5' },
+	{ name: 'paars', value: '#c6a2f2' },
+	{ name: 'roze', value: '#f093be' },
+	{ name: 'turquoise', value: '#6fd0dc' },
+	{ name: 'geel', value: '#e3d36e' },
+	{ name: 'oranje', value: '#f2a47c' },
+	{ name: 'limoen', value: '#a9d672' },
+	{ name: 'zilver', value: '#c3cad5' }
+] as const;
 
-/** Elk product zijn eigen kleur, op volgorde van de configuratie; zonder product grijs. */
-export function productColor(position: number | null): string {
+/** De gekozen kleur, anders die van zijn plaats in de configuratie; zonder product grijs. */
+export function productColor(chosen: string | null, position: number | null): string {
+	if (chosen && PRODUCT_COLORS.some((color) => color.value === chosen)) return chosen;
 	if (position === null) return 'var(--gedempt)';
-	return `var(--product-${position % PRODUCT_COLOR_COUNT})`;
+	return PRODUCT_COLORS[position % PRODUCT_COLORS.length].value;
 }

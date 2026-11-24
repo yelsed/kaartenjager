@@ -48,11 +48,13 @@ beeldbuisvondsten uit de demo blijven dus staan tot ze gearchiveerd worden.
 
 ## Polijstronde na de test van de eigenaar (24 november 2026)
 
-- Elk product een eigen kleur, op volgorde van de configuratie (`--product-0` tot `--product-5`
-  in de layout, `productColor` in `format.ts`). Zichtbaar als gekleurd label op de kaart, een
-  vleug kleur bovenin de kaart, een stip in de filterchips en op Producten (`ProductLabel`).
-  Zelf een kleur kiezen kan nog niet; dat vraagt een kolom in `product` en komt pas als de
-  volgorde-kleuren niet bevallen.
+- Elk product een eigen kleur: standaard die van zijn plaats in de configuratie, en onder
+  Producten zelf te kiezen ("kleur kiezen"). Schema 6 bewaart de keuze in `product.color`. Het
+  palet staat op één plek, `PRODUCT_COLORS` in `format.ts`: acht kleuren die als tekst op de
+  donkere achtergrond leesbaar blijven, en de server weigert alles daarbuiten. Een vrije
+  kleurkiezer is bewust niet gedaan, want die laat ook onleesbare kleuren toe. Zichtbaar als
+  gekleurd label op de kaart en een stip in de filterchips en op Producten (`ProductLabel`).
+  Het kleurverloop bovenin de kaart is er op verzoek van de eigenaar weer uit.
 - De hele kaart opent de advertentie; de knoppen blijven knoppen. De advertentietitel staat nu
   op een eigen regel in gewone tekstkleur, de prijs van een topvondst in de accentkleur.
 - Het Hermes-oordeel kreeg een rand rondom in plaats van een dikke linkerrand, de pagina
@@ -60,7 +62,7 @@ beeldbuisvondsten uit de demo blijven dus staan tot ze gearchiveerd worden.
 
 ## Bij het uitrollen
 
-- Schema 5. Programma en app samen bijwerken.
+- Schema 6. Programma en app samen bijwerken.
 - In het serverbestand een `[[product]]` Mini-pc's en de `[[computer]]`-regel uit
   `kaartenjager.example.toml`. Let op de grens van 60 paginabezoeken: de voorbeeldconfiguratie
   zit er precies op.

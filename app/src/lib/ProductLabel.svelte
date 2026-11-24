@@ -1,15 +1,13 @@
 <script lang="ts">
-	import { productColor } from '$lib/format';
-
 	let {
 		name,
-		position,
+		color,
 		count = null,
 		filled = false
-	}: { name: string; position: number | null; count?: number | null; filled?: boolean } = $props();
+	}: { name: string; color: string; count?: number | null; filled?: boolean } = $props();
 </script>
 
-<span class="product-label" class:filled style:--product-kleur={productColor(position)}>
+<span class="product-label" class:filled style:--product-kleur={color}>
 	<span class="stip" aria-hidden="true"></span>
 	{name}
 	{#if count !== null}<span class="aantal">{count}</span>{/if}

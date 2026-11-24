@@ -133,12 +133,6 @@
 		--accent: #7fd1a8;
 		--alarm: #e5646d;
 		--let-op: #e0a458;
-		--product-0: #86b0f5;
-		--product-1: #c6a2f2;
-		--product-2: #f093be;
-		--product-3: #6fd0dc;
-		--product-4: #e3d36e;
-		--product-5: #f2a47c;
 		color-scheme: dark;
 	}
 

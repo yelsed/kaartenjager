@@ -230,6 +230,7 @@ pub fn run() -> bool {
         ("een product kiest zijn eigen drempel", check_product_threshold),
         ("een goede deal die topvondst wordt meldt alsnog", check_deal_that_becomes_top_is_loud),
         ("na de overgang naar schema 4 komt de achterstand niet in Discord", check_upgrade_stamps_backlog),
+        ("na de overgang naar schema 6 heeft een product een kleur", check_upgrade_product_color),
         ("een lege KAARTENJAGER_DISCORD_WEBHOOK verbergt de configuratie niet", check_empty_webhook_variable),
         ("een onderdeel onder zijn bodem komt niet als goede deal in Discord", check_part_below_floor_stays_quiet),
         ("een Discord-bericht blijft onder de tweeduizend tekens", check_discord_message_length),
@@ -3346,5 +3347,15 @@ fn check_example_crt_excludes(_settings: &Settings) -> Result<(), String> {
     if table.judge(&television).is_none() {
         return Err("een gewone beeldbuistelevisie hoort nog wel een vondst te zijn".into());
     }
+    Ok(())
+}
+
+fn check_upgrade_product_color(_settings: &Settings) -> Result<(), String> {
+    let (_directory, path) = old_database("schema-6-kleur")?;
+    drop(Database::open(&path)?);
+    let connection = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;
+    connection
+        .query_row("SELECT COUNT(color) FROM product", [], |row| row.get::<_, i64>(0))
+        .map_err(|error| format!("product.color ontbreekt na de overgang: {error}"))?;
     Ok(())
 }

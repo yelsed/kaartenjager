@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// Opgehoogd bij elke schemawijziging. De Svelte-app controleert dit bij het starten en
 /// weigert bij een versie die hij niet kent, in plaats van half te werken op een schema dat
 /// hij verkeerd begrijpt.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA: &str = r#"
 CREATE TABLE listing (
@@ -109,7 +109,8 @@ CREATE TABLE product (
   name       TEXT NOT NULL,
   position   INTEGER NOT NULL,
   enabled    INTEGER NOT NULL DEFAULT 1,
-  seeded_at  INTEGER
+  seeded_at  INTEGER,
+  color      TEXT
 );
 
 CREATE TABLE app_state (
@@ -189,6 +190,11 @@ UPDATE finding
 const MIGRATION_4_TO_5: &str = r#"
 ALTER TABLE finding ADD COLUMN score_per_euro REAL;
 ALTER TABLE listing ADD COLUMN memory_gb INTEGER;
+"#;
+
+/// De kleur die de eigenaar in de app koos. Leeg betekent de kleur die bij zijn plaats hoort.
+const MIGRATION_5_TO_6: &str = r#"
+ALTER TABLE product ADD COLUMN color TEXT;
 "#;
 
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
@@ -291,11 +297,12 @@ impl Database {
             // nergens meer op lijkt.
             let steps = match version {
                 1 => format!(
-                    "{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5}"
+                    "{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"
                 ),
-                2 => format!("{MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5}"),
-                3 => format!("{MIGRATION_3_TO_4} {MIGRATION_4_TO_5}"),
-                _ => MIGRATION_4_TO_5.to_string(),
+                2 => format!("{MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
+                3 => format!("{MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
+                4 => format!("{MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
+                _ => MIGRATION_5_TO_6.to_string(),
             };
             connection
                 .execute_batch(&format!(

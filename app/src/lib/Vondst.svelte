@@ -9,8 +9,7 @@
 		duration,
 		stamp,
 		sourceName,
-		deliveryName,
-		productColor
+		deliveryName
 	} from '$lib/format';
 	import ProductLabel from '$lib/ProductLabel.svelte';
 
@@ -55,14 +54,11 @@
 	);
 </script>
 
-<article
-	class:top={vondst.level === 'top'}
-	style:--product-kleur={productColor(vondst.productPosition)}
->
+<article class:top={vondst.level === 'top'}>
 	<header>
 		<div class="bovenregel">
 			{#if vondst.productName}
-				<ProductLabel name={vondst.productName} position={vondst.productPosition} filled />
+				<ProductLabel name={vondst.productName} color={vondst.productColor} filled />
 			{/if}
 			<span class="prijs">{money(vondst.priceEuros)}</span>
 		</div>
@@ -237,10 +233,7 @@
 		border-radius: 12px;
 		padding: 1rem;
 		margin-bottom: 0.9rem;
-		background: linear-gradient(
-			color-mix(in srgb, var(--product-kleur) 9%, var(--vlak)),
-			var(--vlak) 6rem
-		);
+		background: var(--vlak);
 		transition: border-color 120ms ease-out;
 	}
 
