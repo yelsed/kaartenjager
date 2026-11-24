@@ -237,6 +237,7 @@ pub fn run() -> bool {
         ("een Discord-bericht blijft onder de tweeduizend tekens", check_discord_message_length),
         ("een product dat alleen stil meldt, meldt ook zijn topvondsten stil", check_quiet_product_keeps_top_finds),
         ("een mini-pc met 16 GB en een sterke processor is een topvondst", check_computer_top_find),
+        ("een OptiPlex 3060 Micro is een mini-pc, geen RTX 3060", check_computer_model_is_no_card),
         ("een mini-pc zonder 16 GB valt af", check_computer_needs_memory),
         ("geheugen lezen: keuzes, repen, Go, en geen opslag", check_ram_parsing),
         ("een mini-pc met een onbekende processor is uitzoeken", check_computer_unknown_processor),
@@ -3356,6 +3357,26 @@ fn check_computer_push_message(_settings: &Settings) -> Result<(), String> {
     let content = body["content"].as_str().unwrap_or("");
     if !content.starts_with("<@123456789> topvondst") || !content.contains("46 CPU Mark per euro") || !body["flags"].is_null() {
         return Err(format!("verwacht een luid bericht met de score:\n{content}"));
+    }
+    Ok(())
+}
+
+fn check_computer_model_is_no_card(_settings: &Settings) -> Result<(), String> {
+    let settings = parse_settings(include_str!("../kaartenjager.example.toml"), Path::new("<voorbeeld>"))
+        .map_err(|error| error.to_string())?;
+    let table = PriceTable::new(&settings);
+    for title in ["Mini PC Dell OptiPlex 3060 Micro i3 8a Gen", "OptiPlex 3080 Micro I5 10 eme gen 8 gb ram"] {
+        let listing = computer_listing("92", "vinted", title, "", 120.0);
+        if let Some(finding) = table.judge(&listing) {
+            if finding.product != "mini-pcs" {
+                return Err(format!("\"{title}\" werd {} in {}", finding.matched_as, finding.product));
+            }
+        }
+    }
+    let card = computer_listing("93", "marktplaats", "RTX 3060 12GB uit een OptiPlex 3060 Micro", "", 100.0);
+    let finding = table.judge(&card).ok_or("de RTX 3060 werd geen vondst")?;
+    if finding.product != "videokaarten" {
+        return Err(format!("een titel met RTX hoort een kaart te blijven, werd {}", finding.matched_as));
     }
     Ok(())
 }

@@ -46,7 +46,12 @@ impl<'settings> PriceTable<'settings> {
             .iter()
             .find(|word| title.contains(&word.to_lowercase()));
 
-        if accessory.is_none() && self.category_allows_a_card(listing) {
+        let computer = self.match_computer(&title);
+        // "OptiPlex 3060 Micro" bevat het kaartpatroon "3060". Noemt de titel een pc-model,
+        // dan is het alleen een kaart als er ook een kaartwoord als "RTX" in staat.
+        let card_allowed =
+            computer.is_none() || CARD_WORDS.iter().any(|word| title.contains(word));
+        if card_allowed && accessory.is_none() && self.category_allows_a_card(listing) {
             if let Some(card) = self.match_card(&title) {
                 return self.judge_card(listing, card);
             }
@@ -54,7 +59,7 @@ impl<'settings> PriceTable<'settings> {
         // Na de kaarten: "RTX A2000 uit een EliteDesk" is een kaart. Voor de zeef op
         // accessoires: "incl. adapter" hoort bij een mini-pc gewoon in de titel. Valt hij af,
         // dan alleen nog de onderdelen ("M720q voedingsadapter"), geen onbekende videokaart.
-        if let Some(computer) = self.match_computer(&title) {
+        if let Some(computer) = computer {
             return self
                 .judge_computer(listing, computer)
                 .or_else(|| self.match_part(&title).and_then(|part| self.judge_part(listing, part)));
