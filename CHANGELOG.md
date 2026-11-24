@@ -1,5 +1,12 @@
 # Wat er veranderde
 
+## 2.1.6, 25 november 2026: vergelijken met je eigen machine
+
+- `[reference_machine]` met een naam en een CPU Mark: elke gevonden mini-pc of laptop met een
+  bekende processor zegt dan "1,4× zo snel als ZenBook (i7-8565U)".
+- Voorbeeldconfiguratie: de CPU Marks nagekeken op cpubenchmark.net. De i3's van de mini-pc's
+  stonden 27 tot 31% te laag.
+
 ## 2.1.5, 24 november 2026: een ondergrens voor computers
 
 - `min_score_per_euro` op een `[[computer]]`: daaronder is het geen vondst, en zonder bekende

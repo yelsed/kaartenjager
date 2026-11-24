@@ -162,6 +162,14 @@ pub struct ComputerRule {
     pub min_score_per_euro: Option<f64>,
 }
 
+/// Een machine die je al hebt, zodat een vondst zegt hoeveel sneller hij is ("1,4× zo snel als
+/// ZenBook (i7-8565U)").
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReferenceMachine {
+    pub name: String,
+    pub cpu_mark: f64,
+}
+
 fn default_min_memory_gb() -> u32 {
     16
 }
@@ -566,6 +574,9 @@ pub struct Settings {
     pub parts: Vec<PartRule>,
     #[serde(default, rename = "computer")]
     pub computers: Vec<ComputerRule>,
+    /// De eigen machine waarmee elke gevonden computer vergeleken wordt.
+    #[serde(default)]
+    pub reference_machine: Option<ReferenceMachine>,
     #[serde(default, rename = "product")]
     pub products: Vec<Product>,
     /// The products were made from `card_search_terms` and `part_search_terms`, not written
@@ -1008,6 +1019,13 @@ impl Settings {
 
         for card in &self.cards {
             validate_card(card)?;
+        }
+        if let Some(machine) = &self.reference_machine {
+            if machine.cpu_mark <= 0.0 || machine.name.trim().is_empty() {
+                return Err(ConfigError::Rejected(
+                    "[reference_machine] heeft een naam en een cpu_mark boven nul nodig.".into(),
+                ));
+            }
         }
         for computer in &self.computers {
             if computer.processors.is_empty()
