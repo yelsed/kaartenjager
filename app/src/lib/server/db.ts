@@ -53,6 +53,8 @@ export type Finding = {
 	kind: Kind;
 	product: string;
 	productName: string;
+	/** Plaats van het product in de configuratie; bepaalt zijn kleur. */
+	productPosition: number | null;
 	level: Level;
 	needsReview: boolean;
 	percentUnderMarket: number | null;
@@ -117,6 +119,7 @@ export type SearchTerm = {
 export type Product = {
 	id: string;
 	name: string;
+	position: number;
 	enabled: boolean;
 	/** Zoektermen die aan staan; bij een uitgezet product tellen ze pas mee als hij weer aan gaat. */
 	enabledTermCount: number;
@@ -281,7 +284,7 @@ export function undoEverythingSeen(): void {
 // ------------------------------------------------------------------ vondsten
 
 const FINDING_COLUMNS = `
-	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, f.confidence, f.percent_under_market, f.euros_under_market, f.score_per_euro,
+	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, pr.position AS product_position, f.confidence, f.percent_under_market, f.euros_under_market, f.score_per_euro,
 	f.reasons, f.warnings, f.queue_note, f.became_a_find_at, f.judged_at, f.still_a_find,
 	l.title, l.url, l.source, l.delivery, l.location, l.seller, l.condition, l.photo_count,
 	l.description, l.gone_since, l.gone_reason, l.posted_at, l.first_seen, l.last_seen,
@@ -333,6 +336,7 @@ function toFinding(row: Row, visitedAt: number): Finding {
 		kind: String(row.kind) as Kind,
 		product: String(row.product ?? ''),
 		productName: String(row.product_name ?? row.product ?? ''),
+		productPosition: row.product_position === null ? null : Number(row.product_position),
 		level: row.level === 'top' ? 'top' : 'deal',
 		needsReview: row.confidence === 'review',
 		percentUnderMarket: row.percent_under_market === null ? null : Number(row.percent_under_market),
@@ -565,7 +569,7 @@ export function openReviewCount(): number {
 export function products(): Product[] {
 	const rows = db()
 		.prepare(
-			`SELECT p.id, p.name, p.enabled,
+			`SELECT p.id, p.name, p.position, p.enabled,
 			   (SELECT COUNT(*) FROM search_term t WHERE t.product = p.id AND t.enabled = 1)
 			     AS enabled_term_count
 			 FROM product p ORDER BY p.position, p.id`
@@ -585,6 +589,7 @@ export function products(): Product[] {
 	return rows.map((row) => ({
 		id: String(row.id),
 		name: String(row.name),
+		position: Number(row.position),
 		enabled: Number(row.enabled) === 1,
 		enabledTermCount: Number(row.enabled_term_count),
 		inboxCount: counts.get(String(row.id)) ?? 0

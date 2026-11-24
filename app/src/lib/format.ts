@@ -88,3 +88,12 @@ export function roundDuration(seconds: number): string {
 	const minutesText = `${minutes} ${minutes === 1 ? 'minuut' : 'minuten'}`;
 	return rest === 0 ? minutesText : `${minutesText} en ${secondsText}`;
 }
+
+/** Zoveel kleuren staan er als --product-0 tot en met --product-5 in de layout. */
+const PRODUCT_COLOR_COUNT = 6;
+
+/** Elk product zijn eigen kleur, op volgorde van de configuratie; zonder product grijs. */
+export function productColor(position: number | null): string {
+	if (position === null) return 'var(--gedempt)';
+	return `var(--product-${position % PRODUCT_COLOR_COUNT})`;
+}

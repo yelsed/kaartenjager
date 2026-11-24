@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { Product } from '$lib/server/db';
+	import ProductLabel from '$lib/ProductLabel.svelte';
 
 	let { product }: { product: Product } = $props();
 
@@ -10,7 +11,7 @@
 
 <li class:uit={!product.enabled}>
 	<div class="omschrijving">
-		<strong>{product.name}</strong>
+		<strong><ProductLabel name={product.name} position={product.position} /></strong>
 		<span class="gedempt">
 			{product.enabledTermCount === 1 ? '1 zoekterm' : `${product.enabledTermCount} zoektermen`}
 			· {product.inboxCount}
@@ -55,7 +56,7 @@
 	}
 
 	li.uit strong {
-		color: var(--gedempt);
+		opacity: 0.55;
 	}
 
 	.gedempt {

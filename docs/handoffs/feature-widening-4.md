@@ -46,6 +46,18 @@ Gevonden en hersteld, elk met een controle in selftest of smoke:
 Vondsten die al in een database staan, worden niet opnieuw beoordeeld; de twee valse
 beeldbuisvondsten uit de demo blijven dus staan tot ze gearchiveerd worden.
 
+## Polijstronde na de test van de eigenaar (24 november 2026)
+
+- Elk product een eigen kleur, op volgorde van de configuratie (`--product-0` tot `--product-5`
+  in de layout, `productColor` in `format.ts`). Zichtbaar als gekleurd label op de kaart, een
+  vleug kleur bovenin de kaart, een stip in de filterchips en op Producten (`ProductLabel`).
+  Zelf een kleur kiezen kan nog niet; dat vraagt een kolom in `product` en komt pas als de
+  volgorde-kleuren niet bevallen.
+- De hele kaart opent de advertentie; de knoppen blijven knoppen. De advertentietitel staat nu
+  op een eigen regel in gewone tekstkleur, de prijs van een topvondst in de accentkleur.
+- Het Hermes-oordeel kreeg een rand rondom in plaats van een dikke linkerrand, de pagina
+  `lang="nl"` en het favicon wordt geladen.
+
 ## Bij het uitrollen
 
 - Schema 5. Programma en app samen bijwerken.
