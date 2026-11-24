@@ -1,5 +1,12 @@
 # Wat er veranderde
 
+## 2.1.1, 24 november 2026: oude configuratie met één product
+
+- Een configuratie zonder `[[product]]` waar één `[[product]]` bij komt (bijvoorbeeld mini-pcs)
+  houdt de producten die uit de oude lijsten kwamen. Eerder weigerde `check` haar met "Regel ...
+  hoort bij product ..., maar dat product staat niet in de [[product]]-lijst", en vielen
+  `card_search_terms` weg.
+
 ## 2.1.0, 24 november 2026: producten
 
 - Zoeken per product (`[[product]]` in de configuratie). Elke regel hoort bij een product; een

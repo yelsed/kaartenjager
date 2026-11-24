@@ -655,6 +655,27 @@ impl Settings {
         if self.products.is_empty() {
             self.products = self.products_from_legacy_lists();
             self.products_from_legacy_lists = true;
+        } else {
+            // Eén [[product]] toevoegen aan een oude configuratie mag de producten die uit de
+            // oude lijsten kwamen niet wegnemen, anders verdwijnen hun regels en zoektermen.
+            let cards_without_product = !self.card_search_terms.is_empty()
+                || self.cards.iter().any(|card| card.product.is_none());
+            let unnamed_part_products: Vec<String> = self
+                .parts
+                .iter()
+                .filter(|part| part.product.is_none())
+                .map(|part| product_id_from_name(&part.name))
+                .collect();
+            for derived in self.products_from_legacy_lists() {
+                let still_needed = if derived.id == CARD_PRODUCT_ID {
+                    cards_without_product
+                } else {
+                    unnamed_part_products.contains(&derived.id)
+                };
+                if still_needed && !self.products.iter().any(|product| product.id == derived.id) {
+                    self.products.push(derived);
+                }
+            }
         }
         let card_product = self.card_product_id();
         for card in &mut self.cards {
