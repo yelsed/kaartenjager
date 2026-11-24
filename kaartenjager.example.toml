@@ -483,6 +483,7 @@ exclude_patterns = [
   "lcd", "led", "oled", "plasma",
   "afstandsbediening", "kabel", "beugel", "onderdelen",
   "handleiding", "manual", "zwart-wit", "zwart wit",
+  "crt gold", "karaat", "goud", "gold",
 ]
 max_pickup_km = 45
 show_without_distance = true

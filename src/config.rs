@@ -401,6 +401,32 @@ fn default_accessory_words() -> Vec<String> {
         "houder voor",
         "rallonge",
         "verlengkabel",
+        // Uit een ronde op 24 november 2026: koelers, dozen, adapters en kabels in andere talen.
+        // Met ^ telt het woord alleen aan het begin: "RTX 2060, con scatola originale" is een kaart.
+        "cooler",
+        "kühler",
+        "kuhler",
+        "enfriador",
+        "ventoinha",
+        "raffreddamento",
+        "^watercooling",
+        "eiswolf",
+        "monoblock",
+        "^scatola",
+        "^caja",
+        "^caixa",
+        "boîtes vides",
+        "boites vides",
+        "châssis",
+        "adattatore",
+        "adaptador",
+        "adaptateur",
+        "12vhpwr",
+        "cablemod",
+        "orologio",
+        "ohne gpu",
+        "sans gpu",
+        "senza gpu",
     ]
     .iter()
     .map(|word| word.to_string())

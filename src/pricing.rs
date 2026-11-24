@@ -44,7 +44,10 @@ impl<'settings> PriceTable<'settings> {
             .filters
             .accessory_words
             .iter()
-            .find(|word| title.contains(&word.to_lowercase()));
+            .find(|word| match word.strip_prefix('^') {
+                Some(start) => title.starts_with(&start.to_lowercase()),
+                None => title.contains(&word.to_lowercase()),
+            });
 
         let computer = self.match_computer(&title);
         // "OptiPlex 3060 Micro" bevat het kaartpatroon "3060". Noemt de titel een pc-model,
@@ -594,7 +597,14 @@ pub fn pattern_occurs(text: &str, pattern: &str) -> bool {
         return false;
     }
     if pattern.chars().any(|character| character.is_ascii_digit()) {
-        return text.contains(&pattern);
+        // "3090" hoort niet te passen in het onderdeelnummer "102B4030900".
+        let starts_with_digit = pattern.starts_with(|character: char| character.is_ascii_digit());
+        let ends_with_digit = pattern.ends_with(|character: char| character.is_ascii_digit());
+        return text.match_indices(&pattern).any(|(start, found)| {
+            let digit_before = text[..start].chars().next_back().is_some_and(|character| character.is_ascii_digit());
+            let digit_after = text[start + found.len()..].chars().next().is_some_and(|character| character.is_ascii_digit());
+            !(starts_with_digit && digit_before) && !(ends_with_digit && digit_after)
+        });
     }
 
     let mut from = 0;
