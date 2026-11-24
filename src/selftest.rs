@@ -238,6 +238,8 @@ pub fn run() -> bool {
         ("een product dat alleen stil meldt, meldt ook zijn topvondsten stil", check_quiet_product_keeps_top_finds),
         ("een mini-pc met 16 GB en een sterke processor is een topvondst", check_computer_top_find),
         ("een OptiPlex 3060 Micro is een mini-pc, geen RTX 3060", check_computer_model_is_no_card),
+        ("buitenlandse koelers, dozen en adapters zijn geen kaart", check_foreign_accessories_are_no_card),
+        ("een horloge van 9 karaat is geen beeldbuis", check_carat_gold_is_no_crt),
         ("een mini-pc zonder 16 GB valt af", check_computer_needs_memory),
         ("geheugen lezen: keuzes, repen, Go, en geen opslag", check_ram_parsing),
         ("een mini-pc met een onbekende processor is uitzoeken", check_computer_unknown_processor),
@@ -3379,6 +3381,73 @@ fn check_computer_model_is_no_card(_settings: &Settings) -> Result<(), String> {
         return Err(format!("een titel met RTX hoort een kaart te blijven, werd {}", finding.matched_as));
     }
     Ok(())
+}
+
+fn check_foreign_accessories_are_no_card(_settings: &Settings) -> Result<(), String> {
+    let settings = parse_settings(include_str!("../kaartenjager.example.toml"), Path::new("<voorbeeld>"))
+        .map_err(|error| error.to_string())?;
+    let table = PriceTable::new(&settings);
+    // Echte titels uit een ronde op 24 november 2026.
+    let titles = [
+        "Adattatore 12v rtx 4080, 4090, 5080, 5090.",
+        "Câble Angulaire 180 compatible avec RTX 4090 4080 pour 12vhpwr ezdiy",
+        "adaptador ezdiy fab 12vhpwr 180 grados gpu rtx 4080 4090 16 pines angulado",
+        "Dell ATI Radeon PCI-E Video Scheda Video HD 3450 102B4030900 Y103D",
+        "Châssis de carte graphique NVIDIA rtx 5090",
+        "Orologio a tema scheda video RTX 4090",
+        "MSI 5090 Cooler",
+        "Enfriador para Msi RTX 4090 Slim",
+        "CableMod per nvidia 4090",
+        "Ventoinha Asus rog strix 3060/70/80",
+        "MSI RTX 4090 Gaming X Trio Kühler - Original Cooler - Top Zustand",
+        "EKWB  monoblock rtx 4090",
+        "lot 4 boîtes vides pc - rtx 4090 suprim + rog thor 1200w",
+        "Scatola msi rtx 3060 12gb",
+        "Watercooling Eiswolf2 3090ti tuf/strix",
+        "Caja de una Asus 3060 12g",
+        "RTX 5090 Ohne GPU ship",
+        "Caixa Gigabyte Eagle oc ice RTX 5070 Ti 16GB",
+        "nvidia tesla v100 16gb sxm2 raffreddamento 4090 pc",
+    ];
+    for title in titles {
+        let listing = computer_listing("94", "vinted", title, "", 20.0);
+        if let Some(finding) = table.judge(&listing) {
+            return Err(format!("\"{title}\" werd {} in {}", finding.matched_as, finding.product));
+        }
+    }
+    let card = computer_listing("95", "vinted", "Gigabyte RTX 3090 24GB, met originele doos", "", 400.0);
+    let finding = table.judge(&card).ok_or("een echte RTX 3090 werd geen vondst")?;
+    if finding.matched_as != "RTX 3090" {
+        return Err(format!("een echte RTX 3090 werd {}", finding.matched_as));
+    }
+    for title in [
+        "INNO3D iCHILL GeForce RTX 3090 Frostbite – 24GB GDDR6X – Watercooling – Boîte",
+        "ASUS Dual GeForce RTX 3060 12GB - Con Scatola Originale",
+    ] {
+        let real = computer_listing("98", "vinted", title, "", 100.0);
+        if table.judge(&real).is_none() {
+            return Err(format!("\"{title}\" is een echte kaart en viel weg"));
+        }
+    }
+    let glued = computer_listing("96", "vinted", "Zotac rtx3090 trinity", "", 400.0);
+    if table.judge(&glued).map(|finding| finding.matched_as) != Some("RTX 3090".to_string()) {
+        return Err("\"rtx3090\" hoort nog steeds een RTX 3090 te zijn".into());
+    }
+    Ok(())
+}
+
+fn check_carat_gold_is_no_crt(_settings: &Settings) -> Result<(), String> {
+    let settings = parse_settings(include_str!("../kaartenjager.example.toml"), Path::new("<voorbeeld>"))
+        .map_err(|error| error.to_string())?;
+    let table = PriceTable::new(&settings);
+    let listing = Listing {
+        distance_km: Some(20.0),
+        ..computer_listing("97", "marktplaats", "Roamer - Zonder minimumprijs - 9 crt Gold - Dames -", "", 112.0)
+    };
+    match table.judge(&listing) {
+        Some(finding) => Err(format!("het horloge werd {}", finding.matched_as)),
+        None => Ok(()),
+    }
 }
 
 fn check_example_crt_excludes(_settings: &Settings) -> Result<(), String> {

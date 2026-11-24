@@ -1,5 +1,14 @@
 # Wat er veranderde
 
+## 2.1.4, 24 november 2026: minder rommel tussen de kaarten
+
+- Koelers, lege dozen, adapters en kabels in het Frans, Duits, Italiaans, Spaans en Portugees
+  worden geen videokaart meer. Een woord met `^` in `accessory_words` telt alleen aan het begin
+  van de titel, zodat "RTX 2060, con scatola originale" een kaart blijft.
+- Een kaartpatroon als "3090" past niet meer midden in een getal ("102B4030900").
+- Voorbeeldconfiguratie: de beeldbuis sluit "crt gold", "karaat", "goud" en "gold" uit, want
+  "9 crt Gold" is een horloge.
+
 ## 2.1.3, 24 november 2026: een OptiPlex is geen videokaart
 
 - Een titel die een mini-pc-model noemt ("Dell OptiPlex 3060 Micro") is alleen een videokaart als
