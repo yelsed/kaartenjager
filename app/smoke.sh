@@ -167,6 +167,14 @@ grep -qF "topvondst" "$WORK/inbox.html" || fout "de inbox toont de topvondst nie
 curl -sS "http://localhost:$PORT/producten" -o "$WORK/producten.html"
 grep -qF "Videokaarten" "$WORK/producten.html" || fout "de productenpagina toont Videokaarten niet"
 probeer "/producten" aanzetten 200 --data-urlencode 'id=videokaarten' --data-urlencode 'enabled=nee'
+zegt "Videokaarten staat uit."
+probeer "/producten" kleur 200 --data-urlencode 'id=videokaarten' --data-urlencode 'color=#a9d672'
+[ "$(sqlite3 "$DB" "SELECT color FROM product WHERE id='videokaarten';")" = "#a9d672" ] \
+  || fout "een gekozen kleur werd niet bewaard"
+probeer "/producten" kleur 200 --data-urlencode 'id=videokaarten' --data-urlencode 'color=#000000'
+zegt "Die kleur staat niet in het palet."
+[ "$(sqlite3 "$DB" "SELECT color FROM product WHERE id='videokaarten';")" = "#a9d672" ] \
+  || fout "een kleur buiten het palet overschreef de gekozen kleur"
 [ "$(sqlite3 "$DB" "SELECT enabled FROM product WHERE id='videokaarten';")" = "0" ] \
   || fout "uitzetten zette het product niet uit"
 curl -sS "http://localhost:$PORT/" -o "$WORK/inbox.html"
@@ -253,6 +261,25 @@ grep -qF "De laatste ronde duurde" "$WORK/antwoord.html" \
 rondeduur 190
 zegt "De laatste ronde duurde 3 minuten en 10 seconden."
 zegt "2 minuten en 30 seconden"
+
+say "==> Mini-pc's op score per euro"
+sqlite3 "$DB" <<'SQL'
+INSERT OR IGNORE INTO product (id, name, position, enabled) VALUES ('mini-pcs', 'Mini-pc''s', 9, 1);
+INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen) VALUES
+  ('marktplaats:91', 'marktplaats', '91', 'ProDesk 400 G6 i5-10500T 16GB', 'https://example.invalid/91', 1000, 1000),
+  ('marktplaats:92', 'marktplaats', '92', 'EliteDesk 805 G6 4650GE 16GB', 'https://example.invalid/92', 1000, 1000);
+INSERT INTO sighting (key, seen_at, price_cents, asking_cents) VALUES
+  ('marktplaats:91', 1000, 30000, 30000), ('marktplaats:92', 1000, 30000, 30000);
+INSERT INTO finding (key, matched_as, kind, confidence, reasons, warnings, became_a_find_at,
+                     judged_at, product, level, score_per_euro) VALUES
+  ('marktplaats:91', 'Mini-pc, i5-10500T', 'computer', 'clear', '[]', '[]', 2000, 2000, 'mini-pcs', 'deal', 34.0),
+  ('marktplaats:92', 'Mini-pc, Ryzen 5 PRO 4650GE', 'computer', 'clear', '[]', '[]', 1000, 1000, 'mini-pcs', 'top', 51.0);
+SQL
+curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/?product=mini-pcs"
+zegt "51 CPU Mark per euro"
+eerste=$(grep -o "Mini-pc, [A-Za-z0-9 -]*" "$WORK/antwoord.html" | head -1)
+[ "$eerste" = "Mini-pc, Ryzen 5 PRO 4650GE" ] \
+  || fout "de hoogste score per euro hoort bovenaan te staan, bovenaan stond: $eerste"
 
 # --------------------------------------------------------------------- slot
 

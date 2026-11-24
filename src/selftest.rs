@@ -230,10 +230,18 @@ pub fn run() -> bool {
         ("een product kiest zijn eigen drempel", check_product_threshold),
         ("een goede deal die topvondst wordt meldt alsnog", check_deal_that_becomes_top_is_loud),
         ("na de overgang naar schema 4 komt de achterstand niet in Discord", check_upgrade_stamps_backlog),
+        ("na de overgang naar schema 6 heeft een product een kleur", check_upgrade_product_color),
         ("een lege KAARTENJAGER_DISCORD_WEBHOOK verbergt de configuratie niet", check_empty_webhook_variable),
         ("een onderdeel onder zijn bodem komt niet als goede deal in Discord", check_part_below_floor_stays_quiet),
         ("een Discord-bericht blijft onder de tweeduizend tekens", check_discord_message_length),
         ("een product dat alleen stil meldt, meldt ook zijn topvondsten stil", check_quiet_product_keeps_top_finds),
+        ("een mini-pc met 16 GB en een sterke processor is een topvondst", check_computer_top_find),
+        ("een mini-pc zonder 16 GB valt af", check_computer_needs_memory),
+        ("geheugen lezen: keuzes, repen, Go, en geen opslag", check_ram_parsing),
+        ("een mini-pc met een onbekende processor is uitzoeken", check_computer_unknown_processor),
+        ("de voorbeeldconfiguratie vangt geen handleiding als beeldbuis", check_example_crt_excludes),
+        ("een mini-pc van Vinted wacht op zijn beschrijving", check_computer_waits_for_description),
+        ("een topvondst-mini-pc meldt luid met zijn score", check_computer_push_message),
         ("check zegt per product hoe het meldt", check_notify_summary),
         ("een ronde schrijft hoe lang hij duurde", check_round_duration_recorded),
         ("oplichterij haalt de drempel maar blijft uit Discord", check_below_floor_stays_quiet),
@@ -1128,6 +1136,7 @@ fn sample_finding(id: &str, price: f64, percent_under_market: f64) -> Finding {
         confidence: Confidence::Clear,
         percent_under_market: Some(percent_under_market),
         euros_under_market: Some(1800.0 - price),
+        score_per_euro: None,
         reasons: vec!["onder de markt".to_string()],
         warnings: Vec::new(),
         queue_note: None,
@@ -3056,6 +3065,8 @@ fn check_discord_message_length(_settings: &Settings) -> Result<(), String> {
         product: "beeldbuistelevisies".to_string(),
         level: crate::listing::Level::Deal,
         warnings: vec!["afstand onbekend".to_string()],
+        score_per_euro: None,
+        is_computer: false,
     };
     let body = crate::discord::payload(&candidate, &settings);
     let length = body["content"].as_str().unwrap_or("").chars().count();
@@ -3083,5 +3094,268 @@ fn check_quiet_product_keeps_top_finds(_settings: &Settings) -> Result<(), Strin
     if crate::discord::payload(top, &settings)["flags"] != 4096 {
         return Err("die topvondst hoort stil te gaan, het product meldt niet luid".into());
     }
+    Ok(())
+}
+
+const COMPUTER_CONFIG: &str = r#"
+[[product]]
+id = "mini-pcs"
+name = "Mini-pc's"
+search_terms = ["mini pc 16gb"]
+
+[[computer]]
+name = "Mini-pc"
+product = "mini-pcs"
+patterns = ["m720q", "m920q", "optiplex", "elitedesk", "prodesk"]
+min_memory_gb = 16
+top_score_per_euro = 45
+min_price = 40
+
+[computer.processors]
+"i5-8500" = 9500
+"i5-8500T" = 7700
+"i5-9500T" = 8100
+"Ryzen 5 PRO 4650GE" = 15300
+"#;
+
+fn computer_settings() -> Result<Settings, String> {
+    let settings =
+        parse_settings(COMPUTER_CONFIG, Path::new("<computers>")).map_err(|error| error.to_string())?;
+    settings.validate().map_err(|error| error.to_string())?;
+    Ok(settings)
+}
+
+fn computer_listing(id: &str, source: &str, title: &str, description: &str, price: f64) -> Listing {
+    Listing {
+        source: source.to_string(),
+        listing_id: id.to_string(),
+        title: title.to_string(),
+        description: description.to_string(),
+        url: format!("https://example.invalid/{id}"),
+        price_euros: price,
+        asking_price_euros: price,
+        ..Listing::default()
+    }
+}
+
+fn check_computer_top_find(_settings: &Settings) -> Result<(), String> {
+    let settings = computer_settings()?;
+    let table = PriceTable::new(&settings);
+    let listing = computer_listing("80", "marktplaats", "Lenovo ThinkCentre M720q i5-9500T 16GB 256GB SSD", "", 175.0);
+    let finding = table.judge(&listing).ok_or("de M720q werd geen vondst")?;
+    if finding.level != crate::listing::Level::Top || finding.product != "mini-pcs" {
+        return Err(format!("verwacht een topvondst van Mini-pc's, kreeg {:?} in {}", finding.level, finding.product));
+    }
+    let score = finding.score_per_euro.ok_or("geen score per euro")?;
+    if (score - 46.3).abs() > 0.1 || finding.matched_as != "Mini-pc, i5-9500T" {
+        return Err(format!("verwacht i5-9500T met 46 per euro, kreeg {} met {score:.1}", finding.matched_as));
+    }
+    if !finding.reasons.iter().any(|reason| reason == "i5-9500T: CPU Mark 8.100, 46 per euro") {
+        return Err(format!("de CPU Mark hoort met een punt per duizendtal, kreeg {:?}", finding.reasons));
+    }
+    // "i5-8500T" hoort niet als "i5-8500" herkend te worden, en een te dure is een goede deal.
+    let dearer = computer_listing("81", "marktplaats", "HP ProDesk 400 G4 Mini i5-8500T 16 GB", "", 210.0);
+    let finding = table.judge(&dearer).ok_or("de ProDesk werd geen vondst")?;
+    if finding.matched_as != "Mini-pc, i5-8500T" || finding.level != crate::listing::Level::Deal {
+        return Err(format!("verwacht een goede deal met i5-8500T, kreeg {} {:?}", finding.matched_as, finding.level));
+    }
+    if table.judge(&computer_listing("82", "marktplaats", "OptiPlex Micro VESA beugel 16GB", "", 25.0)).is_some() {
+        return Err("onder min_price is het geen pc".into());
+    }
+    // De titel wint van een processor die de beschrijving ter vergelijking noemt.
+    let compared = computer_listing("89", "marktplaats", "M720q i5-8500T 16GB", "sneller dan een i5-9500T niet", 150.0);
+    let finding = table.judge(&compared).ok_or("de vergeleken M720q werd geen vondst")?;
+    if finding.matched_as != "Mini-pc, i5-8500T" {
+        return Err(format!("de processor uit de titel hoort te winnen, kreeg {}", finding.matched_as));
+    }
+    // Een kaal getal is geen i5-8500.
+    let bare = computer_listing("90", "marktplaats", "M720q 16GB", "artikelnummer 8500", 150.0);
+    let finding = table.judge(&bare).ok_or("de M720q werd geen vondst")?;
+    if finding.score_per_euro.is_some() {
+        return Err(format!("een los getal hoort geen processor te zijn, kreeg {}", finding.matched_as));
+    }
+    let mut twice = settings.clone();
+    twice.computers[0].processors.insert("Ryzen 5 4650GE".to_string(), 15000.0);
+    if twice.validate().is_ok() {
+        return Err("twee processors met hetzelfde typenummer horen geweigerd te worden".into());
+    }
+    Ok(())
+}
+
+fn check_computer_needs_memory(_settings: &Settings) -> Result<(), String> {
+    let settings = computer_settings()?;
+    let table = PriceTable::new(&settings);
+    if table.judge(&computer_listing("83", "marktplaats", "Lenovo M720q i5-9500T 8GB", "", 120.0)).is_some() {
+        return Err("met 8 GB hoort een mini-pc af te vallen".into());
+    }
+    if table.judge(&computer_listing("84", "marktplaats", "Lenovo M720q i5-9500T", "nette machine", 120.0)).is_some() {
+        return Err("zonder geheugen in de advertentie hoort een mini-pc af te vallen".into());
+    }
+    let mut with_field = computer_listing("85", "marktplaats", "Lenovo M720q i5-9500T", "", 175.0);
+    with_field.memory_gb = Some(16);
+    if table.judge(&with_field).is_none() {
+        return Err("het veld memoryRAM van Marktplaats hoort te tellen".into());
+    }
+    // Een hercontrole leest de advertentie uit de database; het veld moet daar ook staan.
+    let (database, _directory) = scratch_database("geheugenveld")?;
+    database.record_listing(&with_field, &[], 1_000)?;
+    database.record_price(&with_field.key(), 175.0, 175.0, 1_000)?;
+    let stored = database.listing(&with_field.key()).ok_or("de advertentie kwam niet terug")?;
+    if stored.memory_gb != Some(16) || table.judge(&stored).is_none() {
+        return Err("na een hercontrole hoort het geheugen uit het veld er nog te zijn".into());
+    }
+    with_field.memory_gb = Some(8);
+    with_field.title = "Lenovo M720q i5-9500T 16GB".to_string();
+    if table.judge(&with_field).is_some() {
+        return Err("het veld memoryRAM hoort voor te gaan op de tekst".into());
+    }
+    Ok(())
+}
+
+fn check_ram_parsing(_settings: &Settings) -> Result<(), String> {
+    use crate::pricing::stated_ram_gb;
+    let cases = [
+        ("m720q 16gb ram 256gb ssd", Some(16)),
+        ("8/16GB naar keuze", Some(8)),
+        ("16 GB DDR4", Some(16)),
+        ("16Go RAM, SSD 256Go", Some(16)),
+        ("2x8GB geheugen", Some(16)),
+        ("256GB SSD", None),
+        ("512gb nvme, 1gbit lan", None),
+        ("8GB, uit te breiden tot 32GB", Some(8)),
+        ("i5-8500t 3.5ghz", None),
+        ("M720q 16GB (2 x 8GB) DDR4", Some(16)),
+        ("8 / 16 GB naar keuze", Some(8)),
+        ("70000x70000gb", None),
+        ("16GB (8GB + 8GB) DDR4", Some(16)),
+        ("i5-8500T 16/256GB SSD", Some(16)),
+        ("16/8GB", Some(8)),
+        ("met 4 goede rubber voetjes", None),
+        ("16gbram", Some(16)),
+    ];
+    for (text, expected) in cases {
+        if stated_ram_gb(text) != expected {
+            return Err(format!("\"{text}\": verwacht {expected:?}, kreeg {:?}", stated_ram_gb(text)));
+        }
+    }
+    Ok(())
+}
+
+fn check_computer_unknown_processor(_settings: &Settings) -> Result<(), String> {
+    let settings = computer_settings()?;
+    let table = PriceTable::new(&settings);
+    let finding = table
+        .judge(&computer_listing("86", "marktplaats", "Dell OptiPlex 7070 Micro 16GB", "i7-9700T", 150.0))
+        .ok_or("een mini-pc met een onbekende processor viel weg")?;
+    if finding.level != crate::listing::Level::Deal
+        || finding.confidence != Confidence::NeedsReview
+        || finding.score_per_euro.is_some()
+        || finding.matched_as != "Mini-pc, i7-9700T niet in de tabel"
+    {
+        return Err(format!("verwacht een goede deal om uit te zoeken, kreeg {:?} {}", finding.level, finding.matched_as));
+    }
+    // Een processor die de advertentie noemt maar de tabel niet kent, krijgt zijn naam; alleen
+    // zonder enige processor in de tekst is hij onbekend. "9e generatie" is geen typenummer.
+    let cases = [
+        ("Ryzen 7 PRO 5750GE", "Mini-pc, Ryzen 7 PRO 5750GE niet in de tabel"),
+        ("intel i7 6700T", "Mini-pc, i7-6700T niet in de tabel"),
+        ("i5 9e generatie", "Mini-pc, processor onbekend"),
+        ("", "Mini-pc, processor onbekend"),
+    ];
+    for (description, expected) in cases {
+        let finding = table
+            .judge(&computer_listing("87", "marktplaats", "Dell OptiPlex 7070 Micro 16GB", description, 150.0))
+            .ok_or("een mini-pc met een onbekende processor viel weg")?;
+        if finding.matched_as != expected {
+            return Err(format!("bij \"{description}\" verwacht {expected}, kreeg {}", finding.matched_as));
+        }
+    }
+    Ok(())
+}
+
+fn check_computer_waits_for_description(_settings: &Settings) -> Result<(), String> {
+    let settings = computer_settings()?;
+    let table = PriceTable::new(&settings);
+    let bare = computer_listing("87", "vinted", "Lenovo ThinkCentre M720q", "", 180.0);
+    let provisional = table.judge(&bare).ok_or("een Vinted-mini-pc zonder beschrijving viel meteen weg")?;
+    if provisional.level != crate::listing::Level::Deal || provisional.confidence != Confidence::NeedsReview {
+        return Err("zonder beschrijving hoort hij voorlopig een goede deal om uit te zoeken te zijn".into());
+    }
+    // Voorlopig betekent ook: niet melden en niet stempelen, tot de beschrijving er is.
+    let (database, _directory) = scratch_database("voorlopige-mini-pc")?;
+    database.sync_products(&settings, 1_000)?;
+    let bare_with_processor = computer_listing("95", "vinted", "Lenovo ThinkCentre M720q i5-9500T", "", 60.0);
+    store_judged(&database, &table, &bare_with_processor, 1_000)?;
+    if !crate::hunt::decide_pushes(&database, &settings, 1_000)?.is_empty()
+        || database.findings_to_push()?.len() != 1
+    {
+        return Err("een voorlopige mini-pc hoort niet te melden en geen stempel te krijgen".into());
+    }
+    let described = computer_listing("87", "vinted", "Lenovo ThinkCentre M720q", "i5-9500T, 8 Go de RAM", 180.0);
+    if table.judge(&described).is_some() {
+        return Err("met 8 GB in de beschrijving hoort hij af te vallen".into());
+    }
+    let described = computer_listing("87", "vinted", "Lenovo ThinkCentre M720q", "Ryzen 5 PRO 4650GE, 16 Go RAM", 300.0);
+    let finding = table.judge(&described).ok_or("met 16 GB in de beschrijving hoort hij te blijven")?;
+    if finding.level != crate::listing::Level::Top {
+        return Err(format!("een 4650GE voor 300 euro hoort een topvondst te zijn, kreeg {:?}", finding.level));
+    }
+    Ok(())
+}
+
+fn check_computer_push_message(_settings: &Settings) -> Result<(), String> {
+    std::env::remove_var("KAARTENJAGER_DISCORD_WEBHOOK");
+    let mut settings = computer_settings()?;
+    settings.notify.mention_user_id = Some("123456789".to_string());
+    let table = PriceTable::new(&settings);
+    let (database, _directory) = scratch_database("mini-pc-melden")?;
+    let now = 1_790_000_000;
+    database.sync_products(&settings, now)?;
+    store_judged(
+        &database,
+        &table,
+        &computer_listing("88", "marktplaats", "Lenovo M720q i5-9500T 16GB", "", 175.0),
+        now,
+    )?;
+    let pushes = crate::hunt::decide_pushes(&database, &settings, now)?;
+    let push = pushes.first().ok_or("de topvondst-mini-pc meldde niet")?;
+    let body = crate::discord::payload(push, &settings);
+    let content = body["content"].as_str().unwrap_or("");
+    if !content.starts_with("<@123456789> topvondst") || !content.contains("46 CPU Mark per euro") || !body["flags"].is_null() {
+        return Err(format!("verwacht een luid bericht met de score:\n{content}"));
+    }
+    Ok(())
+}
+
+fn check_example_crt_excludes(_settings: &Settings) -> Result<(), String> {
+    let settings = parse_settings(include_str!("../kaartenjager.example.toml"), Path::new("<voorbeeld>"))
+        .map_err(|error| error.to_string())?;
+    let table = PriceTable::new(&settings);
+    for title in ["Sony Trinitron handleiding", "Zwart-wit CRT-TV"] {
+        let listing = Listing {
+            distance_km: Some(20.0),
+            ..computer_listing("91", "marktplaats", title, "", 6.5)
+        };
+        if let Some(finding) = table.judge(&listing) {
+            return Err(format!("\"{title}\" hoort geen vondst te zijn, werd {}", finding.matched_as));
+        }
+    }
+    let television = Listing {
+        distance_km: Some(20.0),
+        ..computer_listing("92", "marktplaats", "Sony Trinitron KV-29 crt tv", "", 40.0)
+    };
+    if table.judge(&television).is_none() {
+        return Err("een gewone beeldbuistelevisie hoort nog wel een vondst te zijn".into());
+    }
+    Ok(())
+}
+
+fn check_upgrade_product_color(_settings: &Settings) -> Result<(), String> {
+    let (_directory, path) = old_database("schema-6-kleur")?;
+    drop(Database::open(&path)?);
+    let connection = rusqlite::Connection::open(&path).map_err(|error| error.to_string())?;
+    connection
+        .query_row("SELECT COUNT(color) FROM product", [], |row| row.get::<_, i64>(0))
+        .map_err(|error| format!("product.color ontbreekt na de overgang: {error}"))?;
     Ok(())
 }

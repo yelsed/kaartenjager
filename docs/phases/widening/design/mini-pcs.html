@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini-pc's in de inbox</title>
+<style>
+	:root {
+		--achtergrond: #14161a;
+		--vlak: #1c2027;
+		--rand: #2b323c;
+		--tekst: #e6e9ee;
+		--gedempt: #98a1ae;
+		--accent: #7fd1a8;
+		--let-op: #e0a458;
+		color-scheme: dark;
+	}
+
+	body {
+		margin: 0;
+		background: var(--achtergrond);
+		color: var(--tekst);
+		font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+		line-height: 1.5;
+	}
+
+	.schil {
+		max-width: 46rem;
+		margin: 0 auto;
+		padding: 1.5rem 1rem 4rem;
+	}
+
+	.uitleg {
+		color: var(--gedempt);
+		font-size: 0.9rem;
+	}
+
+	.keuzes {
+		display: flex;
+		gap: 0.4rem;
+		overflow-x: auto;
+		margin: 0 0 1rem;
+	}
+
+	.keuze {
+		font-size: 0.85rem;
+		padding: 0.25rem 0.75rem;
+		border-radius: 999px;
+		border: 1px solid var(--rand);
+		color: var(--gedempt);
+		white-space: nowrap;
+	}
+
+	.keuze.actief {
+		border-color: var(--accent);
+		color: var(--tekst);
+	}
+
+	article {
+		border: 1px solid var(--rand);
+		border-radius: 10px;
+		padding: 1rem;
+		margin-bottom: 0.9rem;
+		background: var(--vlak);
+	}
+
+	.kop {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 1rem;
+	}
+
+	h3 {
+		margin: 0;
+		font-size: 1.05rem;
+	}
+
+	.prijs {
+		font-variant-numeric: tabular-nums;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.merken {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		margin-top: 0.4rem;
+	}
+
+	.merk {
+		font-size: 0.75rem;
+		padding: 0.1rem 0.5rem;
+		border-radius: 999px;
+		border: 1px solid var(--rand);
+		color: var(--gedempt);
+	}
+
+	.merk.top-merk {
+		border-color: var(--accent);
+		background: var(--accent);
+		color: #10231b;
+		font-weight: 600;
+	}
+
+	.merk.uitzoeken {
+		border-color: var(--let-op);
+		color: var(--let-op);
+	}
+
+	.kenmerken {
+		margin: 0.6rem 0 0;
+		color: var(--gedempt);
+		font-size: 0.9rem;
+	}
+</style>
+</head>
+<body>
+<div class="schil">
+	<p class="uitleg">Inbox, gefilterd op Mini-pc's. Op score per euro, hoogste eerst. Het merk "per euro" zit waar bij een kaart "% onder de markt" staat.</p>
+	<div class="keuzes">
+		<span class="keuze">Alles 14</span>
+		<span class="keuze">Videokaarten 6</span>
+		<span class="keuze actief">Mini-pc's 5</span>
+		<span class="keuze">Beeldbuistelevisies 3</span>
+	</div>
+
+	<article>
+		<div class="kop"><h3>Mini-pc, Ryzen 5 PRO 4650GE</h3><span class="prijs">€ 300,00</span></div>
+		<div class="merken"><span class="merk top-merk">topvondst</span><span class="merk">Mini-pc's</span><span class="merk">51 CPU Mark per euro</span></div>
+		<p class="kenmerken">HP 805 G6 ELITEDESK | 4650GE PRO, 16GB DDR4, 512GB NVME · Gebruikt · Marktplaats</p>
+	</article>
+
+	<article>
+		<div class="kop"><h3>Mini-pc, i5-9500T</h3><span class="prijs">€ 175,00</span></div>
+		<div class="merken"><span class="merk top-merk">topvondst</span><span class="merk">Mini-pc's</span><span class="merk">46 CPU Mark per euro</span></div>
+		<p class="kenmerken">HP ProDesk 400 G5 Mini (i5-9500T, 16GB en 256GB NVMe SSD) · Marktplaats</p>
+	</article>
+
+	<article>
+		<div class="kop"><h3>Mini-pc, i5-10500T</h3><span class="prijs">€ 300,00</span></div>
+		<div class="merken"><span class="merk">Mini-pc's</span><span class="merk">34 CPU Mark per euro</span></div>
+		<p class="kenmerken">HP Prodesk 400 G6 mini | i5 10500t | 16gb DDR4 | 250gb SSD · Marktplaats</p>
+	</article>
+
+	<article>
+		<div class="kop"><h3>Mini-pc, processor onbekend</h3><span class="prijs">€ 189,00</span></div>
+		<div class="merken"><span class="merk">Mini-pc's</span><span class="merk uitzoeken">uitzoeken</span></div>
+		<p class="kenmerken">Lenovo ThinkCentre M720q Tiny 16GB · Vinted</p>
+	</article>
+</div>
+</body>
+</html>

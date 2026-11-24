@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { enhance } from '$app/forms';
 	import { clockTime, roundDuration } from '$lib/format';
+	import favicon from '$lib/assets/favicon.svg';
 
 	let { children, data } = $props();
 
@@ -17,6 +18,7 @@
 
 <svelte:head>
 	<title>Kaartenjager</title>
+	<link rel="icon" href={favicon} />
 </svelte:head>
 
 <div class="schil">
@@ -158,6 +160,12 @@
 
 	:global(button:hover) {
 		border-color: var(--accent);
+	}
+
+	:global(button:focus-visible),
+	:global(a:focus-visible) {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
 	}
 
 	.schil {
