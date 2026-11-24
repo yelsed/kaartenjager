@@ -5,14 +5,15 @@
 //! samenvalt met het wegschrijven van een ronde even wacht in plaats van meteen "database is
 //! locked" te geven.
 
-use crate::listing::{Confidence, Delivery, Finding, FindingKind, Listing};
+use crate::config::Settings;
+use crate::listing::{Confidence, Delivery, Finding, FindingKind, Level, Listing};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
 /// Opgehoogd bij elke schemawijziging. De Svelte-app controleert dit bij het starten en
 /// weigert bij een versie die hij niet kent, in plaats van half te werken op een schema dat
 /// hij verkeerd begrijpt.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA: &str = r#"
 CREATE TABLE listing (
@@ -34,7 +35,8 @@ CREATE TABLE listing (
   gone_checks    INTEGER NOT NULL DEFAULT 0,
   gone_since     INTEGER,
   gone_reason    TEXT,                       -- sold | removed
-  posted_at      INTEGER                     -- wanneer de verkoper hem plaatste, indien bekend
+  posted_at      INTEGER,                    -- wanneer de verkoper hem plaatste, indien bekend
+  memory_gb      INTEGER                     -- werkgeheugen uit een veld van de bron (Marktplaats)
 );
 
 -- Eén regel per waarneming waarin iets veranderde: de prijs, het aantal kijkers of het
@@ -60,12 +62,16 @@ CREATE TABLE finding (
   reasons              TEXT NOT NULL,
   warnings             TEXT NOT NULL,
   queue_note           TEXT,
+  product              TEXT,                 -- product.id van de regel die hem herkende
+  level                TEXT NOT NULL DEFAULT 'deal',  -- top | deal
   became_a_find_at     INTEGER NOT NULL,
   judged_at            INTEGER NOT NULL,
   still_a_find         INTEGER NOT NULL DEFAULT 1,
   left_find_at_price   INTEGER,
   pushed_at            INTEGER,
-  pushed_at_price      INTEGER
+  pushed_at_price      INTEGER,
+  pushed_level         TEXT,                 -- top | deal: wat hij was toen hij zijn stempel kreeg
+  score_per_euro       REAL                  -- CPU Mark per euro, alleen bij computers
 );
 
 CREATE TABLE decision (
@@ -93,7 +99,18 @@ CREATE TABLE search_term (
   kind      TEXT NOT NULL,
   enabled   INTEGER NOT NULL DEFAULT 1,
   added_at  INTEGER NOT NULL,
-  added_by  TEXT NOT NULL DEFAULT 'app'
+  added_by  TEXT NOT NULL DEFAULT 'app',
+  product   TEXT
+);
+
+-- Wat er bestaat komt uit de configuratie; of het aan staat is van de app.
+CREATE TABLE product (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  position   INTEGER NOT NULL,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  seeded_at  INTEGER,
+  color      TEXT
 );
 
 CREATE TABLE app_state (
@@ -132,6 +149,54 @@ INSERT INTO sighting (key, seen_at, price_cents, asking_cents)
 DROP TABLE price_point;
 "#;
 
+/// Van schema 2 naar 3: producten. De markering `terms_from_legacy` zegt de eerste
+/// `sync_products` dat de zoektermen er al staan, ook van producten die de eigenaar leeggemaakt
+/// heeft.
+const MIGRATION_2_TO_3: &str = r#"
+ALTER TABLE search_term ADD COLUMN product TEXT;
+ALTER TABLE finding ADD COLUMN product TEXT;
+ALTER TABLE finding ADD COLUMN level TEXT NOT NULL DEFAULT 'deal';
+
+CREATE TABLE product (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  position   INTEGER NOT NULL,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  seeded_at  INTEGER
+);
+
+INSERT INTO app_state (name, value) VALUES ('terms_from_legacy', '1')
+  ON CONFLICT(name) DO NOTHING;
+"#;
+
+/// Van schema 3 naar 4: met welk niveau een vondst gestempeld werd, zodat een goede deal die
+/// topvondst wordt alsnog luid meldt. Oude stempels zijn van topvondsten, dus NULL telt als top.
+///
+/// Wat nog geen stempel had krijgt er nu een. Tot schema 4 kwamen goede deals nooit in Discord,
+/// en zonder stempel zou de eerste ronde met `notify_deals` de hele achterstand posten.
+const MIGRATION_3_TO_4: &str = r#"
+ALTER TABLE finding ADD COLUMN pushed_level TEXT;
+
+UPDATE finding
+   SET pushed_at = CAST(strftime('%s', 'now') AS INTEGER),
+       pushed_at_price = (SELECT price_cents FROM sighting WHERE sighting.key = finding.key
+                          ORDER BY sighting.seen_at DESC LIMIT 1),
+       pushed_level = level
+ WHERE pushed_at IS NULL;
+"#;
+
+/// Van schema 4 naar 5: de score per euro van een computer, en het geheugen uit het veld van
+/// de bron, zodat een hercontrole hem met hetzelfde geheugen beoordeelt.
+const MIGRATION_4_TO_5: &str = r#"
+ALTER TABLE finding ADD COLUMN score_per_euro REAL;
+ALTER TABLE listing ADD COLUMN memory_gb INTEGER;
+"#;
+
+/// De kleur die de eigenaar in de app koos. Leeg betekent de kleur die bij zijn plaats hoort.
+const MIGRATION_5_TO_6: &str = r#"
+ALTER TABLE product ADD COLUMN color TEXT;
+"#;
+
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
 pub const STALE_AFTER_SECONDS: i64 = 3600;
 
@@ -159,6 +224,14 @@ pub struct PushCandidate {
     pub delivery: Delivery,
     pub price_euros: f64,
     pub percent_under_market: f64,
+    /// Een onderdeel meldt op zijn topvondstprijs, niet op een percentage onder de markt.
+    pub is_part: bool,
+    pub product: String,
+    pub level: Level,
+    pub warnings: Vec<String>,
+    /// CPU Mark per euro, alleen bij computers met een bekende processor.
+    pub score_per_euro: Option<f64>,
+    pub is_computer: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -219,14 +292,23 @@ impl Database {
             connection
                 .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
                 .map_err(|error| format!("Schemaversie zetten mislukte: {error}"))?;
-        } else if version == 1 {
+        } else if version < SCHEMA_VERSION {
             // In één transactie, zodat een halve migratie geen database achterlaat die
             // nergens meer op lijkt.
+            let steps = match version {
+                1 => format!(
+                    "{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"
+                ),
+                2 => format!("{MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
+                3 => format!("{MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
+                4 => format!("{MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
+                _ => MIGRATION_5_TO_6.to_string(),
+            };
             connection
                 .execute_batch(&format!(
-                    "BEGIN; {MIGRATION_1_TO_2} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"
+                    "BEGIN; {steps} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"
                 ))
-                .map_err(|error| format!("Migratie naar schema 2 mislukte: {error}"))?;
+                .map_err(|error| format!("Migratie naar schema {SCHEMA_VERSION} mislukte: {error}"))?;
         } else if version > SCHEMA_VERSION {
             return Err(format!(
                 "{} is aangemaakt door een nieuwere versie van kaartenjager (schema {version}, \
@@ -287,34 +369,177 @@ impl Database {
 
     // -------------------------------------------------------------- zoektermen
 
-    /// Vult de tabel één keer met de termen uit TOML. De markering is er zodat het weghalen
-    /// van je laatste zoekterm de lijst niet opnieuw uit het bestand terugzet.
-    pub fn seed_terms(&self, cards: &[String], parts: &[String], now: i64) -> Result<bool, String> {
-        if self.state("terms_seeded").is_some() {
-            return Ok(false);
+    /// Zet de producten uit de configuratie in de database en geeft elke zoekterm en vondst
+    /// een product. Draait bij elke start; twee keer achter elkaar verandert niets.
+    ///
+    /// Een nieuw product krijgt zijn `search_terms` één keer. Daarna beheert de app ze, zodat
+    /// het weghalen van je laatste zoekterm de lijst niet opnieuw uit het bestand terugzet.
+    /// De aan/uit-stand is van de app en blijft hier onaangeroerd.
+    pub fn sync_products(&self, settings: &Settings, now: i64) -> Result<(), String> {
+        let fail = |what: &str, error: rusqlite::Error| format!("Producten bijwerken mislukte ({what}): {error}");
+
+        for (position, product) in settings.products.iter().enumerate() {
+            self.connection
+                .execute(
+                    "INSERT INTO product (id, name, position) VALUES (?1, ?2, ?3)
+                     ON CONFLICT(id) DO UPDATE SET name = excluded.name, position = excluded.position",
+                    params![product.id, product.name, position as i64],
+                )
+                .map_err(|error| fail("product", error))?;
         }
-        for (terms, kind) in [(cards, "card"), (parts, "part")] {
-            for term in terms {
+
+        let known: Vec<String> = settings.products.iter().map(|product| product.id.clone()).collect();
+        let mut statement = self
+            .connection
+            .prepare("SELECT id FROM product")
+            .map_err(|error| fail("lijst", error))?;
+        let stored: Vec<String> = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| fail("lijst", error))?
+            .collect::<Result<_, _>>()
+            .map_err(|error| fail("lijst", error))?;
+        drop(statement);
+        for id in stored.iter().filter(|id| !known.contains(id)) {
+            self.connection
+                .execute("DELETE FROM product WHERE id = ?1", params![id])
+                .map_err(|error| fail("weghalen", error))?;
+        }
+
+        // Termen van voor de producten krijgen er een. Termen van een product dat uit de
+        // configuratie verdween houden hun id: dan zoekt niemand ze, en komt het product terug
+        // (een tikfout hersteld), dan horen ze er meteen weer bij.
+        let mut statement = self
+            .connection
+            .prepare("SELECT term FROM search_term WHERE product IS NULL")
+            .map_err(|error| fail("zoekterm", error))?;
+        let orphan_terms: Vec<String> = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| fail("zoekterm", error))?
+            .collect::<Result<_, _>>()
+            .map_err(|error| fail("zoekterm", error))?;
+        drop(statement);
+        for term in orphan_terms {
+            self.connection
+                .execute(
+                    "UPDATE search_term SET product = ?2 WHERE term = ?1",
+                    params![term, settings.product_for_term(&term)],
+                )
+                .map_err(|error| fail("zoekterm", error))?;
+        }
+
+        // Een database van voor de producten, met producten die uit de oude lijsten gemaakt zijn:
+        // geen van die producten is nieuw, ook niet een die de eigenaar leeggemaakt heeft.
+        // Opnieuw zaaien zou weggehaalde termen terugzetten.
+        let legacy_database = self.state("terms_from_legacy").is_some()
+            || self.state("terms_seeded").is_some() && !self.any_product_seeded()?;
+        if legacy_database && settings.products_from_legacy_lists {
+            self.connection
+                .execute(
+                    "UPDATE product SET seeded_at = ?1 WHERE seeded_at IS NULL",
+                    params![now],
+                )
+                .map_err(|error| fail("zaaimarkering", error))?;
+        }
+        self.connection
+            .execute("DELETE FROM app_state WHERE name = 'terms_from_legacy'", [])
+            .map_err(|error| fail("zaaimarkering", error))?;
+
+        for product in &settings.products {
+            // Een product dat al termen heeft is gezaaid, ook als de rij net (opnieuw) gemaakt is.
+            let unseeded: bool = self
+                .connection
+                .query_row(
+                    "SELECT seeded_at IS NULL
+                       AND NOT EXISTS (SELECT 1 FROM search_term WHERE product = ?1)
+                     FROM product WHERE id = ?1",
+                    params![product.id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| fail("zaaien", error))?;
+            if !unseeded {
                 self.connection
                     .execute(
-                        "INSERT OR IGNORE INTO search_term (term, kind, enabled, added_at, added_by)
-                         VALUES (?1, ?2, 1, ?3, 'config')",
-                        params![term.to_lowercase(), kind, now],
+                        "UPDATE product SET seeded_at = COALESCE(seeded_at, ?2) WHERE id = ?1",
+                        params![product.id, now],
                     )
-                    .map_err(|error| format!("Zoekterm \"{term}\" niet opslaan: {error}"))?;
+                    .map_err(|error| fail("zaaien", error))?;
+                continue;
             }
+            for term in &product.search_terms {
+                self.connection
+                    .execute(
+                        "INSERT OR IGNORE INTO search_term (term, kind, enabled, added_at, added_by, product)
+                         VALUES (?1, 'product', 1, ?2, 'config', ?3)",
+                        params![term.to_lowercase(), now, product.id],
+                    )
+                    .map_err(|error| fail("zoekterm", error))?;
+            }
+            self.connection
+                .execute(
+                    "UPDATE product SET seeded_at = ?2 WHERE id = ?1",
+                    params![product.id, now],
+                )
+                .map_err(|error| fail("zaaien", error))?;
         }
         self.set_state("terms_seeded", &now.to_string())?;
-        Ok(true)
+
+        // Vondsten van voor de producten. Vondsten van een verdwenen product houden hun id.
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT key, matched_as FROM finding WHERE product IS NULL",
+            )
+            .map_err(|error| fail("vondst", error))?;
+        let findings: Vec<(String, String)> = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|error| fail("vondst", error))?
+            .collect::<Result<_, _>>()
+            .map_err(|error| fail("vondst", error))?;
+        drop(statement);
+        for (key, matched_as) in findings {
+            self.connection
+                .execute(
+                    "UPDATE finding SET product = ?2 WHERE key = ?1",
+                    params![key, settings.product_for_rule_name(&matched_as)],
+                )
+                .map_err(|error| fail("vondst", error))?;
+        }
+        Ok(())
     }
 
-    /// De aanstaande termen, kaarten eerst. Dit is wat een ronde afzoekt.
+    fn any_product_seeded(&self) -> Result<bool, String> {
+        self.connection
+            .query_row("SELECT EXISTS (SELECT 1 FROM product WHERE seeded_at IS NOT NULL)", [], |row| {
+                row.get(0)
+            })
+            .map_err(|error| format!("Producten niet leesbaar: {error}"))
+    }
+
+    /// Een product dat niet in de tabel staat telt als aan: dan is hij nog niet gesynchroniseerd,
+    /// en stil zijn is erger dan één keer te veel melden.
+    pub fn product_enabled(&self, id: &str) -> bool {
+        self.connection
+            .query_row("SELECT enabled FROM product WHERE id = ?1", params![id], |row| {
+                row.get::<_, i64>(0)
+            })
+            .optional()
+            .ok()
+            .flatten()
+            .is_none_or(|enabled| enabled == 1)
+    }
+
+    /// De aanstaande termen van de aanstaande producten, in de volgorde van de configuratie.
+    /// Dit is wat een ronde afzoekt. Een term zonder bekend product telt mee: liever één keer
+    /// te veel zoeken dan stil een term overslaan.
     pub fn enabled_terms(&self) -> Result<Vec<String>, String> {
         let mut statement = self
             .connection
             .prepare(
-                "SELECT term FROM search_term WHERE enabled = 1
-                 ORDER BY CASE kind WHEN 'card' THEN 0 ELSE 1 END, term",
+                "SELECT t.term FROM search_term t
+                 LEFT JOIN product p ON p.id = t.product
+                 WHERE t.enabled = 1
+                   AND (t.product IS NULL OR p.enabled = 1)
+                 ORDER BY COALESCE(p.position, 0), t.term",
             )
             .map_err(|error| format!("Zoektermen niet op te vragen: {error}"))?;
         let rows = statement
@@ -352,8 +577,8 @@ impl Database {
                 "INSERT INTO listing (
                     key, source, listing_id, title, url, description, location, seller,
                     condition, delivery, photo_count, first_seen, last_seen, found_by_terms,
-                    posted_at
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13,?14)
+                    posted_at, memory_gb
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,?13,?14,?15)
                  ON CONFLICT(key) DO UPDATE SET
                     title       = excluded.title,
                     url         = excluded.url,
@@ -369,6 +594,7 @@ impl Database {
                     -- kunnen hem niet beter weten, en een bron die hem een keer weglaat mag
                     -- hem niet wissen.
                     posted_at   = COALESCE(listing.posted_at, excluded.posted_at),
+                    memory_gb   = COALESCE(excluded.memory_gb, listing.memory_gb),
                     -- Teruggezien betekent: hij bestaat nog. Een eerdere twijfel vervalt.
                     gone_checks = 0,
                     gone_since  = NULL,
@@ -389,6 +615,7 @@ impl Database {
                     now,
                     terms_json,
                     listing.posted_at,
+                    listing.memory_gb,
                 ],
             )
             .map_err(|error| format!("{key} niet op te slaan: {error}"))?;
@@ -507,11 +734,14 @@ impl Database {
                 "INSERT INTO finding (
                     key, matched_as, kind, confidence, percent_under_market, euros_under_market,
                     reasons, warnings, queue_note, became_a_find_at, judged_at, still_a_find,
-                    left_find_at_price
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL)
+                    left_find_at_price, product, level, score_per_euro
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL,?12,?13,?14)
                  ON CONFLICT(key) DO UPDATE SET
                     matched_as           = excluded.matched_as,
                     kind                 = excluded.kind,
+                    product              = excluded.product,
+                    level                = excluded.level,
+                    score_per_euro       = excluded.score_per_euro,
                     confidence           = excluded.confidence,
                     percent_under_market = excluded.percent_under_market,
                     euros_under_market   = excluded.euros_under_market,
@@ -535,6 +765,9 @@ impl Database {
                     finding.queue_note,
                     now,
                     renew_became,
+                    if finding.product.is_empty() { None } else { Some(finding.product.as_str()) },
+                    finding.level.name(),
+                    finding.score_per_euro,
                 ],
             )
             .map_err(|error| format!("Vondst {key} niet op te slaan: {error}"))?;
@@ -602,68 +835,68 @@ impl Database {
 
     // --------------------------------------------------------------- Discord
 
-    /// Uitschieters die nog niet gemeld zijn, of die sinds de melding nog eens tien procent
-    /// zakten. Eén bericht per advertentie, niet per ronde.
-    pub fn findings_to_push(&self, minimum_percent: f64) -> Result<Vec<PushCandidate>, String> {
+    /// Elke vondst die nog niet gemeld is, of sindsdien nog eens tien procent zakte, of van goede
+    /// deal topvondst werd. Wat er werkelijk heen gaat beslist `hunt::decide_pushes`.
+    pub fn findings_to_push(&self) -> Result<Vec<PushCandidate>, String> {
+        // De herhaalregel staat alleen hier. Nog niet gestempeld; van goede deal topvondst
+        // geworden; of nog eens tien procent lager, behalve een topvondst die nu een goede deal
+        // is, want daarvan weet de eigenaar al. Een stempel van voor schema 4 telt als top.
         let mut statement = self
             .connection
             .prepare(
-                "SELECT f.key, f.matched_as, f.percent_under_market, f.pushed_at,
-                        f.pushed_at_price, l.title, l.url, l.source, l.delivery,
-                        (SELECT price_cents FROM sighting p WHERE p.key = f.key
-                         ORDER BY p.seen_at DESC LIMIT 1) AS price_cents
-                 FROM finding f
-                 JOIN listing l ON l.key = f.key
-                 WHERE f.still_a_find = 1
-                   AND f.kind = 'card'
-                   AND f.percent_under_market >= ?1
-                   AND l.gone_since IS NULL",
+                "SELECT key, matched_as, percent_under_market, title, url, source, delivery,
+                        price_cents, kind, product, level, warnings, score_per_euro
+                 FROM (SELECT finding.key, finding.matched_as, finding.percent_under_market,
+                              listing.title, listing.url, listing.source, listing.delivery,
+                              finding.kind, COALESCE(finding.product, '') AS product,
+                              finding.level, finding.warnings, finding.score_per_euro,
+                              finding.pushed_at,
+                              finding.pushed_at_price,
+                              COALESCE(finding.pushed_level, 'top') AS pushed_level,
+                              (SELECT price_cents FROM sighting WHERE sighting.key = finding.key
+                               ORDER BY sighting.seen_at DESC LIMIT 1) AS price_cents
+                       FROM finding
+                       JOIN listing ON listing.key = finding.key
+                       WHERE finding.still_a_find = 1
+                         AND finding.kind IN ('card', 'part', 'computer')
+                         AND listing.gone_since IS NULL)
+                 WHERE pushed_at IS NULL
+                    OR (pushed_level = 'deal' AND level = 'top')
+                    OR (price_cents <= pushed_at_price * 0.9
+                        AND NOT (pushed_level = 'top' AND level = 'deal'))",
             )
             .map_err(|error| format!("Uitschieters niet op te vragen: {error}"))?;
 
         let rows = statement
-            .query_map(params![minimum_percent], |row| {
-                let pushed_at: Option<i64> = row.get(3)?;
-                let pushed_price: Option<i64> = row.get(4)?;
-                let price_cents: Option<i64> = row.get(9)?;
-                Ok((
-                    PushCandidate {
-                        key: row.get(0)?,
-                        matched_as: row.get(1)?,
-                        percent_under_market: row.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
-                        title: row.get(5)?,
-                        url: row.get(6)?,
-                        source: row.get(7)?,
-                        delivery: delivery_from_name(&row.get::<_, String>(8)?),
-                        price_euros: from_cents(price_cents.unwrap_or(0)),
-                    },
-                    pushed_at,
-                    pushed_price,
-                ))
+            .query_map([], |row| {
+                Ok(PushCandidate {
+                    key: row.get(0)?,
+                    matched_as: row.get(1)?,
+                    percent_under_market: row.get::<_, Option<f64>>(2)?.unwrap_or(0.0),
+                    title: row.get(3)?,
+                    url: row.get(4)?,
+                    source: row.get(5)?,
+                    delivery: delivery_from_name(&row.get::<_, String>(6)?),
+                    price_euros: from_cents(row.get::<_, Option<i64>>(7)?.unwrap_or(0)),
+                    is_part: row.get::<_, String>(8)? == "part",
+                    product: row.get(9)?,
+                    level: if row.get::<_, String>(10)? == "top" { Level::Top } else { Level::Deal },
+                    warnings: json_list(row.get::<_, Option<String>>(11)?),
+                    score_per_euro: row.get(12)?,
+                    is_computer: row.get::<_, String>(8)? == "computer",
+                })
             })
             .map_err(|error| format!("Uitschieters niet te lezen: {error}"))?;
-
-        let mut candidates = Vec::new();
-        for row in rows {
-            let (candidate, pushed_at, pushed_price) =
-                row.map_err(|error| format!("Uitschieters niet te lezen: {error}"))?;
-            let worth_repeating = match (pushed_at, pushed_price) {
-                (None, _) => true,
-                // Nog eens tien procent lager dan bij de vorige melding is echt nieuws.
-                (Some(_), Some(was)) => to_cents(candidate.price_euros) as f64 <= was as f64 * 0.9,
-                (Some(_), None) => false,
-            };
-            if worth_repeating {
-                candidates.push(candidate);
-            }
-        }
-        Ok(candidates)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("Uitschieters niet te lezen: {error}"))
     }
 
+    /// Stempelt met het niveau dat de vondst nu heeft.
     pub fn mark_pushed(&self, key: &str, price_euros: f64, now: i64) -> Result<(), String> {
         self.connection
             .execute(
-                "UPDATE finding SET pushed_at = ?2, pushed_at_price = ?3 WHERE key = ?1",
+                "UPDATE finding SET pushed_at = ?2, pushed_at_price = ?3, pushed_level = level
+                 WHERE key = ?1",
                 params![key, now, to_cents(price_euros)],
             )
             .map(|_| ())
@@ -1023,7 +1256,8 @@ impl Database {
                         (SELECT price_cents FROM sighting p WHERE p.key = l.key
                          ORDER BY p.seen_at DESC LIMIT 1),
                         (SELECT asking_cents FROM sighting p WHERE p.key = l.key
-                         ORDER BY p.seen_at DESC LIMIT 1)
+                         ORDER BY p.seen_at DESC LIMIT 1),
+                        l.memory_gb
                  FROM listing l WHERE l.key = ?1",
                 params![key],
                 |row| {
@@ -1040,6 +1274,7 @@ impl Database {
                         photo_count: row.get::<_, i64>(9)? as usize,
                         price_euros: from_cents(row.get::<_, Option<i64>>(10)?.unwrap_or(0)),
                         asking_price_euros: from_cents(row.get::<_, Option<i64>>(11)?.unwrap_or(0)),
+                        memory_gb: row.get(12)?,
                         ..Listing::default()
                     })
                 },
@@ -1098,6 +1333,7 @@ impl FindingKind {
         match self {
             FindingKind::Card => "card",
             FindingKind::Part => "part",
+            FindingKind::Computer => "computer",
             FindingKind::Unknown => "unknown",
         }
     }

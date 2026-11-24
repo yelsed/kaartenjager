@@ -21,16 +21,34 @@ delay_between_requests_ms = 2500
 
 
 # ---------------------------------------------------------------------------
-# Zoektermen. Ook de verkeerd gespelde, want daar zit het koopje.
+# Producten. Elk product heeft zijn eigen zoektermen, zijn eigen regels
+# hieronder (met product = "<id>") en in de app zijn eigen overzicht.
 #
-# Deze lijst wordt bij de allereerste start één keer in de database gezet;
-# daarna beheer je hem in de app en kijkt het programma hier niet meer naar.
-# Zo zet het weghalen van je laatste zoekterm de hele lijst niet terug.
+# De zoektermen van een product komen één keer in de database, de eerste keer
+# dat het programma het product ziet. Daarna beheer je ze in de app, onder
+# Zoektermen, en zet je een product aan of uit onder Producten. Een nieuw
+# product toevoegen is dus: een [[product]]-blok, en regels die ernaar wijzen.
 #
-# Let op de grens: (kaarten + onderdelen) x bronnen mag niet boven de 60.
+# notify = true: topvondsten van dit product gaan naar Discord. Voor kaarten is
+# een topvondst een kaart die ver genoeg onder de markt zit (zie [notify]); voor
+# een onderdeel is het een advertentie onder alert_below, binnen bereik als de
+# regel op afstand zeeft. Al het andere staat alleen in de app.
+#
+# notify_deals = true: goede deals van dit product komen ook in Discord, als
+# stil bericht (geen melding op de telefoon). Werkt alleen met discord_webhook
+# onder [notify].
+#
+# push_below_market_percent: voor kaarten van dit product een eigen drempel;
+# zonder waarde geldt die onder [notify].
+#
+# Let op de grens: alle zoektermen samen x bronnen mag niet boven de 60.
+# Zoektermen: ook de verkeerd gespelde, want daar zit het koopje.
 # ---------------------------------------------------------------------------
 
-card_search_terms = [
+[[product]]
+id = "videokaarten"
+name = "Videokaarten"
+search_terms = [
   "rtx 3090",
   "3090 ti",
   "rtx 4090",
@@ -42,17 +60,30 @@ card_search_terms = [
   "grafische kaart",
 ]
 
-part_search_terms = [
-  "voeding 1000w",
-  "voeding 1200w",
-  "corsair voeding",
-  "seasonic voeding",
-  "pcie riser",
-  "riser kabel",
-  "crt tv",
-  "crt televisie",
-  "trinitron",
-]
+[[product]]
+id = "voedingen"
+name = "Voedingen"
+search_terms = ["voeding 1000w", "voeding 1200w", "corsair voeding", "seasonic voeding"]
+notify = false
+
+[[product]]
+id = "risers"
+name = "Risers"
+search_terms = ["pcie riser", "riser kabel"]
+notify = false
+
+[[product]]
+id = "mini-pcs"
+name = "Mini-pc's"
+search_terms = ["mini pc 16gb", "optiplex micro"]
+notify = true
+
+[[product]]
+id = "beeldbuistelevisies"
+name = "Beeldbuistelevisies"
+search_terms = ["crt tv", "crt televisie", "trinitron"]
+notify = true
+notify_deals = true
 
 
 # ---------------------------------------------------------------------------
@@ -62,8 +93,8 @@ part_search_terms = [
 # uitschieters gaan óók naar Discord, en dit is waar die grens ligt: hoeveel
 # procent onder de onderkant van het marktbereik.
 #
-# Alleen [[card]]-regels halen deze drempel; onderdelen hebben geen
-# marktbereik om tegen af te zetten.
+# Dit is de drempel voor kaarten. Onderdelen hebben geen marktbereik; daar is
+# alert_below de topvondstprijs, en hun product zegt of ze melden.
 #
 # Let op de samenhang met suspicious_below: die bodem filtert oplichting weg.
 # Zet je deze drempel te hoog, dan ligt hij ónder die bodem en is elke melding
@@ -74,6 +105,16 @@ part_search_terms = [
 
 [notify]
 push_below_market_percent = 25
+
+# De webhook van je Discord-kanaal (kanaal bewerken, Integraties, Webhooks).
+# Met webhook post het programma zelf: een topvondst noemt mention_user_id,
+# zodat je telefoon trilt, en een goede deal gaat stil. Zonder webhook drukt
+# de ronde de topvondsten af en post Hermes ze, zoals voorheen; dan komen
+# goede deals niet in Discord. KAARTENJAGER_DISCORD_WEBHOOK gaat voor.
+# discord_webhook = "https://discord.com/api/webhooks/..."
+# Je eigen Discord-gebruikers-ID (Ontwikkelaarsmodus aan, lang drukken op je
+# naam, Gebruikers-ID kopiëren).
+# mention_user_id = "123456789012345678"
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +241,7 @@ card_categories = ["graphic_cards"]
 # ---------------------------------------------------------------------------
 
 [[card]]
+product = "videokaarten"
 name = "RTX 5090"
 patterns = ["5090"]
 vram_gb = 32
@@ -214,6 +256,7 @@ length_mm_max = 360
 slots_max = 4
 
 [[card]]
+product = "videokaarten"
 name = "RTX 4090"
 patterns = ["4090"]
 vram_gb = 24
@@ -232,6 +275,7 @@ length_mm_max = 359
 slots_max = 4
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3090 Ti"
 patterns = ["3090 ti", "3090ti"]
 vram_gb = 24
@@ -256,6 +300,7 @@ length_mm_max = 340
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3090"
 patterns = ["3090"]
 exclude_patterns = ["3090 ti", "3090ti"]
@@ -275,6 +320,7 @@ length_mm_max = 336
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "RTX 4080"
 patterns = ["4080"]
 vram_gb = 16
@@ -289,6 +335,7 @@ length_mm_max = 348
 slots_max = 4
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3080 12GB"
 patterns = ["3080 12gb", "3080 12 gb"]
 vram_gb = 12
@@ -303,6 +350,7 @@ length_mm_max = 320
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3080"
 patterns = ["3080"]
 exclude_patterns = ["3080 12gb", "3080 12 gb", "3080 ti"]
@@ -318,6 +366,7 @@ length_mm_max = 320
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "RTX 4060 Ti 16GB"
 patterns = ["4060 ti"]
 vram_gb = 16
@@ -333,6 +382,7 @@ length_mm_max = 280
 slots_max = 2
 
 [[card]]
+product = "videokaarten"
 name = "RTX 3060 12GB"
 patterns = ["3060"]
 exclude_patterns = ["3060 ti"]
@@ -352,6 +402,7 @@ length_mm_max = 250
 slots_max = 2
 
 [[card]]
+product = "videokaarten"
 name = "RX 7900 XTX"
 patterns = ["7900 xtx"]
 vram_gb = 24
@@ -366,6 +417,7 @@ length_mm_max = 340
 slots_max = 3
 
 [[card]]
+product = "videokaarten"
 name = "Tesla P40"
 patterns = ["tesla p40", "p40 24gb"]
 vram_gb = 24
@@ -389,13 +441,13 @@ slots_max = 2
 # van de regel, niet van een zoekterm. De zoektermen hierboven bepalen waar
 # gezocht wordt; deze regel bepaalt wat er van de vangst overblijft.
 #
-# Onderdelen komen alleen in de app terecht, nooit in Discord: dat kanaal
-# vraagt om een percentage onder de markt, en een voeding heeft geen
-# marktbereik om tegen af te zetten.
+# Of een onderdeel meldt, zegt zijn product (notify). Een voeding heeft geen
+# marktbereik; zijn topvondst is alles onder alert_below.
 #
 # Onderdeelregels worden op volgorde afgelopen en de eerste die past wint, dus
 # een tweede voedingsregel hieronder komt nooit meer aan bod.
 [[part]]
+product = "voedingen"
 name = "Voeding 1000 W of meer"
 patterns = ["voeding", "psu", "power supply", "netzteil"]
 # Bronze eruit: onder 80 PLUS Gold is het rendement bij een kaart van 450 W
@@ -417,26 +469,96 @@ note = "Wil zien: 80 PLUS Gold of beter, volledig modulair, ATX 3.1 met een loss
 # max_pickup_km rekent vanaf de postcode in [filters]. Vanaf Alkmaar dekt 45 km ongeveer
 # heel Noord-Holland: Amsterdam ligt op 35, Haarlem op 30, Den Helder op 40.
 #
-# Twee dingen die deze regel niet ziet. Advertenties zonder prijs — "gratis af te halen" —
-# vallen al eerder af, en dat is bij beeldbuizen een deel van de markt. En op Vinted staat
-# nooit een afstand, dus daar levert deze regel per definitie niets op; de zoektermen gaan
-# er wel heen, wat drie verzoeken per ronde kost.
+# Binnen 45 km en onder de 150 is een topvondst, en die meldt (zie het product).
+#
+# Op Vinted staat nooit een afstand. Met show_without_distance verschijnt een beeldbuis van
+# Vinted toch in de app, als goede deal met de waarschuwing dat de afstand onbekend is; nooit
+# als topvondst, want hij kan net zo goed in Groningen staan. Op Marktplaats verder dan 45 km
+# blijft hij weg. Advertenties zonder prijs ("gratis af te halen") vallen al eerder af.
 [[part]]
+product = "beeldbuistelevisies"
 name = "Beeldbuistelevisie"
 patterns = ["crt", "beeldbuis", "trinitron"]
 exclude_patterns = [
   "lcd", "led", "oled", "plasma",
   "afstandsbediening", "kabel", "beugel", "onderdelen",
+  "handleiding", "manual", "zwart-wit", "zwart wit",
 ]
 max_pickup_km = 45
+show_without_distance = true
 alert_below = 150
-suspicious_below = 1
+# Onder de vijf euro is het een losse handleiding of een lokprijs, geen televisie.
+suspicious_below = 5
 note = "Vraag om een foto van een aan staand scherm: inbranden en een scheve geometrie zie je niet op een foto van een uit toestel. Let op de aansluitingen — SCART of component is bruikbaar, alleen coax niet. En vraag hoe zwaar hij is voordat je de auto pakt."
 
 [[part]]
+product = "risers"
 name = "PCIe riser"
 patterns = ["pcie riser", "riser kabel", "riser cable", "pci-e verleng"]
 exclude_patterns = ["usb", "riser board", "riser card", "proliant", "poweredge"]
 alert_below = 25
 suspicious_below = 6
 note = "Alleen PCIe 4.0 x16 is bruikbaar; 3.0 halveert de bandbreedte. Recht (180 graden), niet haaks."
+
+
+# ---------------------------------------------------------------------------
+# Computers: de processor bepaalt de waarde, niet het model (docs/decisions/0007).
+#
+# Een [[computer]] past op een model in de titel. Daarna:
+# - min_memory_gb is een harde eis: zoveel geheugen moet in de advertentie staan
+#   (het veld van Marktplaats, of de tekst; "8/16GB" telt als 8). Minder of
+#   onbekend valt af. Een Vinted-advertentie wacht eerst op zijn beschrijving.
+# - De processor wordt gezocht op zijn typenummer ("9500T"). Zijn CPU Mark
+#   gedeeld door de prijs is de score per euro. Vanaf top_score_per_euro is het
+#   een topvondst; een processor die hier niet staat is een goede deal om uit
+#   te zoeken. In de app staan de mini-pc's op score per euro.
+# - Onder min_price is het een beugel of een adapter, geen pc.
+#
+# De grens van 45 komt uit een marktcheck van 23 november 2026: ongeveer een op
+# de zes geschikte advertenties (docs/onderzoek/mini-pcs.md). De CPU Marks zijn
+# gemiddelden van cpubenchmark.net; vul aan wat je tegenkomt.
+# ---------------------------------------------------------------------------
+
+[[computer]]
+product = "mini-pcs"
+name = "Mini-pc"
+patterns = [
+  "m720q", "m920q", "m920x", "m70q", "m75q", "m90q", "thinkcentre tiny",
+  "optiplex micro", "3060 micro", "3070 micro", "3080 micro", "5060 micro",
+  "5070 micro", "5080 micro", "7060 micro", "7070 micro", "7080 micro",
+  "elitedesk", "prodesk",
+]
+exclude_patterns = [
+  "sff", "small form factor", "tower", "beugel", "vesa", "adapter los",
+  "defect", "kapot", "for parts", "voor onderdelen", "niet werkend", "lege doos",
+]
+min_memory_gb = 16
+top_score_per_euro = 45
+min_price = 40
+
+[computer.processors]
+"i3-8100T" = 4100
+"i3-9100T" = 4300
+"i3-10100T" = 5800
+"i5-6500T" = 4700
+"i5-7500T" = 5200
+"i5-8400T" = 7300
+"i5-8500T" = 7700
+"i5-8500" = 9500
+"i5-9400T" = 7900
+"i5-9500T" = 8100
+"i5-9500" = 9600
+"i5-10400T" = 9300
+"i5-10500T" = 10200
+"i5-10500" = 12100
+"i5-11500T" = 13000
+"i7-8700T" = 9700
+"i7-9700T" = 10500
+"i7-10700T" = 13000
+"Ryzen 3 PRO 3200GE" = 4500
+"Ryzen 5 PRO 2400GE" = 7500
+"Ryzen 5 PRO 3400GE" = 7760
+"Ryzen 3 PRO 5350GE" = 12600
+"Ryzen 5 PRO 4650GE" = 15300
+"Ryzen 7 PRO 4750GE" = 19000
+"Ryzen 5 PRO 5650GE" = 19500

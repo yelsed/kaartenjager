@@ -77,3 +77,36 @@ export function stamp(seconds: number): string {
 		minute: '2-digit'
 	});
 }
+
+/** "48 seconden", "2 minuten en 30 seconden". Voor hoe lang een ronde duurde. */
+export function roundDuration(seconds: number): string {
+	const whole = Math.round(seconds);
+	const minutes = Math.floor(whole / 60);
+	const rest = whole % 60;
+	const secondsText = `${rest} ${rest === 1 ? 'seconde' : 'seconden'}`;
+	if (minutes === 0) return secondsText;
+	const minutesText = `${minutes} ${minutes === 1 ? 'minuut' : 'minuten'}`;
+	return rest === 0 ? minutesText : `${minutesText} en ${secondsText}`;
+}
+
+/**
+ * De kleuren waaruit je een product een kleur geeft. Allemaal licht genoeg om als tekst op de
+ * donkere achtergrond leesbaar te blijven; een vrije kleurkiezer zou ook zwart toelaten.
+ */
+export const PRODUCT_COLORS = [
+	{ name: 'blauw', value: '#86b0f5' },
+	{ name: 'paars', value: '#c6a2f2' },
+	{ name: 'roze', value: '#f093be' },
+	{ name: 'turquoise', value: '#6fd0dc' },
+	{ name: 'geel', value: '#e3d36e' },
+	{ name: 'oranje', value: '#f2a47c' },
+	{ name: 'limoen', value: '#a9d672' },
+	{ name: 'zilver', value: '#c3cad5' }
+] as const;
+
+/** De gekozen kleur, anders die van zijn plaats in de configuratie; zonder product grijs. */
+export function productColor(chosen: string | null, position: number | null): string {
+	if (chosen && PRODUCT_COLORS.some((color) => color.value === chosen)) return chosen;
+	if (position === null) return 'var(--gedempt)';
+	return PRODUCT_COLORS[position % PRODUCT_COLORS.length].value;
+}

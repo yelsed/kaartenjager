@@ -6,11 +6,11 @@ use crate::db::{Database, PushCandidate};
 use crate::detail::{self, PageState};
 use crate::filter::Sieve;
 use crate::http::HttpClient;
-use crate::listing::{Confidence, Delivery, Finding, Listing};
+use crate::listing::{Confidence, Delivery, Finding, Level, Listing};
 use crate::pricing::PriceTable;
 use crate::sources::{marktplaats::Marktplaats, vinted::Vinted, Source};
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How many listings get their own page fetched per round. Rotating oldest-first, this brings
 /// every followed listing round about once a day at fifteen rounds.
@@ -59,6 +59,7 @@ pub fn run_round(
     dry_run: bool,
     explain_rejections: bool,
 ) -> Result<RoundOutcome, String> {
+    let started = Instant::now();
     // Bij rondes van vijf minuten kan een trage ronde de volgende inhalen. Twee rondes naast
     // elkaar leveren niets extra's op en verdubbelen wel het aantal verzoeken aan Vinted en
     // Marktplaats — precies de blokkade die het verzoekbudget moet voorkomen.
@@ -290,6 +291,26 @@ pub fn run_round(
         ));
     }
 
+    // Een computer van Vinted werd voorlopig beoordeeld zonder beschrijving; nu die er is,
+    // beslissen geheugen en processor. Geen 16 GB in de beschrijving: dan valt hij af.
+    let mut findings: Vec<Finding> = findings
+        .into_iter()
+        .filter_map(|finding| {
+            let provisional = finding.kind == crate::listing::FindingKind::Computer
+                && finding.listing.source == "vinted"
+                && finding.confidence == Confidence::NeedsReview
+                && !finding.listing.description.is_empty();
+            if !provisional {
+                return Some(finding);
+            }
+            let rejudged = sieve.check(&finding.listing).ok().and_then(|()| table.judge(&finding.listing));
+            if rejudged.is_none() {
+                judged_to_nothing.push((finding.listing.key(), finding.listing.price_euros));
+            }
+            rejudged
+        })
+        .collect();
+
     // Now that the descriptions are in, the seller's own words decide delivery.
     for finding in findings.iter_mut() {
         apply_pickup_words(finding, settings);
@@ -326,7 +347,19 @@ pub fn run_round(
     match written {
         Ok(no_longer_finds) => {
             database.commit()?;
-            let pushes = decide_pushes(database, settings, now)?;
+            // Een fout bij het melden mag de hartslag en het slot niet overslaan.
+            let search_duration = started.elapsed();
+            let pushes = match decide_pushes(database, settings, now) {
+                Ok(pushes) => deliver(database, settings, pushes, now, &mut problems)
+                    .unwrap_or_else(|error| {
+                        problems.push(error);
+                        Vec::new()
+                    }),
+                Err(error) => {
+                    problems.push(error);
+                    Vec::new()
+                }
+            };
             // Hoogstens één keer per uur. Bij rondes van vijf minuten zou dit anders elke
             // ronde hetzelfde bericht sturen zolang niemand de wachtrij afwerkt — precies de
             // ruis waar dit hele ontwerp vanaf moest.
@@ -342,7 +375,7 @@ pub fn run_round(
                 0
             };
 
-            record_heartbeat(database, settings, now, &problems);
+            record_heartbeat(database, settings, now, search_duration, &problems);
             let _ = database.release_round_lock();
 
             Ok(RoundOutcome {
@@ -614,24 +647,63 @@ fn rejudge_at_new_price(
     Ok(())
 }
 
+/// Wat er van de nog niet gemelde vondsten de deur uit mag. Het niveau komt uit de prijstabel,
+/// die de drempel van het product al toepaste. Wat blijft liggen krijgt hier zijn stempel, wat
+/// mag gaan pas als het afgeleverd is (`deliver`).
 pub(crate) fn decide_pushes(
     database: &Database,
     settings: &Settings,
     now: i64,
 ) -> Result<Vec<PushCandidate>, String> {
-    let candidates = database.findings_to_push(settings.notify.push_below_market_percent)?;
-
-    let (worth_telling, too_good_to_be_true): (Vec<_>, Vec<_>) = candidates
-        .into_iter()
-        .partition(|candidate| !below_the_floor(settings, candidate));
-
-    // Ook de gefilterde vondsten krijgen hun stempel. Zonder dat blijven ze elke ronde
-    // opnieuw langskomen, en zodra de prijs een keer stijgt zou de eerstvolgende ronde ze
-    // alsnog melden.
-    for candidate in too_good_to_be_true.iter().chain(worth_telling.iter()) {
-        database.mark_pushed(&candidate.key, candidate.price_euros, now)?;
+    let mut worth_telling = Vec::new();
+    for candidate in database.findings_to_push()? {
+        // Een computer van Vinted zonder beschrijving is voorlopig: nog niet melden, en ook geen
+        // stempel, want na zijn beschrijving kan hij alsnog een topvondst zijn of afvallen.
+        if candidate.is_computer && candidate.warnings.iter().any(|warning| warning == "geheugen onbekend") {
+            continue;
+        }
+        // Een product dat deals stil meldt, meldt zijn topvondsten minstens zo stil.
+        let product_wants_it = settings.product_notifies_deals(&candidate.product)
+            || (candidate.level == Level::Top && settings.product_notifies(&candidate.product));
+        // Een product dat niet meldt of uit staat, blijft stil. Ook die krijgen hun stempel,
+        // anders meldt de eerste ronde nadat je het product aanzet de hele achterstand, en
+        // duwt één prijsstijging een gefilterde vondst alsnog het kanaal in.
+        if product_wants_it
+            && !below_the_floor(settings, &candidate)
+            && database.product_enabled(&candidate.product)
+        {
+            worth_telling.push(candidate);
+        } else {
+            database.mark_pushed(&candidate.key, candidate.price_euros, now)?;
+        }
     }
     Ok(worth_telling)
+}
+
+/// Brengt de vondsten weg en geeft terug wat de ronde zelf nog moet afdrukken.
+///
+/// Met een webhook gaat alles daarheen en drukt de ronde niets af. Een vondst die niet aankwam
+/// houdt geen stempel, zodat de volgende ronde het opnieuw probeert. Zonder webhook drukt de
+/// ronde de topvondsten af voor Hermes; een goede deal kan die route niet stil sturen, dus die
+/// blijft in de app.
+pub(crate) fn deliver(
+    database: &Database,
+    settings: &Settings,
+    pushes: Vec<PushCandidate>,
+    now: i64,
+    problems: &mut Vec<String>,
+) -> Result<Vec<PushCandidate>, String> {
+    let Some(webhook) = settings.notify.webhook() else {
+        for candidate in &pushes {
+            database.mark_pushed(&candidate.key, candidate.price_euros, now)?;
+        }
+        return Ok(pushes.into_iter().filter(|candidate| candidate.level == Level::Top).collect());
+    };
+    let delivery_problems = crate::discord::post_all(&webhook, &pushes, settings, |candidate| {
+        database.mark_pushed(&candidate.key, candidate.price_euros, now)
+    });
+    problems.extend(delivery_problems);
+    Ok(Vec::new())
 }
 
 /// Onder `suspicious_below` is iets vaker oplichterij dan een buitenkans, en juist die
@@ -641,21 +713,31 @@ pub(crate) fn decide_pushes(
 /// melding van de dag. Ze staan gewoon in de app, met de waarschuwing erbij en de
 /// Hermes-knop eronder.
 fn below_the_floor(settings: &Settings, candidate: &PushCandidate) -> bool {
-    settings
-        .cards
-        .iter()
-        .find(|card| card.name == candidate.matched_as)
-        .is_some_and(|card| candidate.price_euros < card.suspicious_below)
+    let floor = if candidate.is_part {
+        settings.part_rule(&candidate.matched_as).map(|part| part.suspicious_below)
+    } else {
+        settings.card_rule(&candidate.matched_as).map(|card| card.suspicious_below)
+    };
+    floor.is_some_and(|floor| candidate.price_euros < floor)
 }
 
 /// The heartbeat. A watcher that died looks exactly like a market with no bargains, so the app
 /// needs to be able to tell the difference without anyone remembering to check.
-fn record_heartbeat(database: &Database, settings: &Settings, now: i64, problems: &[String]) {
+pub(crate) fn record_heartbeat(
+    database: &Database,
+    settings: &Settings,
+    now: i64,
+    duration: Duration,
+    problems: &[String],
+) {
     // Hoe vaak er gedraaid wordt staat in de cron, en die kent de app niet. Door het gat
     // tussen twee rondes door te geven kan de app zelf bepalen wanneer stilte verdacht is —
     // bij rondes van vijf minuten hoort dat veel eerder te zijn dan bij rondes van een uur.
+    // Een ronde die je in de app start valt buiten de cron, en zou het tempo te kort maken.
+    let started_by_hand = std::env::var_os("KAARTENJAGER_ROUND_BY_HAND").is_some();
     if let Some(previous) = database
         .state("last_round_at")
+        .filter(|_| !started_by_hand)
         .and_then(|value| value.parse::<i64>().ok())
     {
         let gap = now - previous;
@@ -666,6 +748,7 @@ fn record_heartbeat(database: &Database, settings: &Settings, now: i64, problems
     }
 
     let _ = database.set_state("last_round_at", &now.to_string());
+    let _ = database.set_state("last_round_seconds", &duration.as_secs().to_string());
     let json = serde_json::to_string(problems).unwrap_or_else(|_| "[]".to_string());
     let _ = database.set_state("last_round_problems", &json);
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import Vondst from '$lib/Vondst.svelte';
 	import type { Finding } from '$lib/server/db';
 
@@ -15,6 +16,12 @@
 		toon: 'inbox' | 'volglijst' | 'archief';
 		leeg: string;
 	} = $props();
+
+	const moreHref = $derived.by(() => {
+		const parameters = new URLSearchParams(page.url.searchParams);
+		parameters.set('toon', String(volgende));
+		return `?${parameters}`;
+	});
 </script>
 
 {#if vondsten.length === 0}
@@ -26,7 +33,7 @@
 	{#if erIsMeer}
 		<!-- Vijftig per keer. Duizenden regels in één pagina is traag zonder dat iemand er
 		     iets aan heeft. -->
-		<a class="meer" href="?toon={volgende}">meer laden</a>
+		<a class="meer" href={moreHref}>meer laden</a>
 	{/if}
 {/if}
 

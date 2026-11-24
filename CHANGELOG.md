@@ -1,5 +1,33 @@
 # Wat er veranderde
 
+## 2.1.0, 24 november 2026: producten
+
+- Zoeken per product (`[[product]]` in de configuratie). Elke regel hoort bij een product; een
+  bestand zonder producten blijft werken (`docs/decisions/0001`).
+- Elke vondst is een topvondst of een goede deal. Topvondsten van een product met `notify =
+  true` gaan naar Discord, nu ook voor onderdelen (`docs/decisions/0002`).
+- Beeldbuistelevisies van Vinted, waar geen afstand bekend is, verschijnen met
+  `show_without_distance` als goede deal met het label "afstand onbekend".
+- De app: een keuzebalk per product in de inbox, een pagina Producten om producten aan en uit
+  te zetten, zoektermen per product (`docs/decisions/0003`).
+- Schema 3, en met de meldingen schema 4 (`docs/database.md`). Het programma migreert zelf; **werk de app tegelijk bij**,
+  want de app weigert een schema dat hij niet kent.
+- Meldingen via een eigen Discord-webhook (`[notify] discord_webhook`): topvondsten noemen je
+  (`mention_user_id`) zodat je telefoon trilt, goede deals van een product met `notify_deals`
+  komen stil. Een vondst die Discord niet aannam wordt de volgende ronde opnieuw geprobeerd.
+  Zonder webhook blijft de route via Hermes (`docs/decisions/0004`).
+- Een product kan een eigen `push_below_market_percent` hebben (`docs/decisions/0005`), en
+  `check` zegt per product hoe het meldt.
+- Mini-pc's als product met een `[[computer]]`-regel: 16 GB in de advertentie als harde eis,
+  CPU Mark per euro als score, topvondst vanaf 45. Schema 5 (`finding.score_per_euro`); de
+  inbox van een product met scores staat op score per euro (`docs/decisions/0007`).
+- Elke ronde onthoudt hoe lang hij duurde. De app toont dat onderaan en waarschuwt als een ronde
+  langer duurt dan de helft van de tijd tussen twee rondes.
+- Elk product heeft een kleur, onder Producten zelf te kiezen. Schema 6 (`product.color`).
+- De hele kaart in de inbox opent de advertentie.
+- Een processor die niet in de tabel staat heet bij naam, en de voorbeeldregel voor
+  beeldbuizen vangt geen losse handleiding of zwart-wit-tv meer.
+
 ## 2.0.0 — 18 september 2026
 
 ### Waarom

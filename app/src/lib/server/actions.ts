@@ -85,11 +85,11 @@ export const termActions: Actions = {
 	toevoegen: async ({ request }) => {
 		const form = await request.formData();
 		const term = form.get('term');
-		const kind = form.get('kind');
-		if (typeof term !== 'string' || (kind !== 'card' && kind !== 'part')) {
-			return fail(400, { success: false, message: 'Vul een zoekterm in en kies waar hij op slaat.' });
+		const product = form.get('product');
+		if (typeof term !== 'string' || typeof product !== 'string' || !product) {
+			return fail(400, { success: false, message: 'Vul een zoekterm in en kies het product.' });
 		}
-		const refused = store.addTerm(term, kind);
+		const refused = store.addTerm(term, product);
 		if (refused) return fail(400, { success: false, message: refused });
 		return { success: true, message: `"${term.trim().toLowerCase()}" staat erbij.` };
 	},
@@ -110,5 +110,37 @@ export const termActions: Actions = {
 		if (typeof term !== 'string') return fail(400, { success: false, message: 'Geen zoekterm meegegeven.' });
 		store.removeTerm(term);
 		return { success: true, message: `"${term}" is weg.` };
+	}
+};
+
+export const productActions: Actions = {
+	...runActions,
+
+	kleur: async ({ request }) => {
+		const form = await request.formData();
+		const id = form.get('id');
+		const color = form.get('color');
+		if (typeof id !== 'string' || typeof color !== 'string') {
+			return fail(400, { success: false, message: 'Geen product of kleur meegegeven.' });
+		}
+		const refused = store.setProductColor(id, color);
+		if (refused) return fail(400, { success: false, message: refused });
+		return { success: true, message: null };
+	},
+
+	aanzetten: async ({ request }) => {
+		const form = await request.formData();
+		const id = form.get('id');
+		const enabled = form.get('enabled') === 'ja';
+		if (typeof id !== 'string') return fail(400, { success: false, message: 'Geen product meegegeven.' });
+		const refused = store.setProductEnabled(id, enabled);
+		if (refused) return fail(400, { success: false, message: refused });
+		const name = store.products().find((product) => product.id === id)?.name ?? id;
+		return {
+			success: true,
+			message: enabled
+				? `${name} staat weer aan. De volgende ronde zoekt hij mee.`
+				: `${name} staat uit. Niet meer zoeken, niet meer melden, niet in de inbox; de vondsten blijven bewaard.`
+		};
 	}
 };
