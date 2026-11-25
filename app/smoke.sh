@@ -281,6 +281,31 @@ eerste=$(grep -o "Mini-pc, [A-Za-z0-9 -]*" "$WORK/antwoord.html" | head -1)
 [ "$eerste" = "Mini-pc, Ryzen 5 PRO 4650GE" ] \
   || fout "de hoogste score per euro hoort bovenaan te staan, bovenaan stond: $eerste"
 
+say "==> Filteren, ultra en de eigen machine"
+sqlite3 "$DB" <<'SQL'
+INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen) VALUES
+  ('marktplaats:93', 'marktplaats', '93', 'M720q i5-9500T 32GB', 'https://example.invalid/93', 1000, 1000);
+INSERT INTO sighting (key, seen_at, price_cents, asking_cents) VALUES ('marktplaats:93', 1000, 12000, 12000);
+INSERT INTO finding (key, matched_as, kind, confidence, reasons, warnings, became_a_find_at,
+                     judged_at, product, level, score_per_euro, memory_gb) VALUES
+  ('marktplaats:93', 'Mini-pc, i5-9500T', 'computer', 'clear', '[]', '[]', 3000, 3000, 'mini-pcs', 'ultra', 67.0, 32);
+INSERT INTO app_state (name, value) VALUES ('reference_machine', '{"name":"ZenBook (i7-8565U)","cpuMark":5934}')
+  ON CONFLICT(name) DO UPDATE SET value = excluded.value;
+SQL
+curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/?product=mini-pcs"
+zegt "ultra topvondst"
+zegt "ZenBook (i7-8565U)"
+zegt "CPU Mark 5.934"
+curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/?product=mini-pcs&geheugenVanaf=32"
+zegt "Mini-pc, i5-9500T"
+grep -q "Mini-pc, i5-10500T" "$WORK/antwoord.html" && fout "het geheugenfilter liet een vondst zonder 32 GB door"
+curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/?product=mini-pcs&prijsTot=200&scoreVanaf=40"
+grep -q "Mini-pc, Ryzen 5 PRO 4650GE" "$WORK/antwoord.html" && fout "het prijsfilter liet een vondst van 300 euro door"
+zegt "Mini-pc, i5-9500T"
+curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/?product=mini-pcs&trap=top"
+zegt "Mini-pc, Ryzen 5 PRO 4650GE"
+grep -q "Mini-pc, i5-10500T" "$WORK/antwoord.html" && fout "het trapfilter liet een goede deal door"
+
 # --------------------------------------------------------------------- slot
 
 if [ "$FAILURES" -eq 0 ]; then

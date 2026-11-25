@@ -1,5 +1,5 @@
 import type { LayoutServerLoad } from './$types';
-import { heartbeat, countInbox, openReviewCount } from '$lib/server/db';
+import { heartbeat, countInbox, openReviewCount, referenceMachine } from '$lib/server/db';
 import { roundState } from '$lib/server/ronde';
 
 export const load: LayoutServerLoad = async () => {
@@ -7,6 +7,7 @@ export const load: LayoutServerLoad = async () => {
 		heartbeat: heartbeat(),
 		nieuw: countInbox(),
 		openVerzoeken: openReviewCount(),
-		ronde: roundState()
+		ronde: roundState(),
+		eigenMachine: referenceMachine()
 	};
 };

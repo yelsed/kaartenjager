@@ -138,6 +138,8 @@ pub enum FindingKind {
 /// naar Discord; een goede deal staat alleen in de app.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum Level {
+    /// Een topvondst die ook ver onder het budget van zijn product blijft.
+    Ultra,
     Top,
     #[default]
     Deal,
@@ -146,9 +148,23 @@ pub enum Level {
 impl Level {
     pub fn name(&self) -> &'static str {
         match self {
+            Level::Ultra => "ultra",
             Level::Top => "top",
             Level::Deal => "deal",
         }
+    }
+
+    pub fn from_name(name: &str) -> Level {
+        match name {
+            "ultra" => Level::Ultra,
+            "top" => Level::Top,
+            _ => Level::Deal,
+        }
+    }
+
+    /// Een topvondst van elke trap: die meldt luid.
+    pub fn is_top(&self) -> bool {
+        matches!(self, Level::Ultra | Level::Top)
     }
 }
 
@@ -175,6 +191,9 @@ pub struct Finding {
     /// CPU Mark per euro, alleen bij computers met een bekende processor.
     #[serde(default)]
     pub score_per_euro: Option<f64>,
+    /// Het werkgeheugen dat de beoordeling las, alleen bij computers.
+    #[serde(default)]
+    pub memory_gb: Option<u32>,
     /// Plain-language reasons this is worth looking at, already formatted.
     pub reasons: Vec<String>,
     /// Things that should give pause, already formatted.

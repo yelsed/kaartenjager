@@ -54,7 +54,7 @@
 	);
 </script>
 
-<article class:top={vondst.level === 'top'}>
+<article class:top={vondst.level === 'top'} class:ultra={vondst.level === 'ultra'}>
 	<header>
 		<div class="bovenregel">
 			{#if vondst.productName}
@@ -73,7 +73,8 @@
 		<p class="kenmerken">{kenmerken.join(' · ')}</p>
 		<div class="merken">
 			{#if vondst.isNew}<span class="merk nieuw-merk">nieuw</span>{/if}
-			{#if vondst.level === 'top'}<span class="merk top-merk">topvondst</span>{/if}
+			{#if vondst.level === 'ultra'}<span class="merk ultra-merk">ultra topvondst</span>
+			{:else if vondst.level === 'top'}<span class="merk top-merk">topvondst</span>{/if}
 			{#if distanceUnknown}<span class="merk uitzoeken">afstand onbekend</span>{/if}
 			{#if vondst.needsReview}<span class="merk uitzoeken">uitzoeken</span>{/if}
 			{#if vondst.scorePerEuro !== null}
@@ -261,6 +262,10 @@
 		color: var(--accent);
 	}
 
+	article.ultra .prijs {
+		color: var(--ultra);
+	}
+
 	h3 {
 		margin: 0.2rem 0 0;
 		font-size: 1.05rem;
@@ -328,6 +333,13 @@
 		border-color: var(--accent);
 		background: var(--accent);
 		color: #10231b;
+		font-weight: 600;
+	}
+
+	.merk.ultra-merk {
+		border-color: var(--ultra);
+		background: var(--ultra);
+		color: #2a2108;
 		font-weight: 600;
 	}
 

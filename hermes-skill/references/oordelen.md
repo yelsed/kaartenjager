@@ -109,7 +109,18 @@ op het toestel. **Bekijk dus de foto's** voordat je zegt dat de processor onbeke
 - Noem processor, geheugen en opslag zoals je ze vond, en waar ("op foto 1").
 - Reken de CPU Mark per euro uit: de CPU Mark van cpubenchmark.net gedeeld door het totaal.
   Ook de tabel in `kaartenjager.toml` onder `[computer.processors]` heeft er een paar.
-  Vanaf 45 is het een topvondst, onder 30 niet de moeite.
+- **Geef een trap, geen "redelijk".** "Een redelijke deal" zegt niets: de gebruiker wil weten
+  of hij nu moet kopen. Kies precies één van deze vier en zet hem in de eerste zin:
+  - **ultra topvondst**: de score haalt `ultra_score_per_euro` en de prijs komt niet boven
+    `top_max_price` van die computer. Kopen, nu.
+  - **topvondst**: de score haalt `top_score_per_euro` en de prijs komt niet boven het budget, en
+    hij is duidelijk goedkoper dan wat je in de prijscheck vond.
+  - **oké deal**: een eerlijke prijs, maar niets bijzonders. Hier hoort elk apparaat boven het
+    budget, en elk apparaat dat ongeveer kost wat vergelijkbare advertenties kosten. Een
+    refurbished apparaat van een wederverkoper op de marktprijs is een oké deal, geen vondst.
+  - **te duur**: onder `min_score_per_euro`, of duurder dan de vergelijkbare advertenties.
+  De drempels staan per computer in `kaartenjager.toml`. Twijfel je tussen twee trappen, kies
+  dan de lagere en zeg waarom.
 - Vergelijk met een nieuwere generatie voor bijna hetzelfde geld: dat is vaak het beste advies
   ("voor €17 meer heb je de Gen 2 met 50% meer rekenkracht").
 - Een buitenlands toetsenbord, een kras op de klep of een zwakke accu maakt voor een machine die

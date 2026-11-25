@@ -11,7 +11,7 @@ import { env } from '$env/dynamic/private';
 import { PRODUCT_COLORS, productColor } from '$lib/format';
 
 /** Het schema waar deze app op gebouwd is. Zie PRAGMA user_version in het programma. */
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 /** Onder deze fractie van de archiefprijs komt een advertentie terug in de inbox. */
 const RETURN_FROM_ARCHIVE_AT = 0.9;
@@ -36,8 +36,11 @@ const DAY_ENDS_AT = 22;
 
 export type Kind = 'card' | 'part' | 'computer' | 'unknown';
 export type State = 'inbox' | 'archived' | 'watching';
-/** top: het soort vondst waarvoor je gestoord wilt worden. deal: de rest die de moeite waard is. */
-export type Level = 'top' | 'deal';
+/**
+ * top en ultra: het soort vondst waarvoor je gestoord wilt worden; ultra is een topvondst die
+ * ook ver binnen het budget blijft. deal: de rest die de moeite waard is.
+ */
+export type Level = 'ultra' | 'top' | 'deal';
 
 export type Finding = {
 	key: string;
@@ -61,6 +64,8 @@ export type Finding = {
 	percentUnderMarket: number | null;
 	/** CPU Mark per euro, alleen bij computers met een bekende processor. */
 	scorePerEuro: number | null;
+	/** Het werkgeheugen dat de beoordeling las, alleen bij computers. */
+	memoryGb: number | null;
 	eurosUnderMarket: number | null;
 	reasons: string[];
 	warnings: string[];
@@ -285,7 +290,7 @@ export function undoEverythingSeen(): void {
 // ------------------------------------------------------------------ vondsten
 
 const FINDING_COLUMNS = `
-	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, pr.position AS product_position, pr.color AS product_color, f.confidence, f.percent_under_market, f.euros_under_market, f.score_per_euro,
+	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, pr.position AS product_position, pr.color AS product_color, f.confidence, f.percent_under_market, f.euros_under_market, f.score_per_euro, f.memory_gb,
 	f.reasons, f.warnings, f.queue_note, f.became_a_find_at, f.judged_at, f.still_a_find,
 	l.title, l.url, l.source, l.delivery, l.location, l.seller, l.condition, l.photo_count,
 	l.description, l.gone_since, l.gone_reason, l.posted_at, l.first_seen, l.last_seen,
@@ -341,10 +346,11 @@ function toFinding(row: Row, visitedAt: number): Finding {
 			row.product_color === null ? null : String(row.product_color),
 			row.product_position === null ? null : Number(row.product_position)
 		),
-		level: row.level === 'top' ? 'top' : 'deal',
+		level: row.level === 'ultra' || row.level === 'top' ? row.level : 'deal',
 		needsReview: row.confidence === 'review',
 		percentUnderMarket: row.percent_under_market === null ? null : Number(row.percent_under_market),
 		scorePerEuro: row.score_per_euro === null ? null : Number(row.score_per_euro),
+		memoryGb: row.memory_gb === null ? null : Number(row.memory_gb),
 		eurosUnderMarket: row.euros_under_market === null ? null : Number(row.euros_under_market),
 		reasons: parseList(row.reasons),
 		warnings: parseList(row.warnings),
@@ -473,19 +479,83 @@ const INBOX_STATE_WHERE = `
 
 const INBOX_WHERE = `${INBOX_STATE_WHERE} AND COALESCE(pr.enabled, 1) = 1`;
 
-export function inbox(limit: number, offset: number, productId: string | null = null): Finding[] {
+/** Wat de lijst laat zien. Leeg betekent: niet op filteren. */
+export type InboxFilters = {
+	minimumPrice: number | null;
+	maximumPrice: number | null;
+	minimumScorePerEuro: number | null;
+	minimumMemoryGb: number | null;
+	/** top toont ook ultra: een ultra topvondst is een topvondst. */
+	level: 'ultra' | 'top' | null;
+};
+
+export const NO_FILTERS: InboxFilters = {
+	minimumPrice: null,
+	maximumPrice: null,
+	minimumScorePerEuro: null,
+	minimumMemoryGb: null,
+	level: null
+};
+
+const LATEST_PRICE_CENTS = `(SELECT price_cents FROM sighting p WHERE p.key = f.key ORDER BY p.seen_at DESC LIMIT 1)`;
+
+function filterConditions(filters: InboxFilters): { where: string; parameters: number[] } {
+	const conditions: string[] = [];
+	const parameters: number[] = [];
+	if (filters.minimumPrice !== null) {
+		conditions.push(`${LATEST_PRICE_CENTS} >= ?`);
+		parameters.push(Math.round(filters.minimumPrice * 100));
+	}
+	if (filters.maximumPrice !== null) {
+		conditions.push(`${LATEST_PRICE_CENTS} <= ?`);
+		parameters.push(Math.round(filters.maximumPrice * 100));
+	}
+	if (filters.minimumScorePerEuro !== null) {
+		conditions.push('f.score_per_euro >= ?');
+		parameters.push(filters.minimumScorePerEuro);
+	}
+	if (filters.minimumMemoryGb !== null) {
+		conditions.push('f.memory_gb >= ?');
+		parameters.push(filters.minimumMemoryGb);
+	}
+	if (filters.level === 'ultra') conditions.push(`f.level = 'ultra'`);
+	if (filters.level === 'top') conditions.push(`f.level IN ('top', 'ultra')`);
+	return { where: conditions.map((condition) => ` AND ${condition}`).join(''), parameters };
+}
+
+export function inbox(
+	limit: number,
+	offset: number,
+	productId: string | null = null,
+	filters: InboxFilters = NO_FILTERS
+): Finding[] {
+	const filtered = filterConditions(filters);
 	if (productId === null) {
-		return query(INBOX_WHERE, 'f.became_a_find_at DESC', limit, offset);
+		return query(`${INBOX_WHERE}${filtered.where}`, 'f.became_a_find_at DESC', limit, offset, filtered.parameters);
 	}
 	// Binnen een product met scores (mini-pc's) wint de meeste rekenkracht per euro; zonder
 	// scores is dit de gewone volgorde.
 	return query(
-		`${INBOX_WHERE} AND f.product = ?`,
+		`${INBOX_WHERE} AND f.product = ?${filtered.where}`,
 		'f.score_per_euro IS NULL, f.score_per_euro DESC, f.became_a_find_at DESC',
 		limit,
 		offset,
-		[productId]
+		[productId, ...filtered.parameters]
 	);
+}
+
+export type ReferenceMachine = { name: string; cpuMark: number };
+
+/** De eigen machine uit de configuratie; het programma zet hem elke ronde klaar. */
+export function referenceMachine(): ReferenceMachine | null {
+	const stored = readState('reference_machine');
+	if (stored === null) return null;
+	try {
+		const machine = JSON.parse(stored);
+		return typeof machine.name === 'string' && typeof machine.cpuMark === 'number' ? machine : null;
+	} catch {
+		return null;
+	}
 }
 
 export function watching(limit: number, offset: number): Finding[] {

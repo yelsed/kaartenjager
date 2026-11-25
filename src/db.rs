@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// Opgehoogd bij elke schemawijziging. De Svelte-app controleert dit bij het starten en
 /// weigert bij een versie die hij niet kent, in plaats van half te werken op een schema dat
 /// hij verkeerd begrijpt.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 const SCHEMA: &str = r#"
 CREATE TABLE listing (
@@ -63,15 +63,16 @@ CREATE TABLE finding (
   warnings             TEXT NOT NULL,
   queue_note           TEXT,
   product              TEXT,                 -- product.id van de regel die hem herkende
-  level                TEXT NOT NULL DEFAULT 'deal',  -- top | deal
+  level                TEXT NOT NULL DEFAULT 'deal',  -- ultra | top | deal
   became_a_find_at     INTEGER NOT NULL,
   judged_at            INTEGER NOT NULL,
   still_a_find         INTEGER NOT NULL DEFAULT 1,
   left_find_at_price   INTEGER,
   pushed_at            INTEGER,
   pushed_at_price      INTEGER,
-  pushed_level         TEXT,                 -- top | deal: wat hij was toen hij zijn stempel kreeg
-  score_per_euro       REAL                  -- CPU Mark per euro, alleen bij computers
+  pushed_level         TEXT,                 -- ultra | top | deal: wat hij was toen hij zijn stempel kreeg
+  score_per_euro       REAL,                 -- CPU Mark per euro, alleen bij computers
+  memory_gb            INTEGER               -- werkgeheugen volgens de beoordeling, alleen bij computers
 );
 
 CREATE TABLE decision (
@@ -197,6 +198,14 @@ const MIGRATION_5_TO_6: &str = r#"
 ALTER TABLE product ADD COLUMN color TEXT;
 "#;
 
+/// Het geheugen dat de beoordeling las, zodat de app erop kan filteren.
+/// Wat al bekend is komt uit het veld van de bron; de rest vult de volgende beoordeling.
+const MIGRATION_6_TO_7: &str = r#"
+ALTER TABLE finding ADD COLUMN memory_gb INTEGER;
+UPDATE finding SET memory_gb = (SELECT memory_gb FROM listing WHERE listing.key = finding.key)
+ WHERE kind = 'computer';
+"#;
+
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
 pub const STALE_AFTER_SECONDS: i64 = 3600;
 
@@ -297,12 +306,15 @@ impl Database {
             // nergens meer op lijkt.
             let steps = match version {
                 1 => format!(
-                    "{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"
+                    "{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"
                 ),
-                2 => format!("{MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
-                3 => format!("{MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
-                4 => format!("{MIGRATION_4_TO_5} {MIGRATION_5_TO_6}"),
-                _ => MIGRATION_5_TO_6.to_string(),
+                2 => format!(
+                    "{MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"
+                ),
+                3 => format!("{MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"),
+                4 => format!("{MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"),
+                5 => format!("{MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"),
+                _ => MIGRATION_6_TO_7.to_string(),
             };
             connection
                 .execute_batch(&format!(
@@ -386,6 +398,19 @@ impl Database {
                     params![product.id, product.name, position as i64],
                 )
                 .map_err(|error| fail("product", error))?;
+        }
+
+        // De app leest geen TOML; zo staat de eigen machine toch bovenaan.
+        match &settings.reference_machine {
+            Some(machine) => self.set_state(
+                "reference_machine",
+                &serde_json::json!({ "name": machine.name, "cpuMark": machine.cpu_mark }).to_string(),
+            )?,
+            None => {
+                self.connection
+                    .execute("DELETE FROM app_state WHERE name = 'reference_machine'", [])
+                    .map_err(|error| fail("eigen machine", error))?;
+            }
         }
 
         let known: Vec<String> = settings.products.iter().map(|product| product.id.clone()).collect();
@@ -734,14 +759,15 @@ impl Database {
                 "INSERT INTO finding (
                     key, matched_as, kind, confidence, percent_under_market, euros_under_market,
                     reasons, warnings, queue_note, became_a_find_at, judged_at, still_a_find,
-                    left_find_at_price, product, level, score_per_euro
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL,?12,?13,?14)
+                    left_find_at_price, product, level, score_per_euro, memory_gb
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL,?12,?13,?14,?15)
                  ON CONFLICT(key) DO UPDATE SET
                     matched_as           = excluded.matched_as,
                     kind                 = excluded.kind,
                     product              = excluded.product,
                     level                = excluded.level,
                     score_per_euro       = excluded.score_per_euro,
+                    memory_gb            = excluded.memory_gb,
                     confidence           = excluded.confidence,
                     percent_under_market = excluded.percent_under_market,
                     euros_under_market   = excluded.euros_under_market,
@@ -768,6 +794,7 @@ impl Database {
                     if finding.product.is_empty() { None } else { Some(finding.product.as_str()) },
                     finding.level.name(),
                     finding.score_per_euro,
+                    finding.memory_gb,
                 ],
             )
             .map_err(|error| format!("Vondst {key} niet op te slaan: {error}"))?;
@@ -839,7 +866,7 @@ impl Database {
     /// deal topvondst werd. Wat er werkelijk heen gaat beslist `hunt::decide_pushes`.
     pub fn findings_to_push(&self) -> Result<Vec<PushCandidate>, String> {
         // De herhaalregel staat alleen hier. Nog niet gestempeld; van goede deal topvondst
-        // geworden; of nog eens tien procent lager, behalve een topvondst die nu een goede deal
+        // geworden, of van topvondst ultra; of nog eens tien procent lager, behalve een topvondst die nu een goede deal
         // is, want daarvan weet de eigenaar al. Een stempel van voor schema 4 telt als top.
         let mut statement = self
             .connection
@@ -861,9 +888,10 @@ impl Database {
                          AND finding.kind IN ('card', 'part', 'computer')
                          AND listing.gone_since IS NULL)
                  WHERE pushed_at IS NULL
-                    OR (pushed_level = 'deal' AND level = 'top')
+                    OR (pushed_level = 'deal' AND level IN ('top', 'ultra'))
+                    OR (pushed_level = 'top' AND level = 'ultra')
                     OR (price_cents <= pushed_at_price * 0.9
-                        AND NOT (pushed_level = 'top' AND level = 'deal'))",
+                        AND NOT (pushed_level IN ('top', 'ultra') AND level = 'deal'))",
             )
             .map_err(|error| format!("Uitschieters niet op te vragen: {error}"))?;
 
@@ -880,7 +908,7 @@ impl Database {
                     price_euros: from_cents(row.get::<_, Option<i64>>(7)?.unwrap_or(0)),
                     is_part: row.get::<_, String>(8)? == "part",
                     product: row.get(9)?,
-                    level: if row.get::<_, String>(10)? == "top" { Level::Top } else { Level::Deal },
+                    level: Level::from_name(&row.get::<_, String>(10)?),
                     warnings: json_list(row.get::<_, Option<String>>(11)?),
                     score_per_euro: row.get(12)?,
                     is_computer: row.get::<_, String>(8)? == "computer",
