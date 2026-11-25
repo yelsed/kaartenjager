@@ -154,10 +154,16 @@ impl<'settings> PriceTable<'settings> {
                     reasons.insert(1, format!("{times}× zo snel als {}", machine.name));
                 }
                 let provisional = queue_note.is_some();
-                let level = if per_euro >= computer.top_score_per_euro && !provisional {
-                    Level::Top
-                } else {
+                let over_budget = computer.top_max_price.filter(|budget| listing.price_euros > *budget);
+                let level = if provisional || per_euro < computer.top_score_per_euro {
                     Level::Deal
+                } else if let Some(budget) = over_budget {
+                    reasons.push(format!("boven het budget van {}, daarom geen topvondst", crate::money::euros(budget)));
+                    Level::Deal
+                } else if computer.ultra_score_per_euro.is_some_and(|ultra| per_euro >= ultra) {
+                    Level::Ultra
+                } else {
+                    Level::Top
                 };
                 // Zonder bekend geheugen geen score, zodat hij niet bovenaan de lijst staat.
                 (format!("{}, {name}", computer.name), level, (!provisional).then_some(per_euro))
@@ -192,6 +198,7 @@ impl<'settings> PriceTable<'settings> {
             percent_under_market: None,
             euros_under_market: None,
             score_per_euro,
+            memory_gb: stated,
             reasons,
             warnings,
             queue_note,
@@ -318,6 +325,7 @@ impl<'settings> PriceTable<'settings> {
             percent_under_market,
             euros_under_market: Some(euros_under_market),
             score_per_euro: None,
+            memory_gb: None,
             reasons,
             warnings,
             queue_note,
@@ -403,6 +411,7 @@ impl<'settings> PriceTable<'settings> {
             percent_under_market: None,
             euros_under_market: None,
             score_per_euro: None,
+            memory_gb: None,
             reasons,
             warnings,
             queue_note,
@@ -443,6 +452,7 @@ impl<'settings> PriceTable<'settings> {
             percent_under_market: None,
             euros_under_market: None,
             score_per_euro: None,
+            memory_gb: None,
             reasons: vec![format!(
                 "{stated} GB videogeheugen voor onder {}, maar er staat geen regel voor dit model in de tabel",
                 money::euros(UNKNOWN_CARD_INTERESTING_BELOW)

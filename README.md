@@ -296,7 +296,10 @@ dan worden alle kaarten samen Videokaarten en elk onderdeel een eigen product.
 **Computers** zijn een eigen soort regel, `[[computer]]`: het model staat in de titel, maar de
 processor bepaalt de waarde. Geheugen onder `min_memory_gb` valt af, de CPU Mark van de
 processor gedeeld door de prijs is de score per euro, en vanaf `top_score_per_euro` is het een
-topvondst. In de app staan ze op score per euro (`docs/decisions/0007`).
+topvondst. Boven `top_max_price`, het budget, is hij nooit een topvondst; vanaf
+`ultra_score_per_euro` binnen het budget is hij een **ultra topvondst**. In de app staan ze op
+score per euro (`docs/decisions/0007`), en filter je op prijs, score, geheugen en trap. Met
+`[reference_machine]` staat je eigen machine vast bovenaan de app.
 
 Elke vondst is een **topvondst** of een **goede deal**. Een kaart is top als hij ver genoeg
 onder de markt zit (`push_below_market_percent`), een onderdeel als hij onder `alert_below`

@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { clockTime, roundDuration } from '$lib/format';
 	import favicon from '$lib/assets/favicon.svg';
+	import ReferenceMachineBar from '$lib/ReferenceMachineBar.svelte';
 
 	let { children, data } = $props();
 
@@ -22,6 +23,10 @@
 </svelte:head>
 
 <div class="schil">
+	{#if data.eigenMachine}
+		<ReferenceMachineBar machine={data.eigenMachine} />
+	{/if}
+
 	{#if data.heartbeat.stale}
 		<!--
 			Een wachter die om is ziet er precies zo uit als een markt zonder koopjes. Dit is
@@ -133,6 +138,7 @@
 		--accent: #7fd1a8;
 		--alarm: #e5646d;
 		--let-op: #e0a458;
+		--ultra: #f2c94c;
 		color-scheme: dark;
 	}
 

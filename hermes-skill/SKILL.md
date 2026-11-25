@@ -1,7 +1,7 @@
 ---
 name: kaartenjager
 description: Beoordeelt gevonden advertenties (kaarten, onderdelen, mini-pc's, laptops) met een prijscheck en houdt de prijstabel bij
-version: 1.1.0
+version: 1.2.0
 platforms: [linux]
 metadata:
   hermes:

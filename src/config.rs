@@ -153,6 +153,13 @@ pub struct ComputerRule {
     pub processors: BTreeMap<String, f64>,
     /// Vanaf hoeveel CPU Mark per euro het een topvondst is.
     pub top_score_per_euro: f64,
+    /// Vanaf hoeveel CPU Mark per euro een topvondst een ultra topvondst is. Leeg: geen ultra.
+    #[serde(default)]
+    pub ultra_score_per_euro: Option<f64>,
+    /// Daarboven is hij nooit een topvondst, hoe hoog de score ook is: een goede deal van €315
+    /// is nog geen vondst. Leeg: geen budget.
+    #[serde(default)]
+    pub top_max_price: Option<f64>,
     /// Daaronder is het een beugel, adapter of kap, geen computer.
     #[serde(default)]
     pub min_price: f64,
@@ -1033,12 +1040,15 @@ impl Settings {
                 || computer.min_price < 0.0
                 || computer.min_memory_gb == 0
                 || computer.min_score_per_euro.is_some_and(|minimum| minimum < 0.0)
+                || computer.ultra_score_per_euro.is_some_and(|ultra| ultra <= computer.top_score_per_euro)
+                || computer.top_max_price.is_some_and(|budget| budget <= computer.min_price)
                 || computer.processors.values().any(|score| *score <= 0.0)
             {
                 return Err(ConfigError::Rejected(format!(
                     "Computer \"{}\" heeft processors met een CPU Mark boven nul nodig, een \
                      top_score_per_euro boven nul, een min_memory_gb en geen negatieve min_price of \
-                     min_score_per_euro.",
+                     min_score_per_euro. Een ultra_score_per_euro ligt boven top_score_per_euro, een \
+                     top_max_price boven min_price.",
                     computer.name
                 )));
             }

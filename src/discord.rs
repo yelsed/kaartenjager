@@ -2,7 +2,6 @@
 
 use crate::config::Settings;
 use crate::db::PushCandidate;
-use crate::listing::Level;
 use crate::report;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -12,7 +11,7 @@ const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
 
 pub fn payload(candidate: &PushCandidate, settings: &Settings) -> Value {
     let mention = settings.notify.mention_user_id.as_deref();
-    let loud = candidate.level == Level::Top && settings.product_notifies(&candidate.product);
+    let loud = candidate.level.is_top() && settings.product_notifies(&candidate.product);
     let content = report::render_push(candidate, settings, if loud { mention } else { None });
     let mut body = json!({
         "username": "Kaartenjager",

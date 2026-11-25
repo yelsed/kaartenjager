@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import type { Product } from '$lib/server/db';
 	import ProductLabel from '$lib/ProductLabel.svelte';
 
@@ -9,6 +10,16 @@
 	}: { products: Product[]; selected: string | null; totalCount: number } = $props();
 
 	const enabledProducts = $derived(products.filter((product) => product.enabled));
+
+	// Wisselen van product houdt de filters; alleen het aantal getoonde begint opnieuw.
+	function productHref(productId: string | null): string {
+		const parameters = new URLSearchParams(page.url.searchParams);
+		parameters.delete('toon');
+		if (productId === null) parameters.delete('product');
+		else parameters.set('product', productId);
+		const query = parameters.toString();
+		return query ? `/?${query}` : '/';
+	}
 
 	// Op een smal scherm staat het gekozen product anders buiten beeld, rechts van de rij.
 	function scrollIntoRowWhenSelected(link: HTMLAnchorElement, isSelected: boolean) {
@@ -21,12 +32,12 @@
 
 {#if enabledProducts.length > 1}
 	<nav class="product-filter" aria-label="Product">
-		<a href="/" class:actief={selected === null} aria-current={selected === null ? 'page' : undefined}>
+		<a href={productHref(null)} class:actief={selected === null} aria-current={selected === null ? 'page' : undefined}>
 			Alles <span class="aantal">{totalCount}</span>
 		</a>
 		{#each enabledProducts as product (product.id)}
 			<a
-				href="/?product={encodeURIComponent(product.id)}"
+				href={productHref(product.id)}
 				class:actief={selected === product.id}
 				aria-current={selected === product.id ? 'page' : undefined}
 				use:scrollIntoRowWhenSelected={selected === product.id}

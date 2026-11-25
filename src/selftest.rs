@@ -239,6 +239,7 @@ pub fn run() -> bool {
         ("een mini-pc met 16 GB en een sterke processor is een topvondst", check_computer_top_find),
         ("min_score_per_euro houdt zwakke en onbekende computers buiten de vondsten", check_computer_min_score),
         ("een computer wordt vergeleken met de eigen machine", check_reference_machine),
+        ("een computer is ultra, top of deal naar score en budget", check_computer_tiers),
         ("een OptiPlex 3060 Micro is een mini-pc, geen RTX 3060", check_computer_model_is_no_card),
         ("buitenlandse koelers, dozen en adapters zijn geen kaart", check_foreign_accessories_are_no_card),
         ("een horloge van 9 karaat is geen beeldbuis", check_carat_gold_is_no_crt),
@@ -1134,6 +1135,7 @@ fn sample_listing(id: &str, price: f64) -> Listing {
 
 fn sample_finding(id: &str, price: f64, percent_under_market: f64) -> Finding {
     Finding {
+        memory_gb: None,
         listing: sample_listing(id, price),
         matched_as: "RTX 4090".to_string(),
         kind: FindingKind::Card,
@@ -3247,6 +3249,60 @@ fn check_computer_min_score(_settings: &Settings) -> Result<(), String> {
     negative.computers[0].min_score_per_euro = Some(-1.0);
     if negative.validate().is_ok() {
         return Err("een negatieve min_score_per_euro hoort geweigerd te worden".into());
+    }
+    Ok(())
+}
+
+fn check_computer_tiers(_settings: &Settings) -> Result<(), String> {
+    use crate::listing::Level;
+    let mut settings = computer_settings()?;
+    settings.computers[0].ultra_score_per_euro = Some(60.0);
+    settings.computers[0].top_max_price = Some(170.0);
+    settings.reference_machine =
+        Some(crate::config::ReferenceMachine { name: "ZenBook (i7-8565U)".to_string(), cpu_mark: 5934.0 });
+    settings.validate().map_err(|error| error.to_string())?;
+    let table = PriceTable::new(&settings);
+
+    // i5-9500T met CPU Mark 8.100: voor €120 is dat 67 per euro.
+    let cheap = computer_listing("120", "marktplaats", "M720q i5-9500T 32GB 256GB", "", 120.0);
+    let finding = table.judge(&cheap).ok_or("de goedkope M720q werd geen vondst")?;
+    if finding.level != Level::Ultra || finding.memory_gb != Some(32) {
+        return Err(format!("verwacht ultra met 32 GB, kreeg {:?} met {:?}", finding.level, finding.memory_gb));
+    }
+    std::env::remove_var("KAARTENJAGER_DISCORD_WEBHOOK");
+    let (database, _directory) = scratch_database("mini-pc-ultra")?;
+    let now = 1_790_000_000;
+    database.sync_products(&settings, now)?;
+    store_judged(&database, &table, &cheap, now)?;
+    let pushes = crate::hunt::decide_pushes(&database, &settings, now)?;
+    let push = pushes.first().ok_or("de ultra topvondst meldde niet")?;
+    let message = crate::report::render_push(push, &settings, None);
+    if push.level != Level::Ultra || !message.starts_with("ultra topvondst\n") {
+        return Err(format!("het bericht hoort met ultra topvondst te beginnen:\n{message}"));
+    }
+
+    let top = computer_listing("121", "marktplaats", "M720q i5-9500T 16GB", "", 160.0);
+    let finding = table.judge(&top).ok_or("de M720q van €160 werd geen vondst")?;
+    if finding.level != Level::Top {
+        return Err(format!("50 per euro binnen het budget hoort top te zijn, kreeg {:?}", finding.level));
+    }
+
+    // 46 per euro haalt de topdrempel, maar €175 ligt boven het budget van €170.
+    let dear = computer_listing("122", "marktplaats", "M720q i5-9500T 16GB", "", 175.0);
+    let finding = table.judge(&dear).ok_or("de M720q van €175 werd geen vondst")?;
+    if finding.level != Level::Deal || !finding.reasons.iter().any(|reason| reason.contains("boven het budget van €170")) {
+        return Err(format!("boven het budget hoort een goede deal met reden, kreeg {:?} {:?}", finding.level, finding.reasons));
+    }
+
+    let stored = database.state("reference_machine").unwrap_or_default();
+    if !stored.contains("ZenBook (i7-8565U)") || !stored.contains("5934") {
+        return Err(format!("de eigen machine hoort voor de app in de database te staan, kreeg {stored:?}"));
+    }
+
+    let mut wrong = settings.clone();
+    wrong.computers[0].ultra_score_per_euro = Some(40.0);
+    if wrong.validate().is_ok() {
+        return Err("een ultra-drempel onder de topdrempel hoort geweigerd te worden".into());
     }
     Ok(())
 }

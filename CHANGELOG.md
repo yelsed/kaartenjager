@@ -1,5 +1,18 @@
 # Wat er veranderde
 
+## 2.2.0, 25 november 2026: trappen, budget en filters
+
+- Computers hebben drie trappen: goede deal, topvondst en ultra topvondst. `top_max_price` is
+  het budget: daarboven is een computer nooit een topvondst, met die reden erbij.
+  `ultra_score_per_euro` maakt van een topvondst binnen het budget een ultra topvondst. Een
+  topvondst die ultra wordt meldt opnieuw.
+- De inbox filtert op prijs, CPU Mark per euro, geheugen en trap. De filters blijven staan bij
+  het wisselen van product.
+- Je eigen machine uit `[reference_machine]` staat vast bovenaan de app.
+- Schema 7: een vondst bewaart het geheugen dat de beoordeling las.
+- Hermes-skill 1.2.0: een oordeel over een computer kiest een van vier trappen in plaats van
+  "redelijk".
+
 ## 2.1.6, 25 november 2026: vergelijken met je eigen machine
 
 - `[reference_machine]` met een naam en een CPU Mark: elke gevonden mini-pc of laptop met een

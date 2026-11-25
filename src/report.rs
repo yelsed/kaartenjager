@@ -13,6 +13,8 @@ use crate::money;
 /// staat in de app. Een topvondst noemt de eigenaar als `mention` gegeven is.
 pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Option<&str>) -> String {
     let mut out = match (candidate.level, mention) {
+        (Level::Ultra, Some(user)) => format!("<@{user}> ultra topvondst\n"),
+        (Level::Ultra, None) => "ultra topvondst\n".to_string(),
         (Level::Top, Some(user)) => format!("<@{user}> topvondst\n"),
         (Level::Top, None) => "topvondst\n".to_string(),
         (Level::Deal, _) => "goede deal\n".to_string(),
@@ -36,7 +38,7 @@ pub fn render_push(candidate: &PushCandidate, settings: &Settings, mention: Opti
             .map(|part| format!("onder {}", money::euros(part.alert_below)));
         match candidate.level {
             // Een onderdeel heeft geen marktbereik; het meldt omdat het onder zijn topvondstprijs zit.
-            Level::Top => limit,
+            Level::Ultra | Level::Top => limit,
             Level::Deal => (!candidate.warnings.is_empty())
                 .then(|| shortened(&candidate.warnings.join(" · "), MAX_LINE_CHARACTERS)),
         }

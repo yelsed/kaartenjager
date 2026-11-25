@@ -517,6 +517,11 @@ note = "Alleen PCIe 4.0 x16 is bruikbaar; 3.0 halveert de bandbreedte. Recht (18
 # - Met min_score_per_euro is een computer daaronder geen vondst, en een zonder
 #   bekende processor ook niet (behalve op Vinted zolang de beschrijving nog niet
 #   gelezen is). Zonder deze regel telt elke computer met genoeg geheugen.
+# - top_max_price is het budget: daarboven is hij nooit een topvondst, hoe hoog
+#   de score ook is, maar een goede deal met die reden erbij.
+# - Vanaf ultra_score_per_euro is een topvondst binnen het budget een ultra
+#   topvondst. Die meldt net zo luid, en een topvondst die ultra wordt meldt
+#   opnieuw. Beide mogen weg: dan geen budget en geen ultra.
 #
 # De grens van 45 komt uit een marktcheck van 23 november 2026: ongeveer een op
 # de zes geschikte advertenties (docs/onderzoek/mini-pcs.md). De CPU Marks zijn
@@ -538,6 +543,8 @@ exclude_patterns = [
 ]
 min_memory_gb = 16
 top_score_per_euro = 45
+ultra_score_per_euro = 60
+top_max_price = 200
 min_price = 40
 
 [computer.processors]

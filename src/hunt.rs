@@ -6,7 +6,7 @@ use crate::db::{Database, PushCandidate};
 use crate::detail::{self, PageState};
 use crate::filter::Sieve;
 use crate::http::HttpClient;
-use crate::listing::{Confidence, Delivery, Finding, Level, Listing};
+use crate::listing::{Confidence, Delivery, Finding, Listing};
 use crate::pricing::PriceTable;
 use crate::sources::{marktplaats::Marktplaats, vinted::Vinted, Source};
 use std::collections::{BTreeMap, BTreeSet};
@@ -664,7 +664,7 @@ pub(crate) fn decide_pushes(
         }
         // Een product dat deals stil meldt, meldt zijn topvondsten minstens zo stil.
         let product_wants_it = settings.product_notifies_deals(&candidate.product)
-            || (candidate.level == Level::Top && settings.product_notifies(&candidate.product));
+            || (candidate.level.is_top() && settings.product_notifies(&candidate.product));
         // Een product dat niet meldt of uit staat, blijft stil. Ook die krijgen hun stempel,
         // anders meldt de eerste ronde nadat je het product aanzet de hele achterstand, en
         // duwt één prijsstijging een gefilterde vondst alsnog het kanaal in.
@@ -697,7 +697,7 @@ pub(crate) fn deliver(
         for candidate in &pushes {
             database.mark_pushed(&candidate.key, candidate.price_euros, now)?;
         }
-        return Ok(pushes.into_iter().filter(|candidate| candidate.level == Level::Top).collect());
+        return Ok(pushes.into_iter().filter(|candidate| candidate.level.is_top()).collect());
     };
     let delivery_problems = crate::discord::post_all(&webhook, &pushes, settings, |candidate| {
         database.mark_pushed(&candidate.key, candidate.price_euros, now)

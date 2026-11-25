@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import Lijst from '$lib/Lijst.svelte';
 	import ProductFilter from '$lib/ProductFilter.svelte';
+	import InboxFilter from '$lib/InboxFilter.svelte';
 
 	let { data, form } = $props();
 
@@ -14,6 +15,7 @@
 {/if}
 
 <ProductFilter products={data.producten} selected={data.gekozenProduct} totalCount={data.totaal} />
+<InboxFilter filters={data.filters} product={data.gekozenProduct} />
 
 {#if nieuwe.length > 0}
 	<div class="blokkop">
