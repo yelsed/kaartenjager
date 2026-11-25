@@ -111,9 +111,9 @@ op het toestel. **Bekijk dus de foto's** voordat je zegt dat de processor onbeke
   Ook de tabel in `kaartenjager.toml` onder `[computer.processors]` heeft er een paar.
 - **Geef een trap, geen "redelijk".** "Een redelijke deal" zegt niets: de gebruiker wil weten
   of hij nu moet kopen. Kies precies één van deze vier en zet hem in de eerste zin:
-  - **ultra topvondst**: de score haalt `ultra_score_per_euro` en de prijs blijft onder
+  - **ultra topvondst**: de score haalt `ultra_score_per_euro` en de prijs komt niet boven
     `top_max_price` van die computer. Kopen, nu.
-  - **topvondst**: de score haalt `top_score_per_euro` en de prijs blijft onder het budget, en
+  - **topvondst**: de score haalt `top_score_per_euro` en de prijs komt niet boven het budget, en
     hij is duidelijk goedkoper dan wat je in de prijscheck vond.
   - **oké deal**: een eerlijke prijs, maar niets bijzonders. Hier hoort elk apparaat boven het
     budget, en elk apparaat dat ongeveer kost wat vergelijkbare advertenties kosten. Een

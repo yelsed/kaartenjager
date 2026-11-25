@@ -9,7 +9,9 @@
 - De inbox filtert op prijs, CPU Mark per euro, geheugen en trap. De filters blijven staan bij
   het wisselen van product.
 - Je eigen machine uit `[reference_machine]` staat vast bovenaan de app.
-- Schema 7: een vondst bewaart het geheugen dat de beoordeling las.
+- Schema 7: een vondst bewaart het geheugen dat de beoordeling las. Oude vondsten krijgen het
+  geheugen uit het veld van Marktplaats; de rest pas als ze opnieuw beoordeeld worden, en tot dan
+  vallen ze buiten het geheugenfilter.
 - Hermes-skill 1.2.0: een oordeel over een computer kiest een van vier trappen in plaats van
   "redelijk".
 

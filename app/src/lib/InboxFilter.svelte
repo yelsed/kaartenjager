@@ -15,11 +15,11 @@
 		{#if product}<input type="hidden" name="product" value={product} />{/if}
 		<label>
 			Prijs vanaf
-			<input type="number" name="prijsVanaf" min="0" step="1" inputmode="numeric" value={filters.minimumPrice ?? ''} />
+			<input type="number" name="prijsVanaf" min="0" step="any" inputmode="decimal" value={filters.minimumPrice ?? ''} />
 		</label>
 		<label>
 			Prijs tot
-			<input type="number" name="prijsTot" min="0" step="1" inputmode="numeric" value={filters.maximumPrice ?? ''} />
+			<input type="number" name="prijsTot" min="0" step="any" inputmode="decimal" value={filters.maximumPrice ?? ''} />
 		</label>
 		<label>
 			CPU Mark per euro vanaf
@@ -27,8 +27,8 @@
 				type="number"
 				name="scoreVanaf"
 				min="0"
-				step="1"
-				inputmode="numeric"
+				step="any"
+				inputmode="decimal"
 				value={filters.minimumScorePerEuro ?? ''}
 			/>
 		</label>

@@ -12,11 +12,13 @@ function positiveNumber(raw: string | null): number | null {
 
 function filtersFrom(parameters: URLSearchParams): InboxFilters {
 	const level = parameters.get('trap');
+	const memory = parameters.get('geheugenVanaf');
 	return {
 		minimumPrice: positiveNumber(parameters.get('prijsVanaf')),
 		maximumPrice: positiveNumber(parameters.get('prijsTot')),
 		minimumScorePerEuro: positiveNumber(parameters.get('scoreVanaf')),
-		minimumMemoryGb: positiveNumber(parameters.get('geheugenVanaf')),
+		// Alleen wat de keuzelijst kent, anders filtert hij op iets dat de lijst niet toont.
+		minimumMemoryGb: memory === '16' || memory === '32' || memory === '64' ? Number(memory) : null,
 		level: level === 'ultra' || level === 'top' ? level : null
 	};
 }

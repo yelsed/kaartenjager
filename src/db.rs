@@ -199,8 +199,11 @@ ALTER TABLE product ADD COLUMN color TEXT;
 "#;
 
 /// Het geheugen dat de beoordeling las, zodat de app erop kan filteren.
+/// Wat al bekend is komt uit het veld van de bron; de rest vult de volgende beoordeling.
 const MIGRATION_6_TO_7: &str = r#"
 ALTER TABLE finding ADD COLUMN memory_gb INTEGER;
+UPDATE finding SET memory_gb = (SELECT memory_gb FROM listing WHERE listing.key = finding.key)
+ WHERE kind = 'computer';
 "#;
 
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
