@@ -248,8 +248,12 @@ export function heartbeat(): Heartbeat {
 			)
 		: HEARTBEAT_STALE_FALLBACK;
 
-	const stale =
-		withinDayWindow && (lastRoundAt === null || nowSeconds() - lastRoundAt > allowed);
+	// De nacht telt niet als stilte: om acht uur begint de wachter, en de eerste ronde mag dan
+	// net zo lang duren als elke andere.
+	const dayStart = new Date();
+	dayStart.setHours(DAY_STARTS_AT, 0, 0, 0);
+	const silentSince = Math.max(lastRoundAt ?? 0, Math.floor(dayStart.getTime() / 1000));
+	const stale = withinDayWindow && (lastRoundAt === null || nowSeconds() - silentSince > allowed);
 
 	const rawSeconds = readState('last_round_seconds');
 	const parsedSeconds = rawSeconds === null || rawSeconds === '' ? NaN : Number(rawSeconds);

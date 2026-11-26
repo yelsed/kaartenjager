@@ -1,5 +1,11 @@
 # Wat er veranderde
 
+## 2.2.1, 26 november 2026: geen alarm bij het begin van de dag
+
+- De app sloeg om acht uur alarm, omdat de laatste ronde van gisteravond te lang geleden was.
+  De stilte telt nu vanaf het begin van de dag, dus de eerste ronde krijgt dezelfde tijd als
+  elke andere.
+
 ## 2.2.0, 25 november 2026: trappen, budget en filters
 
 - Computers hebben drie trappen: goede deal, topvondst en ultra topvondst. `top_max_price` is
