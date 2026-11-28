@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// Opgehoogd bij elke schemawijziging. De Svelte-app controleert dit bij het starten en
 /// weigert bij een versie die hij niet kent, in plaats van half te werken op een schema dat
 /// hij verkeerd begrijpt.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 const SCHEMA: &str = r#"
 CREATE TABLE listing (
@@ -72,7 +72,8 @@ CREATE TABLE finding (
   pushed_at_price      INTEGER,
   pushed_level         TEXT,                 -- ultra | top | deal: wat hij was toen hij zijn stempel kreeg
   score_per_euro       REAL,                 -- CPU Mark per euro, alleen bij computers
-  memory_gb            INTEGER               -- werkgeheugen volgens de beoordeling, alleen bij computers
+  memory_gb            INTEGER,              -- werkgeheugen volgens de beoordeling, alleen bij computers
+  cpu_mark             REAL                  -- CPU Mark van de herkende processor, alleen bij computers
 );
 
 CREATE TABLE decision (
@@ -206,6 +207,11 @@ UPDATE finding SET memory_gb = (SELECT memory_gb FROM listing WHERE listing.key 
  WHERE kind = 'computer';
 "#;
 
+/// De CPU Mark zelf, zodat de app hem op de kaart kan zetten. De volgende beoordeling vult hem.
+const MIGRATION_7_TO_8: &str = r#"
+ALTER TABLE finding ADD COLUMN cpu_mark REAL;
+"#;
+
 /// Een verzoek dat langer dan dit opgepakt is zonder antwoord komt terug in de wachtrij.
 pub const STALE_AFTER_SECONDS: i64 = 3600;
 
@@ -306,15 +312,16 @@ impl Database {
             // nergens meer op lijkt.
             let steps = match version {
                 1 => format!(
-                    "{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"
+                    "{MIGRATION_1_TO_2} {MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7} {MIGRATION_7_TO_8}"
                 ),
                 2 => format!(
-                    "{MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"
+                    "{MIGRATION_2_TO_3} {MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7} {MIGRATION_7_TO_8}"
                 ),
-                3 => format!("{MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"),
-                4 => format!("{MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"),
-                5 => format!("{MIGRATION_5_TO_6} {MIGRATION_6_TO_7}"),
-                _ => MIGRATION_6_TO_7.to_string(),
+                3 => format!("{MIGRATION_3_TO_4} {MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7} {MIGRATION_7_TO_8}"),
+                4 => format!("{MIGRATION_4_TO_5} {MIGRATION_5_TO_6} {MIGRATION_6_TO_7} {MIGRATION_7_TO_8}"),
+                5 => format!("{MIGRATION_5_TO_6} {MIGRATION_6_TO_7} {MIGRATION_7_TO_8}"),
+                6 => format!("{MIGRATION_6_TO_7} {MIGRATION_7_TO_8}"),
+                _ => MIGRATION_7_TO_8.to_string(),
             };
             connection
                 .execute_batch(&format!(
@@ -759,8 +766,8 @@ impl Database {
                 "INSERT INTO finding (
                     key, matched_as, kind, confidence, percent_under_market, euros_under_market,
                     reasons, warnings, queue_note, became_a_find_at, judged_at, still_a_find,
-                    left_find_at_price, product, level, score_per_euro, memory_gb
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL,?12,?13,?14,?15)
+                    left_find_at_price, product, level, score_per_euro, memory_gb, cpu_mark
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,1,NULL,?12,?13,?14,?15,?16)
                  ON CONFLICT(key) DO UPDATE SET
                     matched_as           = excluded.matched_as,
                     kind                 = excluded.kind,
@@ -768,6 +775,7 @@ impl Database {
                     level                = excluded.level,
                     score_per_euro       = excluded.score_per_euro,
                     memory_gb            = excluded.memory_gb,
+                    cpu_mark             = excluded.cpu_mark,
                     confidence           = excluded.confidence,
                     percent_under_market = excluded.percent_under_market,
                     euros_under_market   = excluded.euros_under_market,
@@ -795,6 +803,7 @@ impl Database {
                     finding.level.name(),
                     finding.score_per_euro,
                     finding.memory_gb,
+                    finding.cpu_mark,
                 ],
             )
             .map_err(|error| format!("Vondst {key} niet op te slaan: {error}"))?;

@@ -10,6 +10,12 @@ const wholeEuros = new Intl.NumberFormat('nl-NL', {
 	maximumFractionDigits: 0
 });
 
+const wholeNumbers = new Intl.NumberFormat('nl-NL', { maximumFractionDigits: 0 });
+
+export function wholeNumber(value: number): string {
+	return wholeNumbers.format(value);
+}
+
 export function money(amount: number): string {
 	return euros.format(amount);
 }

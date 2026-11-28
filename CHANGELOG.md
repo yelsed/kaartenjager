@@ -1,5 +1,12 @@
 # Wat er veranderde
 
+## 2.2.2, 28 november 2026: de CPU Mark op de kaart
+
+- Elke computerkaart in de app noemt de CPU Mark van de herkende processor, naast de score per
+  euro. De database bewaart hem in een nieuwe kolom `cpu_mark` (schema 8).
+- Een MacBook Pro is geen M1 Pro meer: een losse naam als "Pro" of "Max" telt alleen met het
+  woord ervoor, dus `Apple M1 Pro` en `Apple M1 Max` kunnen veilig in de processortabel.
+
 ## 2.2.1, 26 november 2026: geen alarm bij het begin van de dag
 
 - De app sloeg om acht uur alarm, omdat de laatste ronde van gisteravond te lang geleden was.

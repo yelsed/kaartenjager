@@ -287,8 +287,8 @@ INSERT INTO listing (key, source, listing_id, title, url, first_seen, last_seen)
   ('marktplaats:93', 'marktplaats', '93', 'M720q i5-9500T 32GB', 'https://example.invalid/93', 1000, 1000);
 INSERT INTO sighting (key, seen_at, price_cents, asking_cents) VALUES ('marktplaats:93', 1000, 12000, 12000);
 INSERT INTO finding (key, matched_as, kind, confidence, reasons, warnings, became_a_find_at,
-                     judged_at, product, level, score_per_euro, memory_gb) VALUES
-  ('marktplaats:93', 'Mini-pc, i5-9500T', 'computer', 'clear', '[]', '[]', 3000, 3000, 'mini-pcs', 'ultra', 67.0, 32);
+                     judged_at, product, level, score_per_euro, memory_gb, cpu_mark) VALUES
+  ('marktplaats:93', 'Mini-pc, i5-9500T', 'computer', 'clear', '[]', '[]', 3000, 3000, 'mini-pcs', 'ultra', 67.0, 32, 8012);
 INSERT INTO app_state (name, value) VALUES ('reference_machine', '{"name":"ZenBook (i7-8565U)","cpuMark":5934}')
   ON CONFLICT(name) DO UPDATE SET value = excluded.value;
 SQL
@@ -296,6 +296,7 @@ curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/?product=mini-pcs"
 zegt "ultra topvondst"
 zegt "ZenBook (i7-8565U)"
 zegt "CPU Mark 5.934"
+zegt "CPU Mark 8.012"
 curl -sS -o "$WORK/antwoord.html" "http://localhost:$PORT/?product=mini-pcs&geheugenVanaf=32"
 zegt "Mini-pc, i5-9500T"
 grep -q "Mini-pc, i5-10500T" "$WORK/antwoord.html" && fout "het geheugenfilter liet een vondst zonder 32 GB door"

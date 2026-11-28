@@ -237,6 +237,7 @@ pub fn run() -> bool {
         ("een Discord-bericht blijft onder de tweeduizend tekens", check_discord_message_length),
         ("een product dat alleen stil meldt, meldt ook zijn topvondsten stil", check_quiet_product_keeps_top_finds),
         ("een mini-pc met 16 GB en een sterke processor is een topvondst", check_computer_top_find),
+        ("een MacBook Pro is geen M1 Pro, een M1 Pro wel", check_apple_chip_names),
         ("min_score_per_euro houdt zwakke en onbekende computers buiten de vondsten", check_computer_min_score),
         ("een computer wordt vergeleken met de eigen machine", check_reference_machine),
         ("een computer is ultra, top of deal naar score en budget", check_computer_tiers),
@@ -1145,6 +1146,7 @@ fn sample_finding(id: &str, price: f64, percent_under_market: f64) -> Finding {
         percent_under_market: Some(percent_under_market),
         euros_under_market: Some(1800.0 - price),
         score_per_euro: None,
+        cpu_mark: None,
         reasons: vec!["onder de markt".to_string()],
         warnings: Vec::new(),
         queue_note: None,
@@ -3178,6 +3180,30 @@ fn computer_listing(id: &str, source: &str, title: &str, description: &str, pric
     }
 }
 
+fn check_apple_chip_names(_settings: &Settings) -> Result<(), String> {
+    let processors: std::collections::BTreeMap<String, f64> = [
+        ("Apple M1".to_string(), 14118.0),
+        ("Apple M1 Pro".to_string(), 21935.0),
+        ("Apple M1 Max".to_string(), 22152.0),
+    ]
+    .into_iter()
+    .collect();
+    let cases = [
+        ("MacBook Pro 13 inch M1 2020 8GB", Some("Apple M1")),
+        ("MacBook Pro 14 M1 Pro 16GB", Some("Apple M1 Pro")),
+        ("MacBook Pro 16 inch M1 Max 32GB", Some("Apple M1 Max")),
+        ("MacBook Pro 2019 i5 8GB", None),
+        ("MacBook Air M1 max 8GB korting", Some("Apple M1 Max")),
+    ];
+    for (title, expected) in cases {
+        let found = crate::pricing::find_processor(title, &processors).map(|(name, _)| name);
+        if found.as_deref() != expected {
+            return Err(format!("{title:?}: verwacht {expected:?}, kreeg {found:?}"));
+        }
+    }
+    Ok(())
+}
+
 fn check_computer_top_find(_settings: &Settings) -> Result<(), String> {
     let settings = computer_settings()?;
     let table = PriceTable::new(&settings);
@@ -3189,6 +3215,9 @@ fn check_computer_top_find(_settings: &Settings) -> Result<(), String> {
     let score = finding.score_per_euro.ok_or("geen score per euro")?;
     if (score - 46.3).abs() > 0.1 || finding.matched_as != "Mini-pc, i5-9500T" {
         return Err(format!("verwacht i5-9500T met 46 per euro, kreeg {} met {score:.1}", finding.matched_as));
+    }
+    if finding.cpu_mark != Some(8100.0) {
+        return Err(format!("de CPU Mark hoort bij de vondst te staan, kreeg {:?}", finding.cpu_mark));
     }
     if !finding.reasons.iter().any(|reason| reason == "i5-9500T: CPU Mark 8.100, 46 per euro") {
         return Err(format!("de CPU Mark hoort met een punt per duizendtal, kreeg {:?}", finding.reasons));

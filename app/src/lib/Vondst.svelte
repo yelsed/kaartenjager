@@ -5,6 +5,7 @@
 		money,
 		roundMoney,
 		percent,
+		wholeNumber,
 		ago,
 		duration,
 		stamp,
@@ -77,6 +78,9 @@
 			{:else if vondst.level === 'top'}<span class="merk top-merk">topvondst</span>{/if}
 			{#if distanceUnknown}<span class="merk uitzoeken">afstand onbekend</span>{/if}
 			{#if vondst.needsReview}<span class="merk uitzoeken">uitzoeken</span>{/if}
+			{#if vondst.cpuMark !== null}
+				<span class="merk">CPU Mark {wholeNumber(vondst.cpuMark)}</span>
+			{/if}
 			{#if vondst.scorePerEuro !== null}
 				<span class="merk">{Math.round(vondst.scorePerEuro)} CPU Mark per euro</span>
 			{/if}

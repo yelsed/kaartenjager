@@ -191,6 +191,9 @@ pub struct Finding {
     /// CPU Mark per euro, alleen bij computers met een bekende processor.
     #[serde(default)]
     pub score_per_euro: Option<f64>,
+    /// De CPU Mark uit de processortabel, ook als de score nog wacht op het geheugen.
+    #[serde(default)]
+    pub cpu_mark: Option<f64>,
     /// Het werkgeheugen dat de beoordeling las, alleen bij computers.
     #[serde(default)]
     pub memory_gb: Option<u32>,
