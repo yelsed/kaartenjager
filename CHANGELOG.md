@@ -1,5 +1,11 @@
 # Wat er veranderde
 
+## 2.2.3, 28 november 2026: alle Pro- en Max-chips in de tabel
+
+- De configuratie weigerde `Apple M1 Pro` naast `Apple M2 Pro`, omdat ze allebei op "Pro"
+  eindigen. De controle op dubbele typenummers kijkt nu naar dezelfde woorden als de herkenning,
+  dus bij een los woord als "Pro" ook het woord ervoor.
+
 ## 2.2.2, 28 november 2026: de CPU Mark op de kaart
 
 - Elke computerkaart in de app noemt de CPU Mark van de herkende processor, naast de score per
