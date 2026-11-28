@@ -11,7 +11,7 @@ import { env } from '$env/dynamic/private';
 import { PRODUCT_COLORS, productColor } from '$lib/format';
 
 /** Het schema waar deze app op gebouwd is. Zie PRAGMA user_version in het programma. */
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 /** Onder deze fractie van de archiefprijs komt een advertentie terug in de inbox. */
 const RETURN_FROM_ARCHIVE_AT = 0.9;
@@ -64,6 +64,8 @@ export type Finding = {
 	percentUnderMarket: number | null;
 	/** CPU Mark per euro, alleen bij computers met een bekende processor. */
 	scorePerEuro: number | null;
+	/** De CPU Mark van de herkende processor, alleen bij computers. */
+	cpuMark: number | null;
 	/** Het werkgeheugen dat de beoordeling las, alleen bij computers. */
 	memoryGb: number | null;
 	eurosUnderMarket: number | null;
@@ -294,7 +296,7 @@ export function undoEverythingSeen(): void {
 // ------------------------------------------------------------------ vondsten
 
 const FINDING_COLUMNS = `
-	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, pr.position AS product_position, pr.color AS product_color, f.confidence, f.percent_under_market, f.euros_under_market, f.score_per_euro, f.memory_gb,
+	f.key, f.matched_as, f.kind, f.product, f.level, pr.name AS product_name, pr.position AS product_position, pr.color AS product_color, f.confidence, f.percent_under_market, f.euros_under_market, f.score_per_euro, f.cpu_mark, f.memory_gb,
 	f.reasons, f.warnings, f.queue_note, f.became_a_find_at, f.judged_at, f.still_a_find,
 	l.title, l.url, l.source, l.delivery, l.location, l.seller, l.condition, l.photo_count,
 	l.description, l.gone_since, l.gone_reason, l.posted_at, l.first_seen, l.last_seen,
@@ -354,6 +356,7 @@ function toFinding(row: Row, visitedAt: number): Finding {
 		needsReview: row.confidence === 'review',
 		percentUnderMarket: row.percent_under_market === null ? null : Number(row.percent_under_market),
 		scorePerEuro: row.score_per_euro === null ? null : Number(row.score_per_euro),
+		cpuMark: row.cpu_mark === null || row.cpu_mark === undefined ? null : Number(row.cpu_mark),
 		memoryGb: row.memory_gb === null ? null : Number(row.memory_gb),
 		eurosUnderMarket: row.euros_under_market === null ? null : Number(row.euros_under_market),
 		reasons: parseList(row.reasons),

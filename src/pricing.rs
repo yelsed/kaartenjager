@@ -139,6 +139,7 @@ impl<'settings> PriceTable<'settings> {
         // De titel eerst: een beschrijving noemt soms een andere processor ter vergelijking.
         let processor = find_processor(&listing.title, &computer.processors)
             .or_else(|| find_processor(&listing.description, &computer.processors));
+        let cpu_mark = processor.as_ref().map(|(_, score)| *score);
         let (matched_as, level, score_per_euro) = match processor {
             Some((name, score)) => {
                 let per_euro = score / listing.price_euros;
@@ -198,6 +199,7 @@ impl<'settings> PriceTable<'settings> {
             percent_under_market: None,
             euros_under_market: None,
             score_per_euro,
+            cpu_mark,
             memory_gb: stated,
             reasons,
             warnings,
@@ -325,6 +327,7 @@ impl<'settings> PriceTable<'settings> {
             percent_under_market,
             euros_under_market: Some(euros_under_market),
             score_per_euro: None,
+            cpu_mark: None,
             memory_gb: None,
             reasons,
             warnings,
@@ -411,6 +414,7 @@ impl<'settings> PriceTable<'settings> {
             percent_under_market: None,
             euros_under_market: None,
             score_per_euro: None,
+            cpu_mark: None,
             memory_gb: None,
             reasons,
             warnings,
@@ -452,6 +456,7 @@ impl<'settings> PriceTable<'settings> {
             percent_under_market: None,
             euros_under_market: None,
             score_per_euro: None,
+            cpu_mark: None,
             memory_gb: None,
             reasons: vec![format!(
                 "{stated} GB videogeheugen voor onder {}, maar er staat geen regel voor dit model in de tabel",
@@ -845,8 +850,11 @@ pub fn find_processor(text: &str, processors: &BTreeMap<String, f64>) -> Option<
         .into_iter()
         .find(|(_, _, key)| {
             let model = &key[key.len() - 1];
-            // Een kaal getal ("8500") komt overal voor; dan moet het woord ervoor ook kloppen.
-            let needs_prefix = model.chars().all(|character| character.is_ascii_digit()) && key.len() > 1;
+            // Een kaal getal ("8500") of een los woord ("pro" in "Apple M1 Pro") komt overal voor;
+            // dan moet het woord ervoor ook kloppen, anders is elke MacBook Pro een M1 Pro.
+            let is_common = model.chars().all(|character| character.is_ascii_digit())
+                || model.chars().all(|character| character.is_ascii_alphabetic());
+            let needs_prefix = is_common && key.len() > 1;
             words.iter().enumerate().any(|(position, word)| {
                 word == model
                     && (!needs_prefix || (position > 0 && words[position - 1] == key[key.len() - 2]))
