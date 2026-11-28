@@ -849,18 +849,20 @@ pub fn find_processor(text: &str, processors: &BTreeMap<String, f64>) -> Option<
     candidates
         .into_iter()
         .find(|(_, _, key)| {
-            let model = &key[key.len() - 1];
-            // Een kaal getal ("8500") of een los woord ("pro" in "Apple M1 Pro") komt overal voor;
-            // dan moet het woord ervoor ook kloppen, anders is elke MacBook Pro een M1 Pro.
-            let is_common = model.chars().all(|character| character.is_ascii_digit())
-                || model.chars().all(|character| character.is_ascii_alphabetic());
-            let needs_prefix = is_common && key.len() > 1;
-            words.iter().enumerate().any(|(position, word)| {
-                word == model
-                    && (!needs_prefix || (position > 0 && words[position - 1] == key[key.len() - 2]))
-            })
+            let identity = processor_identity(key);
+            words.windows(identity.len()).any(|window| window == identity)
         })
         .map(|(name, score, _)| (name.clone(), score))
+}
+
+/// De woorden waaraan een processor herkend wordt: het typenummer, en het woord ervoor als het
+/// typenummer een kaal getal ("8500") of een los woord ("pro" in "Apple M1 Pro") is. Die komen
+/// overal voor, anders is elke MacBook Pro een M1 Pro.
+pub fn processor_identity(key: &[String]) -> &[String] {
+    let model = &key[key.len() - 1];
+    let is_common = model.chars().all(|character| character.is_ascii_digit())
+        || model.chars().all(|character| character.is_ascii_alphabetic());
+    if is_common && key.len() > 1 { &key[key.len() - 2..] } else { &key[key.len() - 1..] }
 }
 
 /// Een processor die de tekst noemt, ook als de tabel hem niet kent: "i7 6700T" wordt

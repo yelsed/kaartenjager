@@ -3185,11 +3185,23 @@ fn check_apple_chip_names(_settings: &Settings) -> Result<(), String> {
         ("Apple M1".to_string(), 14118.0),
         ("Apple M1 Pro".to_string(), 21935.0),
         ("Apple M1 Max".to_string(), 22152.0),
+        ("Apple M2 Pro".to_string(), 21972.0),
+        ("Apple M4 Max".to_string(), 38353.0),
+        ("Apple M5".to_string(), 26772.0),
+        ("Apple M5 Pro".to_string(), 49136.0),
     ]
     .into_iter()
     .collect();
+    // Elke chip heeft een eigen Pro of Max; de tabel moet ze allemaal tegelijk kunnen bevatten.
+    let mut settings = computer_settings()?;
+    settings.computers[0].processors.extend(processors.clone());
+    settings.validate().map_err(|error| format!("Pro- en Max-chips naast elkaar geweigerd: {error}"))?;
     let cases = [
         ("MacBook Pro 13 inch M1 2020 8GB", Some("Apple M1")),
+        ("MacBook Pro 14 M2 Pro 16GB", Some("Apple M2 Pro")),
+        ("MacBook Pro 16 M4 Max 36GB", Some("Apple M4 Max")),
+        ("MacBook Pro 14 M5 24GB", Some("Apple M5")),
+        ("MacBook Pro 16 M5 PRO/64Go", Some("Apple M5 Pro")),
         ("MacBook Pro 14 M1 Pro 16GB", Some("Apple M1 Pro")),
         ("MacBook Pro 16 inch M1 Max 32GB", Some("Apple M1 Max")),
         ("MacBook Pro 2019 i5 8GB", None),

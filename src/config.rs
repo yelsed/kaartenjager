@@ -1055,7 +1055,11 @@ impl Settings {
             // Twee processors met hetzelfde typenummer: dan wint stil steeds dezelfde.
             let mut models = std::collections::BTreeMap::new();
             for name in computer.processors.keys() {
-                let model = crate::pricing::processor_words(name).last().cloned().unwrap_or_default();
+                let words = crate::pricing::processor_words(name);
+                if words.is_empty() {
+                    continue;
+                }
+                let model = crate::pricing::processor_identity(&words).join(" ");
                 if let Some(earlier) = models.insert(model.clone(), name) {
                     return Err(ConfigError::Rejected(format!(
                         "Computer \"{}\": \"{earlier}\" en \"{name}\" hebben hetzelfde typenummer \
